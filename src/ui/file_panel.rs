@@ -38,7 +38,7 @@ impl IoAction {
 /// 文件标签页的内容（标题由 [`TabsView`](crate::ui::tabs::TabsView) 的标签提供）。
 /// `buttons` 收集三个按钮的节点，测试与自检靠它们真的点一下。
 pub fn file_panel(
-    theme: Theme,
+    theme: &'static dyn Theme,
     path: Rc<RefCell<String>>,
     request: Rc<Cell<Option<IoAction>>>,
     path_label: &NodeRef,
@@ -72,7 +72,7 @@ pub fn file_panel(
 
 /// 一个动作按钮：点击只设置请求，`EditorView::update` 执行。
 fn action_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     action: IoAction,
     request: Rc<Cell<Option<IoAction>>>,
     slot: &NodeRef,

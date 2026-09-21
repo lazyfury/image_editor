@@ -92,7 +92,7 @@ fn norm(value: f32, extent: f32) -> f32 {
 /// 面板宽度由外层 flex 的 `basis` 决定，网格按宽度自动换行（`slots` 收集每个
 /// 色块节点，测试 / 自检靠它模拟点击）。
 pub fn palette_panel(
-    theme: Theme,
+    theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     slots: &mut Vec<NodeRef>,
     picker_ref: &NodeRef,
@@ -123,7 +123,7 @@ type PickerHsv = Rc<Cell<(f32, f32, f32)>>;
 
 /// 取色器：饱和/明度方块 + 色相条。
 fn picker(
-    theme: Theme,
+    theme: &'static dyn Theme,
     app: Rc<RefCell<AppState>>,
     hsv: PickerHsv,
     picker_ref: &NodeRef,
@@ -136,7 +136,11 @@ fn picker(
         .child(hue_strip(theme, app, hsv))
 }
 
-fn sv_area(theme: Theme, app: Rc<RefCell<AppState>>, hsv: PickerHsv) -> impl Component {
+fn sv_area(
+    theme: &'static dyn Theme,
+    app: Rc<RefCell<AppState>>,
+    hsv: PickerHsv,
+) -> impl Component {
     let pointer = hsv.clone();
     let draw = hsv.clone();
     Flex::new()
@@ -155,7 +159,11 @@ fn sv_area(theme: Theme, app: Rc<RefCell<AppState>>, hsv: PickerHsv) -> impl Com
         })
 }
 
-fn hue_strip(theme: Theme, app: Rc<RefCell<AppState>>, hsv: PickerHsv) -> impl Component {
+fn hue_strip(
+    theme: &'static dyn Theme,
+    app: Rc<RefCell<AppState>>,
+    hsv: PickerHsv,
+) -> impl Component {
     let pointer = hsv.clone();
     let draw = hsv.clone();
     Flex::new()
@@ -205,7 +213,7 @@ fn draw_hue_strip(ctx: &mut PaintContext, rect: Rect) {
 }
 
 /// 在 `(x, y)`（0..1，相对 `rect`）画一个黑白双圈的取色光标。
-fn draw_cursor(ctx: &mut PaintContext, rect: Rect, x: f32, y: f32, _theme: Theme) {
+fn draw_cursor(ctx: &mut PaintContext, rect: Rect, x: f32, y: f32, _theme: &'static dyn Theme) {
     let center = Vec2::new(
         rect.left() + x.clamp(0.0, 1.0) * rect.size.width,
         rect.top() + y.clamp(0.0, 1.0) * rect.size.height,
@@ -215,7 +223,7 @@ fn draw_cursor(ctx: &mut PaintContext, rect: Rect, x: f32, y: f32, _theme: Theme
 }
 
 /// 当前前景 / 背景的两个色块 + 交换按钮。
-fn current_colors(theme: Theme, state: Rc<RefCell<AppState>>) -> impl Component {
+fn current_colors(theme: &'static dyn Theme, state: Rc<RefCell<AppState>>) -> impl Component {
     let swap = {
         let state = state.clone();
         Button::ghost("⇄", theme)
@@ -241,7 +249,11 @@ fn current_colors(theme: Theme, state: Rc<RefCell<AppState>>) -> impl Component 
 }
 
 /// 显示当前前景或背景色的色块（只读，随状态刷新）。
-fn current_swatch(theme: Theme, state: Rc<RefCell<AppState>>, foreground: bool) -> impl Component {
+fn current_swatch(
+    theme: &'static dyn Theme,
+    state: Rc<RefCell<AppState>>,
+    foreground: bool,
+) -> impl Component {
     Flex::new()
         .padding(Edges::ZERO)
         .min_size(20.0, 20.0)
@@ -257,12 +269,16 @@ fn current_swatch(theme: Theme, state: Rc<RefCell<AppState>>, foreground: bool) 
             };
             SurfaceStyle::new(to_ui(color))
                 .radius(radius::SM)
-                .border(theme.palette.border)
+                .border(theme.palette().border)
         })
 }
 
 /// 一个预设色块：点击设为前景色，悬停时描一圈边。
-fn swatch(theme: Theme, color: DocColor, state: Rc<RefCell<AppState>>) -> impl Component {
+fn swatch(
+    theme: &'static dyn Theme,
+    color: DocColor,
+    state: Rc<RefCell<AppState>>,
+) -> impl Component {
     let ui_color = to_ui(color);
     Flex::new()
         .padding(Edges::ZERO)
@@ -273,7 +289,7 @@ fn swatch(theme: Theme, color: DocColor, state: Rc<RefCell<AppState>>) -> impl C
         .dynamic_background(move |interact| {
             let style = SurfaceStyle::new(ui_color).radius(2.0);
             if interact.hovered || interact.pressed {
-                style.border(theme.palette.foreground)
+                style.border(theme.palette().foreground)
             } else {
                 style
             }

@@ -38,14 +38,14 @@ impl SidebarTab {
 /// 标签页容器：卡片表面 + 一排标签 + 当前内容。
 pub struct TabsView {
     spec: Spec,
-    theme: Theme,
+    theme: &'static dyn Theme,
     active: Rc<Cell<SidebarTab>>,
     /// 标签按钮的横排；`.tab()` 逐个追加，`prepare` 时挂到卡片顶部。
     tabs: Flex,
 }
 
 impl TabsView {
-    pub fn new(theme: Theme, active: Rc<Cell<SidebarTab>>) -> Self {
+    pub fn new(theme: &'static dyn Theme, active: Rc<Cell<SidebarTab>>) -> Self {
         Self {
             spec: Spec::default(),
             theme,
@@ -141,7 +141,7 @@ pub fn show_active(
 
 /// 一个标签按钮：点击选中；选中的有底色 + 底部一条 accent 下划线。
 fn tab_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     tab: SidebarTab,
     active: Rc<Cell<SidebarTab>>,
     slot: &NodeRef,
@@ -155,9 +155,9 @@ fn tab_button(
         .on_click(move || clicked.set(tab))
         .dynamic_background(move |state| {
             if fill.get() == tab {
-                SurfaceStyle::new(theme.palette.selection)
+                SurfaceStyle::new(theme.palette().selection)
             } else if state.hovered {
-                SurfaceStyle::new(theme.palette.surface_hover)
+                SurfaceStyle::new(theme.palette().surface_hover)
             } else {
                 SurfaceStyle::new(Color::TRANSPARENT)
             }
@@ -169,7 +169,7 @@ fn tab_button(
                     Vec2::new(rect.min().x, y),
                     Vec2::new(rect.max().x, y),
                     2.0,
-                    theme.palette.accent,
+                    theme.palette().accent,
                 );
             }
         })
@@ -185,7 +185,7 @@ mod tests {
 
     #[test]
     fn tab_contents_stack_below_the_tab_bar() {
-        let theme = Theme::dark();
+        let theme = crate::theme::editor_theme(false);
         let active = Rc::new(Cell::new(SidebarTab::File));
         let file = (NodeRef::new(), NodeRef::new());
         let hist = (NodeRef::new(), NodeRef::new());
@@ -235,7 +235,7 @@ mod tests {
 
     /// 建两页标签、排好，返回 `(tree, panel, file_content, hist_content)`。
     fn mounted() -> (SceneTree, NodeId, NodeId, NodeId) {
-        let theme = Theme::dark();
+        let theme = crate::theme::editor_theme(false);
         let active = Rc::new(Cell::new(SidebarTab::File));
         let file = (NodeRef::new(), NodeRef::new());
         let hist = (NodeRef::new(), NodeRef::new());
@@ -314,11 +314,11 @@ mod tests {
         let active = Rc::new(Cell::new(SidebarTab::File));
         let button = NodeRef::new();
         let content = NodeRef::new();
-        let view = TabsView::new(Theme::dark(), active).tab(
+        let view = TabsView::new(crate::theme::editor_theme(false), active).tab(
             SidebarTab::File,
             &button,
             &content,
-            Text::small("内容", Theme::dark()),
+            Text::small("内容", crate::theme::editor_theme(false)),
         );
         // `TabsView` 是项目内类型，没有 `SceneChild`;用一层 `Flex` 挂载即可。
         tree.add_child(tree.root(), Flex::column().child(view));

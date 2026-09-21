@@ -81,7 +81,7 @@ pub struct NewDocumentView {
 }
 
 impl NewDocumentView {
-    pub fn new(theme: Theme) -> Self {
+    pub fn new(theme: &'static dyn Theme) -> Self {
         let choices: Rc<RefCell<NewDocumentSpec>> =
             Rc::new(RefCell::new(NewDocumentSpec::default()));
         let dirty = Rc::new(Cell::new(true));
@@ -321,7 +321,7 @@ fn background_name(color: Color) -> &'static str {
 
 /// 一行「标签  [−]  数值  [+]」。
 fn stepper_row(
-    theme: Theme,
+    theme: &'static dyn Theme,
     label: &'static str,
     value_ref: &NodeRef,
     choices: Rc<RefCell<NewDocumentSpec>>,
@@ -347,7 +347,7 @@ fn stepper_row(
 }
 
 fn step_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     label: &'static str,
     choices: Rc<RefCell<NewDocumentSpec>>,
     dirty: Rc<Cell<bool>>,
@@ -360,7 +360,7 @@ fn step_button(
 }
 
 fn preset_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     width: u32,
     height: u32,
     choices: Rc<RefCell<NewDocumentSpec>>,
@@ -380,7 +380,7 @@ fn preset_button(
 
 /// 一个背景色块：点击选中，选中的描一圈前景边。
 fn background_swatch(
-    theme: Theme,
+    theme: &'static dyn Theme,
     _name: &'static str,
     color: Color,
     choices: Rc<RefCell<NewDocumentSpec>>,
@@ -401,9 +401,9 @@ fn background_swatch(
             let is_selected = selected.borrow().background == color;
             let style = SurfaceStyle::new(ui).radius(radius::SM);
             if is_selected || interact.hovered {
-                style.border(theme.palette.foreground)
+                style.border(theme.palette().foreground)
             } else {
-                style.border(theme.palette.border)
+                style.border(theme.palette().border)
             }
         })
         .ref_(slot)
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn a_wrapped_preset_row_grows_and_does_not_overlap_the_background_row() {
-        let mut view = NewDocumentView::new(Theme::dark());
+        let mut view = NewDocumentView::new(crate::theme::editor_theme(false));
         // 窄窗口：预设必然换行。
         view.layout(ViewportSize::new(Size::new(260.0, 420.0)));
 
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn a_preset_then_create_returns_that_spec() {
-        let mut view = NewDocumentView::new(Theme::dark());
+        let mut view = NewDocumentView::new(crate::theme::editor_theme(false));
         view.layout(viewport());
         let index = PRESETS.len() - 1;
         let (width, height) = PRESETS[index];
@@ -525,7 +525,7 @@ mod tests {
 
     #[test]
     fn choosing_a_background_then_create_returns_it() {
-        let mut view = NewDocumentView::new(Theme::dark());
+        let mut view = NewDocumentView::new(crate::theme::editor_theme(false));
         view.layout(viewport());
         let center = view.background_center(0).expect("透明色块");
         click(&mut view, center);
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn cancel_reports_cancel() {
-        let mut view = NewDocumentView::new(Theme::dark());
+        let mut view = NewDocumentView::new(crate::theme::editor_theme(false));
         view.layout(viewport());
         let center = view.cancel_center().expect("取消按钮");
         click(&mut view, center);

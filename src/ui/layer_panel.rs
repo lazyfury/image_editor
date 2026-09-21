@@ -31,7 +31,7 @@ pub const LAYER_ROW_HEIGHT: f32 = 28.0;
 /// 图层列表：第 0 行是**最上面的图层**（跟 Photoshop 一致），所以数据下标
 /// 要翻转。眼睛 / 名字 / 不透明度三列。
 pub fn layer_list(
-    theme: Theme,
+    theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     count: Rc<Cell<usize>>,
     selected: Rc<Cell<Option<usize>>>,
@@ -86,7 +86,7 @@ pub fn layer_list(
 ///
 /// [`EditorView`]: crate::ui::EditorView
 pub fn layer_panel(
-    theme: Theme,
+    theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     list: List,
     rename_request: Rc<Cell<bool>>,
@@ -103,7 +103,7 @@ pub fn layer_panel(
 
 /// 两排按钮，全部作用于“当前图层”。所有动作都走 [`AppState::execute`]，所以可撤销。
 fn action_buttons(
-    theme: Theme,
+    theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     rename_request: Rc<Cell<bool>>,
 ) -> impl Component {
@@ -246,7 +246,11 @@ fn meta_edit(state: &mut AppState, label: &'static str, mutate: impl FnOnce(&mut
     state.execute(Box::new(LayerMetaCommand::new(before, after, label)));
 }
 
-fn button(theme: Theme, label: &'static str, action: impl FnMut() + 'static) -> Button {
+fn button(
+    theme: &'static dyn Theme,
+    label: &'static str,
+    action: impl FnMut() + 'static,
+) -> Button {
     Button::secondary(label, theme)
         .font_size(TextSize::Small.px())
         .on_click(action)

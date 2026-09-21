@@ -119,7 +119,7 @@ impl App {
     }
 
     /// 编辑器自己的主题：设计系统的调色板 + 紧凑密度（更小 padding、mini 控件）。
-    fn theme(&self) -> Theme {
+    fn theme(&self) -> &'static dyn Theme {
         crate::theme::editor_theme(self.light)
     }
 
@@ -673,7 +673,7 @@ fn wheel_pixels(delta: MouseScrollDelta, scale: f32) -> f32 {
 }
 
 /// 窗口清屏色 = 主题的底层背景（`draw_ui` 之外的地方由后端填）。
-fn theme_background(theme: Theme) -> draw_core::Color {
+fn theme_background(theme: &'static dyn Theme) -> draw_core::Color {
     theme.surface(SurfaceLevel::Base)
 }
 

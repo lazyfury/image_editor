@@ -7,7 +7,7 @@ use draw_ui::{Align, Justify, MouseFilter};
 
 /// 状态栏。三个文本槽位由 [`crate::ui::EditorView`] 在构建后回写。
 pub fn status_bar(
-    theme: Theme,
+    theme: &'static dyn Theme,
     tool: &NodeRef,
     message: &NodeRef,
     zoom: &NodeRef,

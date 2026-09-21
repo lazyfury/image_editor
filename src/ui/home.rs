@@ -27,7 +27,7 @@ pub struct HomeView {
 }
 
 impl HomeView {
-    pub fn new(theme: Theme) -> Self {
+    pub fn new(theme: &'static dyn Theme) -> Self {
         let new_window: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let button_ref = NodeRef::new();
 
@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn the_new_window_button_raises_one_request() {
-        let mut view = HomeView::new(Theme::dark());
+        let mut view = HomeView::new(crate::theme::editor_theme(false));
         view.layout(viewport());
         let center = view.new_window_center().expect("新建窗口按钮");
         click(&mut view, center);
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn the_home_page_shows_both_entries() {
-        let mut view = HomeView::new(Theme::dark());
+        let mut view = HomeView::new(crate::theme::editor_theme(false));
         view.layout(viewport());
         let mut ctx = PaintContext::new();
         view.paint(&mut ctx);

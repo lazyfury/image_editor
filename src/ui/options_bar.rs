@@ -68,7 +68,7 @@ pub struct OptionsRefs {
 /// 工具选项栏。`request` 收下 `−` / `+` 的调整请求；`buttons` 收集按钮节点，
 /// 测试与自检靠它们真的点一下。
 pub fn options_bar(
-    theme: Theme,
+    theme: &'static dyn Theme,
     request: Rc<Cell<Option<BrushAdjust>>>,
     hard_state: Rc<Cell<bool>>,
     square_state: Rc<Cell<bool>>,
@@ -148,7 +148,7 @@ pub const fn tool_has_brush(tool: ActiveTool) -> bool {
 }
 
 fn step_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     label: &str,
     request: Rc<Cell<Option<BrushAdjust>>>,
     adjust: BrushAdjust,
@@ -163,7 +163,7 @@ fn step_button(
 
 /// 一个布尔开关：点击翻转共享状态，`dynamic_background` 直接读它显示激活态。
 fn toggle_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     toggle: BrushToggle,
     state: Rc<Cell<bool>>,
     toggles: &mut Vec<(BrushToggle, NodeRef)>,
@@ -175,9 +175,9 @@ fn toggle_button(
         .on_click(move || click_state.set(!click_state.get()))
         .dynamic_background(move |interact| {
             if state.get() {
-                SurfaceStyle::new(theme.palette.selection).radius(radius::SM)
+                SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
             } else if interact.hovered || interact.pressed {
-                SurfaceStyle::new(theme.palette.surface_hover).radius(radius::SM)
+                SurfaceStyle::new(theme.palette().surface_hover).radius(radius::SM)
             } else {
                 SurfaceStyle::new(Color::TRANSPARENT)
             }

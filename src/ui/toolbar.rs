@@ -19,7 +19,7 @@ use crate::ui::TOOLBAR_WIDTH;
 /// 竖直工具栏。`slots` 收集每个工具按钮的节点，`history_slots` 收集撤销 /
 /// 重做按钮的节点；测试与自检靠它们模拟点击（点击目标是按钮，不是标签）。
 pub fn tool_bar(
-    theme: Theme,
+    theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     message: Rc<RefCell<Option<String>>>,
     icons: Rc<IconSet>,
@@ -62,7 +62,7 @@ pub fn tool_bar(
 
 /// 一个工具按钮：图标 + 点击写入激活工具；激活时高亮，悬停时给一点反馈。
 fn tool_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     tool: ActiveTool,
     state: Rc<RefCell<AppState>>,
     icons: Rc<IconSet>,
@@ -72,7 +72,7 @@ fn tool_button(
     let button = Button::ghost("", theme)
         .min_size(32.0, 28.0)
         .child(
-            Icon::new(icons, tool.icon(), theme.palette.foreground, TOOLBAR_ICON)
+            Icon::new(icons, tool.icon(), theme.palette().foreground, TOOLBAR_ICON)
                 .min_size(12.0, 12.0),
         )
         .on_click(move || {
@@ -80,9 +80,9 @@ fn tool_button(
         })
         .dynamic_background(move |interact| {
             if state.borrow().active_tool == tool {
-                SurfaceStyle::new(theme.palette.selection).radius(radius::SM)
+                SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
             } else if interact.hovered || interact.pressed {
-                SurfaceStyle::new(theme.palette.surface_hover).radius(radius::SM)
+                SurfaceStyle::new(theme.palette().surface_hover).radius(radius::SM)
             } else {
                 SurfaceStyle::new(Color::TRANSPARENT)
             }
@@ -93,7 +93,7 @@ fn tool_button(
 
 /// 撤销 / 重做按钮：图标 + 写共享状态里的 `History`，并把结果写到状态栏提示。
 fn history_button(
-    theme: Theme,
+    theme: &'static dyn Theme,
     action: HistoryAction,
     state: Rc<RefCell<AppState>>,
     message: Rc<RefCell<Option<String>>>,
@@ -105,7 +105,7 @@ fn history_button(
         .child(Icon::new(
             icons,
             action.icon(),
-            theme.palette.foreground,
+            theme.palette().foreground,
             TOOLBAR_ICON,
         ))
         .on_click(move || {
@@ -129,7 +129,11 @@ fn history_button(
 ///
 /// `Flex` 默认带 16px 内边距（和一个 8px gap），这里必须清零，否则每个入口
 /// 会比内容高 32px，工具栏会显得很空。
-fn labeled(theme: Theme, caption: &str, button: impl Component + 'static) -> impl Component {
+fn labeled(
+    theme: &'static dyn Theme,
+    caption: &str,
+    button: impl Component + 'static,
+) -> impl Component {
     Flex::column()
         .gap(0.0)
         .padding(Edges::ZERO)

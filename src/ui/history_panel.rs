@@ -18,7 +18,11 @@ use crate::app::state::AppState;
 pub const HISTORY_ROW_HEIGHT: f32 = 24.0;
 
 /// 历史 `List`。`count` 是总行数（撤销 + 1 + 重做），由视图在历史变化时刷新。
-pub fn history_list(theme: Theme, state: Rc<RefCell<AppState>>, count: Rc<Cell<usize>>) -> List {
+pub fn history_list(
+    theme: &'static dyn Theme,
+    state: Rc<RefCell<AppState>>,
+    count: Rc<Cell<usize>>,
+) -> List {
     let source = {
         let state = state.clone();
         move |index: usize| {

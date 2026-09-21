@@ -123,7 +123,7 @@ type StatusSnapshot = (ActiveTool, f32, u32, u32, Option<(u32, u32)>);
 /// 编辑器视图。
 pub struct EditorView {
     tree: SceneTree,
-    theme: Theme,
+    theme: &'static dyn Theme,
     /// 应用状态。回调只往这里写，[`EditorView::update`] 负责同步到控件。
     state: Rc<RefCell<AppState>>,
     /// 菜单 / 占位按钮留下的提示（回调拿不到 `&mut self`，用共享格转交）。
@@ -243,7 +243,7 @@ pub struct EditorView {
 
 impl EditorView {
     /// 构建整棵视图树，并做一次初始同步。
-    pub fn new(theme: Theme, state: AppState) -> Self {
+    pub fn new(theme: &'static dyn Theme, state: AppState) -> Self {
         let refs = Refs::default();
         let document_size = (state.document.width, state.document.height);
         let document_name = state.document.name.clone();
@@ -1124,7 +1124,7 @@ impl EditorView {
             return;
         };
         let (min, max) = (visible.min(), visible.max());
-        let color = self.theme.palette.border.with_alpha(0.3);
+        let color = self.theme.palette().border.with_alpha(0.3);
         let zoom = camera.zoom;
 
         let x_first = ((min.x - origin.x) / zoom).ceil() as i64;
@@ -1160,7 +1160,7 @@ impl EditorView {
             Vec2::new(min.x.min(max.x), min.y.min(max.y)),
             Vec2::new(min.x.max(max.x), min.y.max(max.y)),
         );
-        let color = self.theme.palette.selection;
+        let color = self.theme.palette().selection;
         ctx.stroke_rect(rect, 1.0, Paint::new(color));
     }
 
@@ -1719,7 +1719,7 @@ impl EditorView {
     }
 
     /// 主题（宿主用它取清屏色）。
-    pub fn theme(&self) -> Theme {
+    pub fn theme(&self) -> &'static dyn Theme {
         self.theme
     }
 
@@ -2043,7 +2043,7 @@ mod tests {
 
     #[test]
     fn keyboard_shortcut_selects_a_tool() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         assert!(view
             .event(&InputEvent::KeyDown {
@@ -2057,7 +2057,7 @@ mod tests {
 
     #[test]
     fn clicking_a_tool_button_selects_it() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let center = view.tool_center(ActiveTool::Eraser).expect("eraser button");
         click(&mut view, center);
@@ -2087,7 +2087,7 @@ mod tests {
 
     #[test]
     fn clicking_a_menu_title_opens_its_dropdown() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let help = menu_index("帮助");
         let center = view.menu_center(help).expect("help menu button");
@@ -2098,7 +2098,7 @@ mod tests {
 
     #[test]
     fn clicking_another_menu_title_switches_in_one_click() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let file = menu_index("文件");
         let edit = menu_index("编辑");
@@ -2116,7 +2116,7 @@ mod tests {
 
     #[test]
     fn clicking_the_open_menu_title_closes_it() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let help = menu_index("帮助");
         let center = view.menu_center(help).expect("help menu button");
@@ -2130,7 +2130,7 @@ mod tests {
 
     #[test]
     fn escape_closes_an_open_menu() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let help = menu_index("帮助");
         let center = view.menu_center(help).expect("help menu button");
@@ -2143,7 +2143,7 @@ mod tests {
 
     #[test]
     fn the_status_bar_survives_a_relayout_without_extra_text_churn() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         // 首次布局会做适配，状态栏文字随之变化；先让它稳定下来。
         view.layout(viewport());
         view.update();
@@ -2166,7 +2166,7 @@ mod tests {
 
     #[test]
     fn palette_swatches_wrap_within_the_panel() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let c0 = view.palette_swatch_center(0).expect("swatch 0");
         let c1 = view.palette_swatch_center(1).expect("swatch 1");
@@ -2179,7 +2179,7 @@ mod tests {
 
     #[test]
     fn clicking_a_palette_swatch_sets_the_foreground() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.event(&InputEvent::KeyDown {
             key: Key::Character('b'),
@@ -2205,7 +2205,7 @@ mod tests {
 
     #[test]
     fn dragging_the_picker_sets_the_foreground() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.event(&InputEvent::KeyDown {
             key: Key::Character('b'),
@@ -2234,7 +2234,7 @@ mod tests {
 
     #[test]
     fn the_history_panel_tracks_the_command_count() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.update();
         assert_eq!(view.history_rows(), 1, "空历史只有「当前」一行");
@@ -2245,7 +2245,7 @@ mod tests {
 
     #[test]
     fn the_options_bar_adjusts_the_brush_size() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // Select the brush so its config is shown in the options bar.
         view.event(&InputEvent::KeyDown {
@@ -2271,7 +2271,7 @@ mod tests {
 
     #[test]
     fn the_pixel_mode_toggles_flip_the_brush() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.event(&InputEvent::KeyDown {
             key: Key::Character('b'),
@@ -2315,7 +2315,7 @@ mod tests {
 
     #[test]
     fn dragging_the_sidebar_handle_resizes_the_sidebar() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let before = view.sidebar_width();
         let start = view.sidebar_handle_center().expect("sidebar handle");
@@ -2340,7 +2340,7 @@ mod tests {
 
     #[test]
     fn dragging_the_palette_handle_resizes_it() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
 
         let before = view.palette_width();
@@ -2361,7 +2361,7 @@ mod tests {
 
     #[test]
     fn a_layer_panel_edit_is_undoable() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // 走和面板按钮一样的路径：AppState::execute + LayerMetaCommand。
         {
@@ -2385,9 +2385,9 @@ mod tests {
 
     #[test]
     fn the_active_tool_button_paints_the_selection_color() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        let selection = view.theme().palette.selection;
+        let selection = view.theme().palette().selection;
         assert!(
             paint_commands(&view).iter().any(|command| matches!(
                 command,
@@ -2399,7 +2399,7 @@ mod tests {
 
     #[test]
     fn the_scene_paints_the_document_image() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         assert!(
             paint_commands(&view).iter().any(|command| matches!(
@@ -2412,7 +2412,7 @@ mod tests {
 
     #[test]
     fn transparent_document_pixels_show_the_checkerboard() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // 默认文档带白色「背景」图层：棋盘格被盖住。
         view.mark_texture_dirty();
@@ -2433,7 +2433,7 @@ mod tests {
 
     #[test]
     fn the_checkerboard_can_be_toggled_off() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // 隐藏背景图层，让透明区域露出来。
         let background = view.state.borrow().document.layers[0].id;
@@ -2452,7 +2452,7 @@ mod tests {
 
     #[test]
     fn the_pixel_grid_shows_only_when_zoomed_in_and_in_pixel_mode() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let line_count = |view: &EditorView| {
             paint_commands(view)
@@ -2482,7 +2482,7 @@ mod tests {
 
     #[test]
     fn the_first_layout_fits_and_centers_the_document() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let area = view.canvas_area_rect().expect("canvas area");
         let camera = view.canvas_camera();
@@ -2500,7 +2500,7 @@ mod tests {
 
     #[test]
     fn the_wheel_zooms_around_the_pointer() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let point = view.canvas_area_rect().expect("canvas area").center();
         let before = view.canvas_camera();
@@ -2523,7 +2523,7 @@ mod tests {
 
     #[test]
     fn middle_drag_pans_the_canvas() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let start = view.canvas_area_rect().expect("canvas area").center();
         let before = view.canvas_camera().offset;
@@ -2547,7 +2547,7 @@ mod tests {
 
     #[test]
     fn the_zoom_shortcuts_change_the_camera() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let before = view.canvas_camera().zoom;
         assert!(view
@@ -2583,7 +2583,7 @@ mod tests {
 
     #[test]
     fn adding_a_layer_refreshes_the_list_and_recomposites() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.state.borrow_mut().document.add_layer("新图层");
         view.update();
@@ -2601,7 +2601,7 @@ mod tests {
 
     #[test]
     fn the_properties_panel_follows_the_active_layer() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // 新图层成为当前图层，属性面板应显示它的名字。
         view.state.borrow_mut().document.add_layer("上层");
@@ -2611,7 +2611,7 @@ mod tests {
 
     #[test]
     fn the_properties_panel_shows_layer_geometry() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let id = view.state.borrow().document.active_layer().unwrap().id;
         view.state
@@ -2632,7 +2632,7 @@ mod tests {
 
     #[test]
     fn the_crop_action_shrinks_a_moved_layer_back_to_the_document() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let id = view.state.borrow().document.active_layer().unwrap().id;
         {
@@ -2654,7 +2654,7 @@ mod tests {
 
     #[test]
     fn renaming_the_active_layer_uses_text_input() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.rename_request.set(true);
         view.update();
@@ -2683,7 +2683,7 @@ mod tests {
 
     #[test]
     fn escape_cancels_a_rename() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.rename_request.set(true);
         view.update();
@@ -2699,7 +2699,7 @@ mod tests {
 
     #[test]
     fn a_left_drag_with_the_brush_paints_the_active_layer() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.event(&InputEvent::KeyDown {
             key: Key::Character('b'),
@@ -2736,7 +2736,7 @@ mod tests {
 
     #[test]
     fn the_eraser_clears_instead_of_painting() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // 走真实路径：点工具栏的橡皮按钮（不是快捷键）。
         let eraser = view.tool_center(ActiveTool::Eraser).expect("eraser button");
@@ -2777,7 +2777,7 @@ mod tests {
 
     #[test]
     fn erasing_removes_a_brush_stroke() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         paint_a_stroke(&mut view);
         let point = view
@@ -2852,7 +2852,7 @@ mod tests {
 
     #[test]
     fn a_brush_stroke_is_exactly_one_undo_step() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         paint_a_stroke(&mut view);
 
@@ -2867,7 +2867,7 @@ mod tests {
 
     #[test]
     fn undo_restores_the_stroke_and_redo_reapplies_it_through_the_view() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         paint_a_stroke(&mut view);
         view.mark_texture_dirty();
@@ -2885,7 +2885,7 @@ mod tests {
 
     #[test]
     fn undo_and_redo_with_empty_history_are_no_ops() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         assert!(!view.can_undo());
         assert!(!view.undo());
@@ -2898,7 +2898,7 @@ mod tests {
 
     #[test]
     fn the_history_toolbar_buttons_undo_and_redo_a_stroke() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         paint_a_stroke(&mut view);
         assert_eq!(view.history_len(), (1, 0));
@@ -2917,14 +2917,14 @@ mod tests {
 
     #[test]
     fn the_icon_pack_covers_the_toolbar_icons() {
-        let view = EditorView::new(Theme::dark(), AppState::default());
+        let view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         let needed = ActiveTool::ALL.len() + HistoryAction::ALL.len();
         assert!(view.icon_count() >= needed, "图标包应覆盖工具栏图标");
     }
 
     #[test]
     fn icons_draw_into_the_painted_frame() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // 图标用圆头 / 圆角，会发出 FillCircle；普通 UI 不画圆。
         assert!(
@@ -2937,7 +2937,7 @@ mod tests {
 
     #[test]
     fn the_toolbar_packs_its_buttons_tightly() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let first = view.tool_center(ActiveTool::ALL[0]).expect("first tool");
         let last = view
@@ -2963,7 +2963,7 @@ mod tests {
 
     #[test]
     fn exporting_writes_the_composite_to_the_path() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         paint_a_stroke(&mut view);
 
@@ -2982,7 +2982,7 @@ mod tests {
 
     #[test]
     fn importing_a_png_adds_a_layer_and_shows_a_message() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let path = temp_png("import");
         crate::io::write_png(&path, &PixelBuffer::filled(2, 2, Color::RED)).unwrap();
@@ -3000,7 +3000,7 @@ mod tests {
 
     #[test]
     fn a_failed_export_reports_the_error_and_keeps_running() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let missing = std::env::temp_dir()
             .join("image_editor_definitely_missing_dir")
@@ -3014,7 +3014,7 @@ mod tests {
 
     #[test]
     fn the_path_can_be_edited_inline() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let original = view.io_path();
         let edit = view.file_center(IoAction::EditPath).expect("改路径按钮");
@@ -3037,7 +3037,7 @@ mod tests {
 
     #[test]
     fn the_move_tool_offsets_the_active_layer() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         view.event(&InputEvent::KeyDown {
             key: Key::Character('v'),
@@ -3074,7 +3074,7 @@ mod tests {
 
     #[test]
     fn painting_after_moving_the_layer_lands_under_the_cursor() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         // 移动工具把当前图层右移 10 个文档像素。
         view.event(&InputEvent::KeyDown {
@@ -3125,7 +3125,7 @@ mod tests {
 
     #[test]
     fn the_eyedropper_picks_the_composited_color_as_the_foreground() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         paint_a_stroke(&mut view);
 
@@ -3152,7 +3152,7 @@ mod tests {
 
     #[test]
     fn a_selection_confines_the_brush_and_escape_clears_it() {
-        let mut view = EditorView::new(Theme::dark(), AppState::default());
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let camera = view.canvas_camera();
 

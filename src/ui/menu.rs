@@ -46,7 +46,7 @@ pub enum MenuAction {
 
 /// 一条带占位提示的菜单栏。`request` 收到被点标题的下标。
 pub fn menu_bar(
-    theme: Theme,
+    theme: &'static dyn Theme,
     request: Rc<Cell<Option<usize>>>,
     refs: &mut Vec<NodeRef>,
 ) -> impl Component {
@@ -73,7 +73,7 @@ pub fn menu_bar(
 pub fn menu_content(
     tree: &mut SceneTree,
     root: draw_core::NodeId,
-    theme: Theme,
+    theme: &'static dyn Theme,
     index: usize,
     action: Rc<Cell<Option<MenuAction>>>,
     can_undo: bool,
@@ -272,7 +272,7 @@ pub fn menu_content(
 fn menu_item(
     label: &str,
     shortcut: Option<&str>,
-    theme: Theme,
+    theme: &'static dyn Theme,
     action: &Rc<Cell<Option<MenuAction>>>,
     value: MenuAction,
 ) -> MenuItem {
@@ -286,7 +286,7 @@ fn menu_item(
 
 fn placeholder(
     label: &str,
-    theme: Theme,
+    theme: &'static dyn Theme,
     action: &Rc<Cell<Option<MenuAction>>>,
     note: &'static str,
 ) -> MenuItem {

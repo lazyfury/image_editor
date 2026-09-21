@@ -11,7 +11,7 @@ use draw_ui::MouseFilter;
 /// 属性标签页的内容（标题由 [`TabsView`](crate::ui::tabs::TabsView) 的标签提供）。
 /// 三个文本槽位由 [`EditorView`](crate::ui::EditorView) 回写。
 pub fn properties_panel(
-    theme: Theme,
+    theme: &'static dyn Theme,
     name: &NodeRef,
     detail: &NodeRef,
     geometry: &NodeRef,

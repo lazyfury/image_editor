@@ -15,14 +15,14 @@ use draw_ui::{FlexStyle, MouseFilter, SurfaceStyle, Widget};
 /// 一块侧栏卡片：surface 底 + 内边距 + 纵向间距。
 pub struct Card {
     spec: Spec,
-    theme: Theme,
+    theme: &'static dyn Theme,
     gap: f32,
     padding: Edges,
 }
 
 impl Card {
     /// 默认：`space::SM` 的内边距和行间距（和调色盘面板一致）。
-    pub fn new(theme: Theme) -> Self {
+    pub fn new(theme: &'static dyn Theme) -> Self {
         Self {
             spec: Spec::default(),
             theme,
