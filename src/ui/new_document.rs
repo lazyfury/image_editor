@@ -8,12 +8,15 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use draw_components::{Button, Component, Flex, NodeRef, Text};
-use draw_core::{Color as UiColor, Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSize};
+use draw_core::{
+    Color as UiColor, Edges, EventResult, InputEvent, NodeId, Rect, Size, Vec2, ViewportSize,
+};
 use draw_render::PaintContext;
 use draw_scene::{SceneChild, SceneTree};
 use draw_theme::{radius, space, SurfaceLevel, TextSize, Theme, Tone};
 use draw_ui::{Align, MouseFilter, SurfaceStyle, TextMeasurer};
 
+use crate::canvas::{CHECKER_DARK, CHECKER_LIGHT};
 use crate::document::Color;
 
 /// 「新建窗口」选出来的默认值。
@@ -27,20 +30,28 @@ pub struct NewDocumentSpec {
 impl Default for NewDocumentSpec {
     fn default() -> Self {
         Self {
-            width: 128,
-            height: 128,
-            background: Color::WHITE,
+            width: 32,
+            height: 32,
+            background: Color::TRANSPARENT,
         }
     }
 }
 
-/// 侧边的最小 / 最大边长，以及步进按钮的步长（逻辑像素即文档像素）。
-const MIN_SIDE: u32 = 16;
+/// 侧边的最小 / 最大边长（逻辑像素即文档像素）。步进按钮每次 ±1，所以尺寸不受
+/// 倍数限制，任意边长都能改到。
+const MIN_SIDE: u32 = 1;
 const MAX_SIDE: u32 = 2048;
-const SIDE_STEP: u32 = 16;
+const SIDE_STEP: u32 = 1;
 
-/// 预设尺寸。
-const PRESETS: [(u32, u32); 5] = [(16, 16), (64, 64), (128, 128), (256, 256), (512, 512)];
+/// 预设尺寸（仍保留，用来快速跳到常见大小）。
+const PRESETS: [(u32, u32); 6] = [
+    (16, 16),
+    (32, 32),
+    (64, 64),
+    (128, 128),
+    (256, 256),
+    (512, 512),
+];
 
 /// 背景色预设（名字，颜色）。第一个是透明。
 const BACKGROUNDS: [(&str, Color); 4] = [
@@ -378,7 +389,7 @@ fn preset_button(
         .ref_(slot)
 }
 
-/// 一个背景色块：点击选中，选中的描一圈前景边。
+/// 一个背景色块：点击选中，选中的描一圈前景边。透明色用棋盘格预览。
 fn background_swatch(
     theme: &'static dyn Theme,
     _name: &'static str,
@@ -388,6 +399,7 @@ fn background_swatch(
     slot: &NodeRef,
 ) -> impl Component {
     let ui = to_ui(color);
+    let transparent = color.a == 0;
     let selected = choices.clone();
     let clicked = choices;
     Flex::new()
@@ -406,7 +418,52 @@ fn background_swatch(
                 style.border(theme.palette().border)
             }
         })
+        // 棋盘格画在色块前景（内缩 1px 给边框让位），跟画布的透明预览一致。
+        .foreground(move |ctx, rect, _| {
+            if transparent {
+                paint_checkerboard(ctx, rect);
+            }
+        })
         .ref_(slot)
+}
+
+/// 棋盘格格子边长（逻辑像素）。
+const CHECKER_CELL: f32 = 6.0;
+
+/// 在 `rect` 里画透明棋盘格（内缩 1px，露出边框）。
+fn paint_checkerboard(ctx: &mut PaintContext, rect: Rect) {
+    let inner = Rect::from_min_size(
+        Vec2::new(rect.left() + 1.0, rect.top() + 1.0),
+        Size::new(
+            (rect.size.width - 2.0).max(0.0),
+            (rect.size.height - 2.0).max(0.0),
+        ),
+    );
+    if inner.size.width <= 0.0 || inner.size.height <= 0.0 {
+        return;
+    }
+    let cols = (inner.size.width / CHECKER_CELL).ceil() as i32;
+    let rows = (inner.size.height / CHECKER_CELL).ceil() as i32;
+    for row in 0..rows {
+        for col in 0..cols {
+            let x = inner.left() + col as f32 * CHECKER_CELL;
+            let y = inner.top() + row as f32 * CHECKER_CELL;
+            let w = CHECKER_CELL.min(inner.right() - x);
+            let h = CHECKER_CELL.min(inner.bottom() - y);
+            if w <= 0.0 || h <= 0.0 {
+                continue;
+            }
+            let color = if (row + col) % 2 == 0 {
+                CHECKER_LIGHT
+            } else {
+                CHECKER_DARK
+            };
+            ctx.fill_rect(
+                Rect::from_min_size(Vec2::new(x, y), Size::new(w, h)),
+                to_ui(color),
+            );
+        }
+    }
 }
 
 /// 文档色（8 位 RGBA）-> UI 色（0..1）。
@@ -423,6 +480,7 @@ fn to_ui(color: Color) -> UiColor {
 mod tests {
     use super::*;
     use draw_core::{PointerButton, Size};
+    use draw_render::DrawCommand;
 
     fn viewport() -> ViewportSize {
         ViewportSize::new(Size::new(560.0, 640.0))
@@ -488,15 +546,35 @@ mod tests {
     }
 
     #[test]
-    fn the_default_spec_is_128_white() {
+    fn the_default_spec_is_32_transparent() {
         assert_eq!(
             NewDocumentSpec::default(),
             NewDocumentSpec {
-                width: 128,
-                height: 128,
-                background: Color::WHITE,
+                width: 32,
+                height: 32,
+                background: Color::TRANSPARENT,
             }
         );
+    }
+
+    /// 透明背景在色块里用棋盘格预览，而不是一片空白。
+    #[test]
+    fn the_transparent_swatch_previews_a_checkerboard() {
+        let mut view = NewDocumentView::new(crate::theme::editor_theme(false));
+        view.layout(viewport());
+        let mut ctx = PaintContext::new();
+        view.paint(&mut ctx);
+        let commands = ctx.into_draw_list().commands().to_vec();
+        let swatch = background_rects(&view)[0];
+
+        let fills = |color: UiColor| {
+            commands.iter().any(|command| {
+                matches!(command, DrawCommand::FillRect { rect, paint }
+                    if paint.color == color && rect.intersects(swatch))
+            })
+        };
+        assert!(fills(to_ui(CHECKER_LIGHT)), "缺少亮格");
+        assert!(fills(to_ui(CHECKER_DARK)), "缺少暗格");
     }
 
     #[test]
@@ -517,7 +595,7 @@ mod tests {
             Some(NewDocumentResult::Create(NewDocumentSpec {
                 width,
                 height,
-                background: Color::WHITE,
+                background: Color::TRANSPARENT,
             }))
         );
         assert_eq!(view.take_result(), None, "结果只能取走一次");
@@ -536,8 +614,8 @@ mod tests {
         assert_eq!(
             view.take_result(),
             Some(NewDocumentResult::Create(NewDocumentSpec {
-                width: 128,
-                height: 128,
+                width: 32,
+                height: 32,
                 background: Color::TRANSPARENT,
             }))
         );

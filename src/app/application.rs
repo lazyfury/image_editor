@@ -40,7 +40,7 @@ const WINDOW_WIDTH: f64 = 1280.0;
 const WINDOW_HEIGHT: f64 = 800.0;
 /// 「新建文档」窗口的初始大小。
 const NEW_DOCUMENT_WIDTH: f64 = 360.0;
-const NEW_DOCUMENT_HEIGHT: f64 = 400.0;
+const NEW_DOCUMENT_HEIGHT: f64 = 480.0;
 
 /// 命令行选项（由 [`crate::main`] 解析）。
 #[derive(Clone, Debug, Default)]

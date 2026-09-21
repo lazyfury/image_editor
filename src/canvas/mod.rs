@@ -13,6 +13,8 @@ pub use camera::CanvasCamera;
 #[cfg(test)]
 pub use checkerboard::color_at;
 pub use checkerboard::paint_backdrop;
+/// 棋盘格的两种格色（透明预览复用，保证跟画布一致）。
+pub use checkerboard::{DARK as CHECKER_DARK, LIGHT as CHECKER_LIGHT};
 pub use coordinate::{document_to_pixel, pixel_selection, screen_to_document};
 
 use draw_render::TextureId;
