@@ -8,12 +8,13 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use crate::ui::card::Card as UICard;
 use draw_components::{Button, Card, Component, EmptyState, Flex, NodeRef, Text};
-use draw_core::{Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSize};
+use draw_core::{Color, Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSize};
 use draw_render::PaintContext;
 use draw_scene::{SceneChild, SceneTree};
 use draw_theme::{space, SurfaceLevel, Theme, Tone};
-use draw_ui::{MouseFilter, TextMeasurer};
+use draw_ui::{MouseFilter, SizeBasis, TextMeasurer};
 
 /// 首页视图。一棵自己的 `SceneTree`，跟 [`EditorView`](crate::ui::EditorView)
 /// 一样只负责排布 / 绘制 / 输入，不碰平台。
@@ -32,21 +33,28 @@ impl HomeView {
         let button_ref = NodeRef::new();
 
         let request = new_window.clone();
-        let new_window_card = Card::new(theme)
-            .gap(space::SM)
-            .grow(1.0)
-            .child(Text::subheading("新建窗口", theme))
+        let new_window_card = Flex::column()
+            .basis(SizeBasis::Px(200.0))
+            .padding(Edges::ZERO)
+            .shrink(0.0)
             .child(
-                Text::small(
-                    "在弹出的原生窗口里选画布尺寸和背景色，然后在主窗口里编辑。",
-                    theme,
-                )
-                .tone(Tone::Muted),
-            )
-            .child(
-                Button::primary("新建窗口", theme)
-                    .on_click(move || request.set(true))
-                    .ref_(&button_ref),
+                UICard::new(theme)
+                    .background(Color::TRANSPARENT)
+                    .padding(Edges::ZERO)
+                    .gap(space::SM)
+                    .child(Text::subheading("新建窗口", theme))
+                    .child(
+                        Text::small(
+                            "在弹出的原生窗口里选画布尺寸和背景色，然后在主窗口里编辑。",
+                            theme,
+                        )
+                        .tone(Tone::Muted),
+                    )
+                    .child(
+                        Button::primary("新建窗口", theme)
+                            .on_click(move || request.set(true))
+                            .ref_(&button_ref),
+                    ),
             );
 
         let gallery_card = Card::new(theme)
@@ -62,7 +70,7 @@ impl HomeView {
             .padding(Edges::all(space::HUGE))
             .mouse_filter(MouseFilter::Ignore)
             .child(
-                Flex::column()
+                Flex::row()
                     .gap(space::XS)
                     .padding(Edges::ZERO)
                     .mouse_filter(MouseFilter::Ignore)
@@ -70,7 +78,8 @@ impl HomeView {
                     .child(
                         Text::small("用 quill 自己的 2D / UI 栈画的桌面图像编辑器。", theme)
                             .tone(Tone::Muted),
-                    ),
+                    )
+                    .child(new_window_card),
             )
             .child(
                 Flex::row()
@@ -79,7 +88,6 @@ impl HomeView {
                     .grow(1.0)
                     .align(draw_ui::Align::Start)
                     .mouse_filter(MouseFilter::Ignore)
-                    .child(new_window_card)
                     .child(gallery_card),
             );
 

@@ -8,7 +8,7 @@
 //! 只是外观容器：标题、分隔线、内容由调用方自己 `.child(..)`。
 
 use draw_components::{Component, Spec};
-use draw_core::Edges;
+use draw_core::{Color, Edges};
 use draw_theme::{space, SurfaceLevel, Theme};
 use draw_ui::{FlexStyle, MouseFilter, SurfaceStyle, Widget};
 
@@ -18,6 +18,8 @@ pub struct Card {
     theme: &'static dyn Theme,
     gap: f32,
     padding: Edges,
+    /// 覆盖卡片底色（`None` = 用主题的 `SurfaceLevel::Raised`）。
+    fill: Option<Color>,
 }
 
 impl Card {
@@ -28,12 +30,26 @@ impl Card {
             theme,
             gap: space::SM,
             padding: Edges::all(space::SM),
+            fill: None,
         }
     }
 
     /// 行间距（覆盖默认的 `space::SM`）。
     pub fn gap(mut self, gap: f32) -> Self {
         self.gap = gap;
+        self
+    }
+
+    /// 覆盖卡片底色（否则用主题的 raised 面）。
+    ///
+    /// 这是 `Card` 自己的方法，优先级高于默认底色；`prepare` 不会把它冲掉。
+    pub fn background(mut self, color: Color) -> Self {
+        self.fill = Some(color);
+        self
+    }
+
+    pub fn padding(mut self, padding: Edges) -> Self {
+        self.padding = padding;
         self
     }
 }
@@ -53,10 +69,40 @@ impl Component for Card {
 
     fn prepare(&mut self) {
         let theme = self.theme;
+        let fill = self.fill;
         // 容器本身不吃指针，卡片里的按钮 / 列表照常命中。
         self.spec.data.mouse_filter = MouseFilter::Ignore;
-        self.spec.background = Some(Box::new(move |_| {
-            SurfaceStyle::new(theme.surface(SurfaceLevel::Raised))
-        }));
+        // 调用方用 `.surface(..)` / `.dynamic_background(..)` 设过背景就别覆盖；
+        // 否则用 `.background(color)` 的覆盖色，再否则用主题的 raised 面。
+        if self.spec.background.is_none() {
+            self.spec.background = Some(Box::new(move |_| {
+                SurfaceStyle::new(fill.unwrap_or_else(|| theme.surface(SurfaceLevel::Raised)))
+            }));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use draw_ui::InteractState;
+
+    fn resolved_fill(card: &Card) -> Color {
+        (card.spec.background.as_ref().expect("background"))(InteractState::default()).fill
+    }
+
+    #[test]
+    fn an_explicit_background_overrides_the_theme_surface() {
+        let mut card = Card::new(crate::theme::editor_theme(false)).background(Color::RED);
+        card.prepare();
+        assert_eq!(resolved_fill(&card), Color::RED);
+    }
+
+    #[test]
+    fn the_theme_surface_is_the_default() {
+        let theme = crate::theme::editor_theme(false);
+        let mut card = Card::new(theme);
+        card.prepare();
+        assert_eq!(resolved_fill(&card), theme.surface(SurfaceLevel::Raised));
     }
 }
