@@ -4,3 +4,6 @@
 # 随包字体体积大、且不一定有再分发许可：放本地即可，不进 git。
 # 见 AGENTS.md「Bundled font」与 src/fonts.rs。
 /assets/fonts/
+
+# package-macos.sh 的产物。
+/dist/

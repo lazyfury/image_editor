@@ -22,13 +22,17 @@ pub fn install() -> Option<PathBuf> {
     Some(path)
 }
 
-/// 依次在 crate 根（开发时）、可执行文件旁（打包后）、当前目录查找字体。
+/// 依次在 crate 根（开发时）、macOS `.app` 的 `Resources/`、可执行文件旁、当前
+/// 目录查找字体。
 fn locate() -> Option<PathBuf> {
     let mut roots = vec![PathBuf::from(env!("CARGO_MANIFEST_DIR"))];
     if let Some(dir) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(PathBuf::from))
     {
+        // macOS `.app`：二进制在 `Contents/MacOS/`，随包资源在
+        // `Contents/Resources/`（`package-macos.sh` 把字体拷到这里）。
+        roots.push(dir.join("..").join("Resources"));
         roots.push(dir);
     }
     roots.push(PathBuf::from("."));

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The bundle's identity. `CFBundleExecutable` must match the file name in
+	     Contents/MacOS/, which is the cargo binary's name. -->
+	<key>CFBundleExecutable</key>
+	<string>image_editor</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.quill.image-editor</string>
+	<key>CFBundleName</key>
+	<string>Image Editor</string>
+	<key>CFBundleDisplayName</key>
+	<string>quill 图像编辑器</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+
+	<!-- A regular windowed app: it keeps its Dock icon and app menu. -->
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh_CN</string>
+</dict>
+</plist>

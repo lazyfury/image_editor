@@ -23,6 +23,8 @@ src/fonts.rs    bundled-font discovery (assets/fonts/, `QUILL_FONT`)
 src/icons.rs    vendored Lucide SVG subset, drawn via draw_svg (no textures)
 src/theme.rs    editor theme (compact density)
 src/selfcheck.rs headless `--selfcheck` / `--dump`
+packaging/      macOS .app `Info.plist`
+package-macos.sh  build --release and assemble `dist/*.app` (ad-hoc codesign)
 ```
 
 Flow: `Input -> view -> SceneTree -> layout -> paint -> DrawList -> RenderBackend
@@ -94,6 +96,8 @@ cargo run -- --light            # light theme
 cargo run -- --pixel-font       # built-in bitmap font (no CJK)
 cargo test                      # unit tests
 cargo fmt -- --check && cargo check && cargo test   # per-change gate
+./package-macos.sh              # macOS .app bundle in dist/ (copies the font)
+./package-macos.sh --open       # ... and launch it
 ```
 
 The app has no screenshot tests; `--selfcheck` (and the unit tests) are the
