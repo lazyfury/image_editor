@@ -19,6 +19,7 @@ src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser, Move, Rectangle-select, Eyedropper
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard
 src/io/         PNG encode/decode + path helpers
+src/fonts.rs    bundled-font discovery (assets/fonts/, `QUILL_FONT`)
 src/icons.rs    vendored Lucide SVG subset, drawn via draw_svg (no textures)
 src/theme.rs    editor theme (compact density)
 src/selfcheck.rs headless `--selfcheck` / `--dump`
@@ -34,6 +35,23 @@ path deps (`../quill/crates/*` in `Cargo.toml`). Keep `image_editor/` and
 `quill/` adjacent under the same parent directory. Do **not** vendor or fork the
 quill crates here; shared UI-layer changes belong in the quill repo and must keep
 its own gate green.
+
+## Bundled font
+
+The UI font is **京華老宋体 v3.0** (JingHua Lao Song), kept locally at:
+
+```
+assets/fonts/jinghua-laosong-v3.0.ttf
+```
+
+- **Not committed.** `assets/fonts/` is in `.gitignore` (large file, unclear
+  redistribution license). Drop the `.ttf` there to build/run with it.
+- `src/fonts.rs` points quill's `QUILL_FONT` at that file at startup, unless the
+  user already set `QUILL_FONT` (their value wins) or passed `--pixel-font`.
+- It is searched next to the crate root (dev), the executable (packaged), then
+  the current directory. If missing, quill falls back to its system-font
+  candidate list, then the built-in pixel font.
+- To swap the font, replace that file (or change `fonts::BUNDLED_FONT`).
 
 ## Hard rules
 

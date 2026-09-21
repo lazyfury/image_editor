@@ -55,6 +55,13 @@ pub struct Options {
 
 /// 打开窗口跑编辑器，直到关闭（或 `--frames` 跑完）。
 pub fn run(options: Options) {
+    // 默认用随包字体（`assets/fonts/`），除非用户自己设了 `QUILL_FONT`
+    // 或显式选了点阵字体。
+    if !options.pixel_font {
+        if let Some(path) = crate::fonts::install() {
+            tracing::info!(target: "image_editor", font = %path.display(), "bundled_font");
+        }
+    }
     let event_loop = EventLoop::new().expect("create event loop");
     // 事件驱动：只有输入、尺寸变化才重画。`Poll` 会一直重画没变的帧，白烧 CPU。
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -682,6 +689,15 @@ struct BackendTextMeasurer {
     metrics: FontMetrics,
 }
 
+/// 大写字高相对字号的比例（约 0.7 em），用来把字形视觉居中到行框。
+///
+/// 换字体后上下会偏，是因为 `draw_ui` 的居中公式用的是字体的原生 `ascent`：
+/// `baseline = 行框中心 - line_height/2 + ascent`，而不同字体的
+/// `ascent / line_height` 分布差别很大。这里覆盖 `ascent` 为
+/// `line_height/2 + cap/2`，让**字形视觉中心**落在行框中心；对度量正常的
+/// 字体这个值和原生 `ascent` 基本一致，只有度量异常的字体才会被修正。
+const CAP_HEIGHT_RATIO: f32 = 0.7;
+
 impl TextMeasurer for BackendTextMeasurer {
     fn advance(&self, ch: char, font_size: f32) -> f32 {
         self.metrics.advance(ch, font_size)
@@ -692,7 +708,12 @@ impl TextMeasurer for BackendTextMeasurer {
     }
 
     fn ascent(&self, font_size: f32) -> f32 {
-        self.metrics.ascent(font_size)
+        if self.metrics.is_system() {
+            self.metrics.line_height(font_size) / 2.0 + font_size * CAP_HEIGHT_RATIO / 2.0
+        } else {
+            // 点阵字体自带居中（见 `Font::ascent` 的 Bitmap 分支），保持原样。
+            self.metrics.ascent(font_size)
+        }
     }
 
     fn measure_run(&self, text: &str, font_size: f32) -> f32 {

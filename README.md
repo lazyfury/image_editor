@@ -292,7 +292,7 @@ Phase 6 起还做一次**真实的撤销 / 重做往返**：画笔一笔 → 点
 `size × size`，在自己的矩形里居中描边；构建按钮时直接
 `.child(Icon::new(..))`（见 `ui/toolbar.rs`），不用等树建好再回头挂装饰器。
 按钮本身是空的点击 / 高亮区，`Icon` 的 `mouse_filter` 是 `Ignore`，点击落到按钮上。
-当前工具用 `theme.palette.selection` 高亮（`Button` 的显式 `dynamic_background`
+当前工具用 `theme.palette().selection` 高亮（`Button` 的显式 `dynamic_background`
 会覆盖 variant 的默认背景）。
 
 描边走核心的 `draw_svg`（backend-neutral：把 SVG 描边成 IR 的 `Line` /

@@ -15,6 +15,7 @@
 mod app;
 mod canvas;
 mod document;
+mod fonts;
 mod icons;
 mod io;
 mod renderer;
