@@ -60,7 +60,14 @@ impl HomeView {
             .grow(1.0)
             .child(Text::subheading("画廊", theme))
             .child(
-                EmptyState::new("画廊", theme).description("占位：以后在这里展示最近打开的文档。"),
+                Flex::column()
+                    .grow(1.0)
+                    .align(draw_ui::Align::Center)
+                    .justify(draw_ui::Justify::Center)
+                    .child(
+                        EmptyState::new("画廊", theme)
+                            .description("占位：以后在这里展示最近打开的文档。"),
+                    ),
             );
 
         let page = Flex::column()
