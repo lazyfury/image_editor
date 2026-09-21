@@ -9,12 +9,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::ui::card::Card as UICard;
-use draw_components::{Button, Card, Component, EmptyState, Flex, NodeRef, Text};
+use draw_components::{Button, Card, Component, Divider, EmptyState, Flex, NodeRef, Text};
 use draw_core::{Color, Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSize};
 use draw_render::PaintContext;
 use draw_scene::{SceneChild, SceneTree};
 use draw_theme::{space, SurfaceLevel, Theme, Tone};
-use draw_ui::{MouseFilter, SizeBasis, TextMeasurer};
+use draw_ui::{MouseFilter, TextMeasurer};
 
 /// 首页视图。一棵自己的 `SceneTree`，跟 [`EditorView`](crate::ui::EditorView)
 /// 一样只负责排布 / 绘制 / 输入，不碰平台。
@@ -33,29 +33,27 @@ impl HomeView {
         let button_ref = NodeRef::new();
 
         let request = new_window.clone();
-        let new_window_card = Flex::column()
-            .basis(SizeBasis::Px(200.0))
-            .padding(Edges::ZERO)
-            .shrink(0.0)
-            .child(
-                UICard::new(theme)
-                    .background(Color::TRANSPARENT)
-                    .padding(Edges::ZERO)
-                    .gap(space::SM)
-                    .child(Text::subheading("新建窗口", theme))
-                    .child(
-                        Text::small(
-                            "在弹出的原生窗口里选画布尺寸和背景色，然后在主窗口里编辑。",
-                            theme,
-                        )
-                        .tone(Tone::Muted),
+        let new_window_card = Flex::column().padding(Edges::ZERO).child(
+            UICard::new(theme)
+                .background(Color::TRANSPARENT)
+                .padding(Edges::ZERO)
+                .gap(space::SM)
+                .child(Text::subheading("新建项目", theme))
+                .child(
+                    Text::small(
+                        "在弹出的原生窗口里选画布尺寸和背景色，然后在主窗口里编辑。",
+                        theme,
                     )
-                    .child(
-                        Button::primary("新建窗口", theme)
+                    .tone(Tone::Muted),
+                )
+                .child(
+                    Flex::row().padding(Edges::ZERO).child(
+                        Button::primary("新建项目", theme)
                             .on_click(move || request.set(true))
                             .ref_(&button_ref),
                     ),
-            );
+                ),
+        );
 
         let gallery_card = Card::new(theme)
             .gap(space::SM)
@@ -66,19 +64,27 @@ impl HomeView {
             );
 
         let page = Flex::column()
-            .gap(space::XL)
+            .gap(space::XXXL)
             .padding(Edges::all(space::HUGE))
             .mouse_filter(MouseFilter::Ignore)
             .child(
                 Flex::row()
-                    .gap(space::XS)
-                    .padding(Edges::ZERO)
-                    .mouse_filter(MouseFilter::Ignore)
-                    .child(Text::title("quill 图像编辑器", theme))
                     .child(
-                        Text::small("用 quill 自己的 2D / UI 栈画的桌面图像编辑器。", theme)
-                            .tone(Tone::Muted),
+                        Flex::column()
+                            .gap(space::XS)
+                            .padding(Edges::ZERO)
+                            .justify(draw_ui::Justify::SpaceBetween)
+                            .mouse_filter(MouseFilter::Ignore)
+                            .child(Text::title("Quill 图像编辑器", theme))
+                            .child(
+                                Text::small(
+                                    "用 quill 自己的 2D / UI 栈画的桌面图像编辑器。",
+                                    theme,
+                                )
+                                .tone(Tone::Muted),
+                            ),
                     )
+                    .child(Divider::vertical(theme))
                     .child(new_window_card),
             )
             .child(
@@ -86,7 +92,7 @@ impl HomeView {
                     .gap(space::LG)
                     .padding(Edges::ZERO)
                     .grow(1.0)
-                    .align(draw_ui::Align::Start)
+                    // 默认 Align::Stretch：让画廊卡片撑满这一行的高度。
                     .mouse_filter(MouseFilter::Ignore)
                     .child(gallery_card),
             );
@@ -186,7 +192,7 @@ mod tests {
             .collect();
         assert!(texts.iter().any(|text| text == "画廊"), "texts = {texts:?}");
         assert!(
-            texts.iter().any(|text| text == "新建窗口"),
+            texts.iter().any(|text| text == "新建项目"),
             "texts = {texts:?}"
         );
     }
