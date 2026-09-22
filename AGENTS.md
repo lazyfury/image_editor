@@ -48,8 +48,11 @@ assets/fonts/jinghua-laosong-v3.0.ttf
 
 - **Not committed.** `assets/fonts/` is in `.gitignore` (large file, unclear
   redistribution license). Drop the `.ttf` there to build/run with it.
-- `src/fonts.rs` points quill's `QUILL_FONT` at that file at startup, unless the
-  user already set `QUILL_FONT` (their value wins) or passed `--pixel-font`.
+- `src/fonts.rs` locates that file and hands it to quill's
+  `FontConfig::default_face` (`FaceRef`) as the default face, unless the user set
+  `QUILL_FONT` (their value wins) or passed `--pixel-font`. The default face seeds
+  the `FontServer` without scanning the system; that scan is deferred to the first
+  missing glyph or font-picker.
 - It is searched next to the crate root (dev), the executable (packaged), then
   the current directory. If missing, quill falls back to its system-font
   candidate list, then the built-in pixel font.

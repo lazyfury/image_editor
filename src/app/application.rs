@@ -20,8 +20,9 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use draw_backend_wgpu::{wgpu, FontConfig, FontMetrics, FontMode, TextureFilter, WgpuBackend};
+use draw_backend_wgpu::{wgpu, TextureFilter, WgpuBackend};
 use draw_core::{InputEvent, Key, PointerButton, Size, Vec2, ViewportSize};
+use draw_font::{FaceRef, FontConfig, FontMetrics, FontMode};
 use draw_render::{PaintContext, RenderBackend};
 use draw_theme::{SurfaceLevel, Theme};
 use draw_ui::TextMeasurer;
@@ -55,13 +56,6 @@ pub struct Options {
 
 /// 打开窗口跑编辑器，直到关闭（或 `--frames` 跑完）。
 pub fn run(options: Options) {
-    // 默认用随包字体（`assets/fonts/`），除非用户自己设了 `QUILL_FONT`
-    // 或显式选了点阵字体。
-    if !options.pixel_font {
-        if let Some(path) = crate::fonts::install() {
-            tracing::info!(target: "image_editor", font = %path.display(), "bundled_font");
-        }
-    }
     let event_loop = EventLoop::new().expect("create event loop");
     // 事件驱动：只有输入、尺寸变化才重画。`Poll` 会一直重画没变的帧，白烧 CPU。
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -100,6 +94,9 @@ struct App {
     /// 主题配色（`--light`）。
     light: bool,
     font_mode: FontMode,
+    /// 随包字体（`assets/fonts/`）作为 `FontServer` 的默认 face；`None` 时
+    /// 走系统字体 / 点阵回落。用户自己的 `QUILL_FONT` 仍然优先。
+    default_face: Option<FaceRef>,
     /// 当前修饰键状态（Ctrl/Cmd+Z 这类快捷键在平台层处理）。
     modifiers: ModifiersState,
     /// `--frames` 剩下的帧数。
@@ -109,6 +106,16 @@ struct App {
 impl App {
     fn new(options: Options) -> Self {
         tracing::info!(target: "image_editor", light = options.light, "application_start");
+        // 默认用随包字体，除非显式选了点阵字体；`QUILL_FONT` 仍然优先。
+        let default_face = if options.pixel_font {
+            None
+        } else {
+            let face = crate::fonts::bundled_face();
+            if let Some(face) = face.as_ref() {
+                tracing::info!(target: "image_editor", font = %face.file.display(), "bundled_font");
+            }
+            face
+        };
         Self {
             instance: wgpu::Instance::default(),
             windows: Vec::new(),
@@ -120,6 +127,7 @@ impl App {
             } else {
                 FontMode::System
             },
+            default_face,
             modifiers: ModifiersState::empty(),
             frames_left: options.frames,
         }
@@ -194,6 +202,8 @@ impl App {
         let font_config = FontConfig {
             mode: self.font_mode,
             device_pixel_rasterization: true,
+            default_family: None,
+            default_face: self.default_face.clone(),
         };
         if let Err(error) = backend.set_font_config(font_config) {
             eprintln!("font setup failed, using fallback: {error}");

@@ -22,6 +22,9 @@ draw_ui = { path = "../quill/crates/draw_ui" }
 draw_components = { path = "../quill/crates/draw_components" }
 # Lucide 图标：核心的 backend-neutral SVG 渲染（零外部依赖）。
 draw_svg = { path = "../quill/crates/draw_svg" }
+# 字体类型（`FontConfig` / `FaceRef` / ...）是后端无关的，直接依赖 `draw_font`，
+# 不绕经某个具体后端（`draw_backend_wgpu` 里的同名导出只是历史别名）。
+draw_font = { path = "../quill/crates/draw_font" }
 # PNG 编解码（Phase 7 导入导出）。示例层可以引入依赖；核心 crate 仍保持无依赖。
 png = "0.17"
 draw_backend_wgpu = { path = "../quill/crates/draw_backend_wgpu" }
