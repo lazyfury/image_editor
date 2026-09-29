@@ -222,7 +222,12 @@ impl NewDocumentView {
         let tree = Flex::new()
             .gap(0.0)
             .padding(Edges::ZERO)
-            .background(theme.surface(SurfaceLevel::Base))
+            // 跟设计系统的模态一致：浮起的面 + 边框 + 大圆角。
+            .surface(
+                SurfaceStyle::new(theme.surface(SurfaceLevel::Floating))
+                    .border(theme.palette().border)
+                    .radius(radius::LG),
+            )
             .mouse_filter(MouseFilter::Ignore)
             .child(page)
             .into_tree();
@@ -576,6 +581,29 @@ mod tests {
         };
         assert!(fills(to_ui(CHECKER_LIGHT)), "缺少亮格");
         assert!(fills(to_ui(CHECKER_DARK)), "缺少暗格");
+    }
+
+    /// 模态面板是一块带边框的浮起面（跟设计系统的对话框一致）。
+    #[test]
+    fn the_modal_panel_draws_a_floating_border() {
+        let theme = crate::theme::editor_theme(false);
+        let mut view = NewDocumentView::new(theme);
+        view.layout(viewport());
+        let mut ctx = PaintContext::new();
+        view.paint(&mut ctx);
+        let panel = viewport().logical_rect();
+        let border = theme.palette().border;
+        // 根面板的边框按 stroke 宽度内缩半个像素，所以比较尺寸而不是精确相等。
+        let has_border = ctx.into_draw_list().commands().iter().any(|command| {
+            matches!(
+                command,
+                DrawCommand::StrokeRoundedRect { rect, paint, .. }
+                    if paint.color == border
+                        && rect.size.width >= panel.size.width - 2.0
+                        && rect.size.height >= panel.size.height - 2.0
+            )
+        });
+        assert!(has_border, "面板应画出边框");
     }
 
     #[test]
