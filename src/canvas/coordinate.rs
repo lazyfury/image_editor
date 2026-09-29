@@ -3,7 +3,7 @@
 //! §12 要求所有坐标换算都走统一入口，UI / 工具代码里不允许自己算
 //! `x / zoom`。相机提供浮点换算，这里再收口到像素下标。
 
-use draw_core::Vec2;
+use igui_core::Vec2;
 
 use super::CanvasCamera;
 use crate::document::PixelRegion;

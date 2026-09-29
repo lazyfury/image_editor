@@ -1,13 +1,13 @@
 //! 编辑器视图：菜单栏 + 工具栏 + 画布 + 图层/属性栏 + 状态栏。
 //!
 //! 视图是一棵 `SceneTree`：**画布是树里的一个 `Node2D`**（`Visual::Image`），
-//! 相机变换就挂在它的 `Transform2D` 上，由 `draw_scene` 负责画；UI 仍由
-//! `draw_components` 搭、`draw_ui` 排。宿主（[`crate::app::application`]）
+//! 相机变换就挂在它的 `Transform2D` 上，由 `igui_scene` 负责画；UI 仍由
+//! `igui_components` 搭、`igui_ui` 排。宿主（[`crate::app::application`]）
 //! 拥有窗口、wgpu 后端和纹理上传。
 //!
 //! ```text
 //! Input -> EditorView::event -> EditorView::update -> layout -> paint
-//! paint:  scene.paint(世界/画布)  ->  draw_ui::paint(UI 覆盖在上层)
+//! paint:  scene.paint(世界/画布)  ->  igui_ui::paint(UI 覆盖在上层)
 //! ```
 //!
 //! 每块面板一个模块（[`menu`] / [`toolbar`] / [`canvas`] / [`layer_panel`] /
@@ -40,16 +40,16 @@ use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 
-use draw_components::{
+use igui_components::{
     set_text, update_control, Component, Divider, Flex, ListState, NodeRef, Overlays, ResizeHandle,
 };
-use draw_core::{
+use igui_core::{
     Edges, EventResult, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize,
 };
-use draw_render::{Paint, PaintContext};
-use draw_scene::{SceneChild, SceneTree, Visual};
-use draw_theme::{space, Theme};
-use draw_ui::{MouseFilter, SizeBasis, TextMeasurer};
+use igui_render::{Paint, PaintContext};
+use igui_scene::{SceneChild, SceneTree, Visual};
+use igui_theme::{space, Theme};
+use igui_ui::{MouseFilter, SizeBasis, TextMeasurer};
 
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::canvas::{
@@ -591,7 +591,7 @@ impl EditorView {
 
     /// 用后端真实字体的度量，让排版量到的宽度跟画出来的宽度一致。
     pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
-        draw_ui::set_text_measurer(&mut self.tree, measurer.clone());
+        igui_ui::set_text_measurer(&mut self.tree, measurer.clone());
         self.overlays.set_text_measurer(measurer);
     }
 
@@ -896,7 +896,7 @@ impl EditorView {
 
     /// 命中位置落在哪个菜单标题上（含其子节点）；用于一次点击切换菜单。
     fn menu_index_at(&self, position: Vec2) -> Option<usize> {
-        let hit = draw_ui::hit_test(&self.tree, position)?;
+        let hit = igui_ui::hit_test(&self.tree, position)?;
         let mut current = Some(hit);
         while let Some(node) = current {
             if let Some(index) = self.menu_nodes.iter().position(|id| *id == node) {
@@ -1066,10 +1066,10 @@ impl EditorView {
         self.tree.set_viewport_size(viewport.logical_size());
         self.clamp_palette_width();
         self.clamp_sidebar_width();
-        draw_ui::layout(&mut self.tree, viewport);
+        igui_ui::layout(&mut self.tree, viewport);
         // 面板高度按刚拿到的侧栏矩形钳制一次；变了就再排一遍。
         if self.clamp_panel_heights() {
-            draw_ui::layout(&mut self.tree, viewport);
+            igui_ui::layout(&mut self.tree, viewport);
         }
         // 第一次布局拿到画布区域的真实矩形，才能做适配。
         if !self.fitted {
@@ -1078,10 +1078,10 @@ impl EditorView {
         }
         // 图层列表的行池按容器高度算，所以要在 layout 之后 sync；池变了再排一次。
         if self.layer_state.sync(&mut self.tree) {
-            draw_ui::layout(&mut self.tree, viewport);
+            igui_ui::layout(&mut self.tree, viewport);
         }
         if self.history_state.sync(&mut self.tree) {
-            draw_ui::layout(&mut self.tree, viewport);
+            igui_ui::layout(&mut self.tree, viewport);
         }
         // 覆盖层用自己的树，必须在主树排完之后定位。
         self.overlays.layout(&self.tree, viewport);
@@ -1095,7 +1095,7 @@ impl EditorView {
         self.tree.paint(ctx);
         self.paint_pixel_grid(ctx);
         self.paint_selection(ctx);
-        draw_ui::paint(&self.tree, ctx);
+        igui_ui::paint(&self.tree, ctx);
         self.overlays.paint(ctx);
     }
 
@@ -1167,7 +1167,7 @@ impl EditorView {
     /// 路由一个后端无关的输入事件。
     ///
     /// 工具快捷键、画布缩放 / 平移由视图先处理；其余（点击、指针）交给
-    /// `draw_ui::handle_input`，由它去找带回调的控件。
+    /// `igui_ui::handle_input`，由它去找带回调的控件。
     pub fn event(&mut self, event: &InputEvent) -> EventResult {
         // 覆盖层优先：菜单打开时，Esc / 点击外部由它先处理。
         // 例外：点的是菜单标题时，先关掉当前菜单、把点击留给主树 —— 这样点
@@ -1282,7 +1282,7 @@ impl EditorView {
             }
             _ => {}
         }
-        draw_ui::handle_input(&mut self.tree, event)
+        igui_ui::handle_input(&mut self.tree, event)
     }
 
     // -- 画布 ------------------------------------------------------------
@@ -1351,7 +1351,7 @@ impl EditorView {
     }
 
     fn canvas_area_rect(&self) -> Option<Rect> {
-        draw_ui::control(&self.tree, self.canvas_area).map(|control| control.rect)
+        igui_ui::control(&self.tree, self.canvas_area).map(|control| control.rect)
     }
 
     /// 分隔条只管 `[min, max]`，管不了"窗口变窄了"。那一半在这里：右栏最多
@@ -1390,7 +1390,7 @@ impl EditorView {
     /// 保证可拖的标签页面板不会把下面的「图层」面板挤没。
     /// 返回是否调整过（调用方需要再排一次）。
     fn clamp_panel_heights(&mut self) -> bool {
-        let Some(sidebar) = draw_ui::control(&self.tree, self.sidebar_node) else {
+        let Some(sidebar) = igui_ui::control(&self.tree, self.sidebar_node) else {
             return false;
         };
         // 预留：图层最小高度 + 分隔条 + 两个子节点之间的列间距。
@@ -1620,7 +1620,7 @@ impl EditorView {
         let show_brush = tool_has_brush(tool);
         if self.tree.is_visible(self.options_brush) != Some(show_brush) {
             self.tree.set_visible(self.options_brush, show_brush);
-            draw_ui::mark_dirty(&mut self.tree, self.options_brush);
+            igui_ui::mark_dirty(&mut self.tree, self.options_brush);
         }
     }
 
@@ -1726,7 +1726,7 @@ impl EditorView {
     /// 工具按钮的中心点（逻辑坐标）。测试与自检用它模拟一次真实点击。
     pub fn tool_center(&self, tool: ActiveTool) -> Option<Vec2> {
         let id = self.tool_node(tool)?;
-        draw_ui::control(&self.tree, id).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
     /// 工具按钮的节点 id。
@@ -1740,7 +1740,7 @@ impl EditorView {
     /// 撤销 / 重做按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
     pub fn history_center(&self, action: HistoryAction) -> Option<Vec2> {
         let id = self.history_node(action)?;
-        draw_ui::control(&self.tree, id).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
     /// 撤销 / 重做按钮的节点 id。
@@ -1759,12 +1759,12 @@ impl EditorView {
     /// 调色盘第 `index` 个色块的中心点；测试与自检模拟点击用。
     pub fn palette_swatch_center(&self, index: usize) -> Option<Vec2> {
         let id = *self.palette_nodes.get(index)?;
-        draw_ui::control(&self.tree, id).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
     /// 取色器饱和 / 明度方块的中心点；测试与自检模拟拖动用。
     pub fn palette_picker_center(&self) -> Option<Vec2> {
-        draw_ui::control(&self.tree, self.palette_picker_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.palette_picker_node).map(|control| control.rect.center())
     }
 
     /// 文件面板按钮的节点 id。
@@ -1777,7 +1777,7 @@ impl EditorView {
 
     /// 文件面板按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
     pub fn file_center(&self, action: IoAction) -> Option<Vec2> {
-        draw_ui::control(&self.tree, self.file_node(action)?).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.file_node(action)?).map(|control| control.rect.center())
     }
 
     /// 选项栏 `−` / `+` 按钮的节点。
@@ -1791,7 +1791,7 @@ impl EditorView {
     /// 选项栏 `−` / `+` 按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
     pub fn brush_adjust_center(&self, adjust: BrushAdjust) -> Option<Vec2> {
         let id = self.brush_adjust_node(adjust)?;
-        draw_ui::control(&self.tree, id).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
     /// 当前笔刷大小（逻辑像素）。
@@ -1830,7 +1830,7 @@ impl EditorView {
     /// 选项栏开关按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
     pub fn brush_toggle_center(&self, toggle: BrushToggle) -> Option<Vec2> {
         let id = self.brush_toggle_node(toggle)?;
-        draw_ui::control(&self.tree, id).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
     /// 右栏当前宽度（逻辑像素）。
@@ -1840,7 +1840,7 @@ impl EditorView {
 
     /// 右栏分隔条的中心点（逻辑坐标）；测试与自检模拟拖动用。
     pub fn sidebar_handle_center(&self) -> Option<Vec2> {
-        draw_ui::control(&self.tree, self.sidebar_handle_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.sidebar_handle_node).map(|control| control.rect.center())
     }
 
     /// 左侧调色盘面板的宽度 / 分隔条中心。
@@ -1849,7 +1849,7 @@ impl EditorView {
     }
 
     pub fn palette_handle_center(&self) -> Option<Vec2> {
-        draw_ui::control(&self.tree, self.palette_handle_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.palette_handle_node).map(|control| control.rect.center())
     }
 
     /// 右侧栏标签页面板的当前高度（逻辑像素）。
@@ -1859,7 +1859,7 @@ impl EditorView {
 
     /// 标签页面板与「图层」面板之间分隔条的中心点（逻辑坐标）。
     pub fn tabs_handle_center(&self) -> Option<Vec2> {
-        draw_ui::control(&self.tree, self.tabs_handle_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.tabs_handle_node).map(|control| control.rect.center())
     }
 
     /// 当前标签页。
@@ -1874,7 +1874,7 @@ impl EditorView {
             .iter()
             .find(|(candidate, _)| *candidate == tab)
             .map(|(_, id)| *id)?;
-        draw_ui::control(&self.tree, id).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
     /// 某个标签页内容当前是否可见。
@@ -1894,7 +1894,7 @@ impl EditorView {
     /// 菜单标题按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
     pub fn menu_center(&self, index: usize) -> Option<Vec2> {
         let id = *self.menu_nodes.get(index)?;
-        draw_ui::control(&self.tree, id).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
     /// 当前是否有下拉菜单打开。
@@ -1943,7 +1943,7 @@ impl EditorView {
 
     /// 控件数（自检的预算检查用）。
     pub fn control_count(&self) -> usize {
-        draw_ui::control_count(&self.tree)
+        igui_ui::control_count(&self.tree)
     }
 }
 
@@ -2009,23 +2009,22 @@ fn brush_opacity_shortcut(key: Key) -> Option<f32> {
 mod tests {
     use super::*;
     use crate::document::{Color, PixelBuffer, Point};
-    use draw_core::{PointerButton, Size};
-    use draw_render::DrawCommand;
-    use draw_ui::Widget;
+    use igui_core::{PointerButton, Size};
+    use igui_render::DrawCommand;
 
     fn viewport() -> ViewportSize {
         ViewportSize::new(Size::new(1280.0, 800.0))
     }
 
     fn click(view: &mut EditorView, position: Vec2) {
-        draw_ui::handle_input(
+        igui_ui::handle_input(
             &mut view.tree,
             &InputEvent::PointerDown {
                 position,
                 button: PointerButton::Left,
             },
         );
-        draw_ui::handle_input(
+        igui_ui::handle_input(
             &mut view.tree,
             &InputEvent::PointerUp {
                 position,
@@ -2035,10 +2034,10 @@ mod tests {
     }
 
     fn label_text(view: &EditorView, id: NodeId) -> String {
-        match draw_ui::widget(&view.tree, id) {
-            Some(Widget::Label { text, .. }) => text.clone(),
-            _ => panic!("expected a label"),
-        }
+        igui_ui::content(&view.tree, id)
+            .and_then(|content| content.as_text())
+            .map(str::to_string)
+            .expect("expected a label")
     }
 
     #[test]
@@ -2148,11 +2147,11 @@ mod tests {
         view.layout(viewport());
         view.update();
         view.layout(viewport());
-        let before = draw_ui::layout_count(&view.tree);
+        let before = igui_ui::layout_count(&view.tree);
         view.update();
         view.layout(viewport());
         assert_eq!(
-            draw_ui::layout_count(&view.tree),
+            igui_ui::layout_count(&view.tree),
             before,
             "稳定后的一帧不该触发重排"
         );

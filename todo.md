@@ -1,7 +1,7 @@
 # image_editor — TODO
 
-这是 image_editor 自己的项目级待办（独立 git 仓库，依赖相邻的 quill checkout）。
-**从上往下做**；每条写清「改哪里 / 怎么验收」。与 quill 仓的路线图分开，别混。
+这是 image_editor 自己的项目级待办（独立 git 仓库，通过 git 依赖引用上游 igui）。
+**从上往下做**；每条写清「改哪里 / 怎么验收」。与 igui 仓的路线图分开，别混。
 
 约定（见 `AGENTS.md`）：每阶段 **API → 测试 → 实现 → 集成**，结束出报告等确认；
 验证只允许程序化（DrawList 命令 / 布局矩形 / 回调 / 后端像素缓冲），**不做截图**。
@@ -51,7 +51,7 @@
   **屏幕空间恒定大小**仍未做（现在烘在显示纹理里，改成独立叠加改动偏大，暂缓）。
   文件：`src/canvas/checkerboard.rs`、`src/ui/mod.rs`。
 - **最近邻只在 wgpu**（**暂不做，canvas 先不管**）：给 `draw_backend_canvas` 加
-  `imageSmoothingEnabled` 等价开关。文件：`crates/draw_backend_canvas`（quill 主仓）。
+  `imageSmoothingEnabled` 等价开关。文件：`crates/platform/canvas/igui_backend_canvas`（igui 主仓）。
 - [x] **图层缓冲回收**：图层菜单加「裁到文档」（`Document::crop_layer_to_document`）：
   按 `position` 摆好后裁回文档尺寸、`position` 归零，丢掉画布外像素。
 - **`--selfcheck` 覆盖**：棋盘格 / 移动映射目前只有单元测试。
@@ -59,7 +59,7 @@
 
 ## 3. 计划阶段（Phase 10+）
 
-复用 `draw_components::Overlays` 与 `examples/file_browser` 的工作线程 /
+复用 `igui_components::Overlays` 与 `examples/file_browser` 的工作线程 /
 `EventLoopProxy` 模式：
 
 - [ ] **Phase 10 — 文件浏览器**：把「文件」面板的路径文本输入换成选择器覆盖层：
@@ -67,7 +67,7 @@
   导入并设定导出路径。
 - [ ] **Phase 11 — 图层右键菜单**：图层行右键在指针处弹出上下文菜单（重命名 /
   复制 / 删除 / 显示隐藏 / 上移下移 / 向下合并 / 不透明度）。两个前置（增量）：
-  `Overlays` 支持**原始矩形 / 指针位置**锚点；`draw_ui` 增加右键回调
+  `Overlays` 支持**原始矩形 / 指针位置**锚点；`igui_ui` 增加右键回调
   （`PointerButton::Right` 已存在，但 `handle_input` 目前只处理左键）。
 
 ## Done（近期）

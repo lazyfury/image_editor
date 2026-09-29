@@ -1,4 +1,4 @@
-//! quill 图像编辑器 —— 用本仓库自己的 UI 栈代替 `egui` 的桌面示例。
+//! igui 图像编辑器 —— 用 igui 的 UI 栈代替 `egui` 的桌面示例。
 //!
 //! 启动先看到**主页**（[`ui::HomeView`]）：「新建窗口」开一个**原生**的
 //! 「新建文档」窗口（[`ui::NewDocumentView`]）选尺寸 / 背景色，「画廊」是占位；
@@ -27,7 +27,7 @@ mod ui;
 use app::application::{self, Options};
 
 const HELP: &str = "\
-image_editor — 用 quill 自己画的图像编辑器（Phase 8：移动 / 框选 / 吸管）
+image_editor — 用 igui 画的图像编辑器（Phase 8：移动 / 框选 / 吸管）
 
 启动先显示主页；点「新建窗口」开一个**原生**的「新建文档」窗口（不弹模态框）
 选尺寸 / 背景色，创建后在**主窗口**里编辑。「画廊」是占位。
@@ -36,7 +36,7 @@ image_editor — 用 quill 自己画的图像编辑器（Phase 8：移动 / 框�
   image_editor [选项]
 
 选项:
-      --selfcheck   无头自检：录 DrawList + draw_profile 体检 + 断言关键内容，
+      --selfcheck   无头自检：录 DrawList + igui_profile 体检 + 断言关键内容，
                     失败退出码 1
       --dump        同 --selfcheck，并打印完整绘制命令
       --frames <n>  渲染 n 帧后退出（验证真实渲染管线）

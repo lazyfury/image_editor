@@ -1,17 +1,17 @@
-//! 编辑器自己的主题：实现 quill 的 [`Theme`] trait，在项目里自由覆盖任意 token。
+//! 编辑器自己的主题：实现 igui 的 [`Theme`] trait，在项目里自由覆盖任意 token。
 //!
 //! [`EditorTheme`] 包住设计系统的 [`DefaultTheme`]，只做两件事：
 //! 1. 固定 **紧凑密度**（更小 padding、默认 mini 控件）；
 //! 2. 提供一处编辑器专属的覆盖点（下面 `impl Theme` 里按需改 `surface` /
 //!    `spacing` / `font_size` / 任意颜色）。
 //!
-//! 组件库读的是 trait，不认具体类型，所以这里加覆盖不用动 quill。主题以
+//! 组件库读的是 trait，不认具体类型，所以这里加覆盖不用动 igui。主题以
 //! `&'static dyn Theme` 形式交给视图，进程内只构造一次。
 
 use std::sync::LazyLock;
 
-use draw_core::Color;
-use draw_theme::{DefaultTheme, Density, Mode, Palette, SurfaceLevel, Theme};
+use igui_core::Color;
+use igui_theme::{DefaultTheme, Density, Mode, Palette, SurfaceLevel, Theme};
 
 /// 编辑器主题。持有内置主题作为基底，覆盖点集中在 `impl Theme` 中。
 pub struct EditorTheme {
@@ -70,7 +70,7 @@ pub fn editor_theme(light: bool) -> &'static dyn Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draw_theme::{ControlSize, Space};
+    use igui_theme::{ControlSize, Space};
 
     #[test]
     fn the_editor_theme_is_compact_and_keeps_the_mode() {

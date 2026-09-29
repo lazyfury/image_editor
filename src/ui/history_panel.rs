@@ -9,8 +9,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use draw_components::{Component, List, ListColumn};
-use draw_theme::Theme;
+use igui_components::{Component, List, ListColumn};
+use igui_theme::Theme;
 
 use crate::app::state::AppState;
 

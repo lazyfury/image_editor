@@ -1,18 +1,17 @@
-//! 随包字体：把 `assets/fonts/` 里的字体作为 quill 后端的默认 face。
+//! 随包字体：把 `assets/fonts/` 里的字体作为 igui 后端的默认 face。
 //!
-//! quill 的 [`FontConfig::default_face`](draw_font::FontConfig)（一个
+//! igui 的 [`FontConfig::default_face`](igui_font::FontConfig)（一个
 //! [`FaceRef`]）让调用方直接把一个字体文件指给 `FontServer`：只读该文件的元数据、
 //! **不扫描系统字体**；系统扫描推迟到真正需要 fallback（缺字 / 字体选择器）时。
 //! 项目启动时用 [`bundled_face`] 拿到它，随包字体不需要再借道环境变量。
 //!
-//! 用户显式设置的 `QUILL_FONT` 仍然优先：`FontServer::load_with` 先看该环境
-//! 变量，命中就不用 `default_face`。
+//! igui 不再从环境变量覆盖字体；换字体请改 [`BUNDLED_FONT`] 或用 `--pixel-font`。
 //!
 //! 字体文件本身**不提交 git**（见 `.gitignore` 与 `AGENTS.md`）。
 
 use std::path::PathBuf;
 
-use draw_font::FaceRef;
+use igui_font::FaceRef;
 
 /// 随包字体相对仓库根的路径。改字体只需替换这个文件。
 pub const BUNDLED_FONT: &str = "assets/fonts/jinghua-laosong-v3.0.ttf";

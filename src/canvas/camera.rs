@@ -1,6 +1,6 @@
 //! 画布相机：文档像素 -> 屏幕逻辑坐标。
 
-use draw_core::{Rect, Size, Transform2D, Vec2};
+use igui_core::{Rect, Size, Transform2D, Vec2};
 
 /// 相机的放大上限 / 下限。太小的缩放会让图像退化成一个点，太大则失去意义。
 pub const MIN_ZOOM: f32 = 0.05;

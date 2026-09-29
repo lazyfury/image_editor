@@ -5,8 +5,8 @@
 //! （滚轮缩放 / 中键平移）。用 `MouseFilter::Ignore` 把它从 UI 命中里摘出去，
 //! 否则那块矩形会把指针事件全部吃掉。
 
-use draw_components::{Component, Flex};
-use draw_ui::MouseFilter;
+use igui_components::{Component, Flex};
+use igui_ui::MouseFilter;
 
 /// 一块透明的画布区域。
 pub fn canvas_area() -> impl Component {

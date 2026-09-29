@@ -7,7 +7,7 @@
 //!
 //! [`PixelRegion::diff`]: crate::document::PixelRegion::diff
 
-use draw_core::Vec2;
+use igui_core::Vec2;
 
 use super::tool::{PointerEvent, Tool, ToolContext};
 use crate::document::{Color, Document, LayerId, PaintCommand, PixelBuffer, PixelRegion, Point};
@@ -330,7 +330,7 @@ mod tests {
     fn left(position: Vec2) -> PointerEvent {
         PointerEvent {
             position,
-            button: draw_core::PointerButton::Left,
+            button: igui_core::PointerButton::Left,
         }
     }
 

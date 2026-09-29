@@ -7,14 +7,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use draw_components::{Button, Component, Flex, NodeRef, Text};
-use draw_core::{
+use igui_components::{Button, Component, Flex, NodeRef, Text};
+use igui_core::{
     Color as UiColor, Edges, EventResult, InputEvent, NodeId, Rect, Size, Vec2, ViewportSize,
 };
-use draw_render::PaintContext;
-use draw_scene::{SceneChild, SceneTree};
-use draw_theme::{radius, space, SurfaceLevel, TextSize, Theme, Tone};
-use draw_ui::{Align, MouseFilter, SurfaceStyle, TextMeasurer};
+use igui_render::PaintContext;
+use igui_scene::{SceneChild, SceneTree};
+use igui_theme::{radius, space, SurfaceLevel, TextSize, Theme, Tone};
+use igui_ui::{Align, MouseFilter, SurfaceStyle, TextMeasurer};
 
 use crate::canvas::{CHECKER_DARK, CHECKER_LIGHT};
 use crate::document::Color;
@@ -180,7 +180,7 @@ impl NewDocumentView {
             Flex::row()
                 .gap(space::SM)
                 .padding(Edges::ZERO)
-                .justify(draw_ui::Justify::End)
+                .justify(igui_ui::Justify::End)
                 .mouse_filter(MouseFilter::Ignore)
                 .child(
                     Button::secondary("取消", theme)
@@ -248,7 +248,7 @@ impl NewDocumentView {
     }
 
     pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
-        draw_ui::set_text_measurer(&mut self.tree, measurer);
+        igui_ui::set_text_measurer(&mut self.tree, measurer);
     }
 
     /// 宿主的每一帧调用：把共享格里的选择写进标签（只在改动后）。
@@ -260,9 +260,9 @@ impl NewDocumentView {
             let spec = self.choices.borrow();
             (spec.width, spec.height, spec.background)
         };
-        draw_components::set_text(&mut self.tree, self.width_label, format!("{width} px"));
-        draw_components::set_text(&mut self.tree, self.height_label, format!("{height} px"));
-        draw_components::set_text(
+        igui_components::set_text(&mut self.tree, self.width_label, format!("{width} px"));
+        igui_components::set_text(&mut self.tree, self.height_label, format!("{height} px"));
+        igui_components::set_text(
             &mut self.tree,
             self.background_label,
             format!("背景：{}", background_name(background)),
@@ -275,18 +275,18 @@ impl NewDocumentView {
     }
 
     pub fn event(&mut self, event: &InputEvent) -> EventResult {
-        draw_ui::handle_input(&mut self.tree, event)
+        igui_ui::handle_input(&mut self.tree, event)
     }
 
     pub fn layout(&mut self, viewport: ViewportSize) {
         self.tree.set_viewport_size(viewport.logical_size());
-        draw_ui::layout(&mut self.tree, viewport);
+        igui_ui::layout(&mut self.tree, viewport);
         self.tree.update();
     }
 
     pub fn paint(&self, ctx: &mut PaintContext) {
         self.tree.paint(ctx);
-        draw_ui::paint(&self.tree, ctx);
+        igui_ui::paint(&self.tree, ctx);
     }
 
     /// 当前选择（测试用）。
@@ -318,7 +318,7 @@ impl NewDocumentView {
 }
 
 fn center(tree: &SceneTree, id: NodeId) -> Option<Vec2> {
-    draw_ui::control(tree, id).map(|control| control.rect.center())
+    igui_ui::control(tree, id).map(|control| control.rect.center())
 }
 
 /// 背景色的名字（状态行显示用）。
@@ -479,8 +479,8 @@ fn to_ui(color: Color) -> UiColor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draw_core::{PointerButton, Size};
-    use draw_render::DrawCommand;
+    use igui_core::{PointerButton, Size};
+    use igui_render::DrawCommand;
 
     fn viewport() -> ViewportSize {
         ViewportSize::new(Size::new(560.0, 640.0))
@@ -498,17 +498,17 @@ mod tests {
         view.update();
     }
 
-    fn preset_rects(view: &NewDocumentView) -> Vec<draw_core::Rect> {
+    fn preset_rects(view: &NewDocumentView) -> Vec<igui_core::Rect> {
         view.presets
             .iter()
-            .filter_map(|id| draw_ui::control(&view.tree, *id).map(|control| control.rect))
+            .filter_map(|id| igui_ui::control(&view.tree, *id).map(|control| control.rect))
             .collect()
     }
 
-    fn background_rects(view: &NewDocumentView) -> Vec<draw_core::Rect> {
+    fn background_rects(view: &NewDocumentView) -> Vec<igui_core::Rect> {
         view.backgrounds
             .iter()
-            .filter_map(|id| draw_ui::control(&view.tree, *id).map(|control| control.rect))
+            .filter_map(|id| igui_ui::control(&view.tree, *id).map(|control| control.rect))
             .collect()
     }
 

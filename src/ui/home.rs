@@ -9,12 +9,12 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::ui::card::Card as UICard;
-use draw_components::{Button, Card, Component, Divider, EmptyState, Flex, NodeRef, Text};
-use draw_core::{Color, Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSize};
-use draw_render::PaintContext;
-use draw_scene::{SceneChild, SceneTree};
-use draw_theme::{space, SurfaceLevel, Theme, Tone};
-use draw_ui::{MouseFilter, TextMeasurer};
+use igui_components::{Button, Card, Component, Divider, EmptyState, Flex, NodeRef, Text};
+use igui_core::{Color, Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSize};
+use igui_render::PaintContext;
+use igui_scene::{SceneChild, SceneTree};
+use igui_theme::{space, SurfaceLevel, Theme, Tone};
+use igui_ui::{MouseFilter, TextMeasurer};
 
 /// 首页视图。一棵自己的 `SceneTree`，跟 [`EditorView`](crate::ui::EditorView)
 /// 一样只负责排布 / 绘制 / 输入，不碰平台。
@@ -62,8 +62,8 @@ impl HomeView {
             .child(
                 Flex::column()
                     .grow(1.0)
-                    .align(draw_ui::Align::Center)
-                    .justify(draw_ui::Justify::Center)
+                    .align(igui_ui::Align::Center)
+                    .justify(igui_ui::Justify::Center)
                     .child(
                         EmptyState::new("画廊", theme)
                             .description("占位：以后在这里展示最近打开的文档。"),
@@ -80,15 +80,12 @@ impl HomeView {
                         Flex::column()
                             .gap(space::XS)
                             .padding(Edges::ZERO)
-                            .justify(draw_ui::Justify::SpaceBetween)
+                            .justify(igui_ui::Justify::SpaceBetween)
                             .mouse_filter(MouseFilter::Ignore)
                             .child(Text::title("Quill 图像编辑器", theme))
                             .child(
-                                Text::small(
-                                    "用 quill 自己的 2D / UI 栈画的桌面图像编辑器。",
-                                    theme,
-                                )
-                                .tone(Tone::Muted),
+                                Text::small("用 igui 的 2D / UI 栈画的桌面图像编辑器。", theme)
+                                    .tone(Tone::Muted),
                             ),
                     )
                     .child(Divider::vertical(theme))
@@ -122,7 +119,7 @@ impl HomeView {
 
     /// 用后端真实字体度量排版。
     pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
-        draw_ui::set_text_measurer(&mut self.tree, measurer);
+        igui_ui::set_text_measurer(&mut self.tree, measurer);
     }
 
     /// 这一帧有没有点过「新建窗口」；取走后清掉，宿主据此开原生窗口。
@@ -131,31 +128,31 @@ impl HomeView {
     }
 
     pub fn event(&mut self, event: &InputEvent) -> EventResult {
-        draw_ui::handle_input(&mut self.tree, event)
+        igui_ui::handle_input(&mut self.tree, event)
     }
 
     pub fn layout(&mut self, viewport: ViewportSize) {
         self.tree.set_viewport_size(viewport.logical_size());
-        draw_ui::layout(&mut self.tree, viewport);
+        igui_ui::layout(&mut self.tree, viewport);
         self.tree.update();
     }
 
     pub fn paint(&self, ctx: &mut PaintContext) {
         self.tree.paint(ctx);
-        draw_ui::paint(&self.tree, ctx);
+        igui_ui::paint(&self.tree, ctx);
     }
 
     /// 「新建窗口」按钮的心点（逻辑坐标）；测试模拟点击用。
     #[allow(dead_code)]
     pub fn new_window_center(&self) -> Option<Vec2> {
-        draw_ui::control(&self.tree, self.new_window_button).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.new_window_button).map(|control| control.rect.center())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draw_core::{PointerButton, Size, Vec2};
+    use igui_core::{PointerButton, Size, Vec2};
 
     fn viewport() -> ViewportSize {
         ViewportSize::new(Size::new(900.0, 620.0))
@@ -193,7 +190,7 @@ mod tests {
             .commands()
             .iter()
             .filter_map(|command| match command {
-                draw_render::DrawCommand::DrawText { text, .. } => Some(text.clone()),
+                igui_render::DrawCommand::DrawText { text, .. } => Some(text.clone()),
                 _ => None,
             })
             .collect();

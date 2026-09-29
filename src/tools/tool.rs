@@ -3,7 +3,7 @@
 //! 工具只认识**文档坐标**和 `Document`，不认识任何 UI widget / 平台类型
 //! （§24）。宿主 / 视图负责把屏幕坐标换算成文档坐标，再调工具。
 
-use draw_core::{PointerButton, Vec2};
+use igui_core::{PointerButton, Vec2};
 
 use crate::document::{Document, History};
 

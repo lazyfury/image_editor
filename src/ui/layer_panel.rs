@@ -1,6 +1,6 @@
 //! 图层面板：`Document` 图层栈的增删改排序 + 可见性 / 不透明度。
 //!
-//! 列表用 `draw_components::List`（虚拟化）—— 但图层数通常很少，用它的理由
+//! 列表用 `igui_components::List`（虚拟化）—— 但图层数通常很少，用它的理由
 //! 是**行内容会整体重绑**：文档改动后 `ListState::invalidate` + `sync` 就能
 //! 刷新眼睛、名字和不透明度，不必手搓动态子树。
 //!
@@ -14,10 +14,10 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use draw_components::{Button, Column, Component, Divider, Flex, List, ListColumn, Text};
-use draw_core::Edges;
-use draw_theme::{space, TextSize, Theme, Tone};
-use draw_ui::MouseFilter;
+use igui_components::{Button, Column, Component, Divider, Flex, List, ListColumn, Text};
+use igui_core::Edges;
+use igui_theme::{space, TextSize, Theme, Tone};
+use igui_ui::MouseFilter;
 
 use crate::app::state::AppState;
 use crate::document::{

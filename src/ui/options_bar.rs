@@ -8,10 +8,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use draw_components::{Button, Component, Flex, NodeRef, Text};
-use draw_core::{Color, Edges};
-use draw_theme::{radius, space, SurfaceLevel, Theme, Tone};
-use draw_ui::{Align, MouseFilter, SurfaceStyle};
+use igui_components::{Button, Component, Flex, NodeRef, Text};
+use igui_core::{Color, Edges};
+use igui_theme::{radius, space, SurfaceLevel, Theme, Tone};
+use igui_ui::{Align, MouseFilter, SurfaceStyle};
 
 use crate::app::state::ActiveTool;
 

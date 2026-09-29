@@ -20,12 +20,12 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use draw_backend_wgpu::{wgpu, TextureFilter, WgpuBackend};
-use draw_core::{InputEvent, Key, PointerButton, Size, Vec2, ViewportSize};
-use draw_font::{FaceRef, FontConfig, FontMetrics, FontMode};
-use draw_render::{PaintContext, RenderBackend};
-use draw_theme::{SurfaceLevel, Theme};
-use draw_ui::TextMeasurer;
+use igui_backend_wgpu::{wgpu, TextureFilter, WgpuBackend};
+use igui_core::{InputEvent, Key, PointerButton, Size, Vec2, ViewportSize};
+use igui_font::{FaceRef, FontConfig, FontMetrics, FontMode};
+use igui_render::{PaintContext, RenderBackend};
+use igui_theme::{SurfaceLevel, Theme};
+use igui_ui::TextMeasurer;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -95,7 +95,7 @@ struct App {
     light: bool,
     font_mode: FontMode,
     /// 随包字体（`assets/fonts/`）作为 `FontServer` 的默认 face；`None` 时
-    /// 走系统字体 / 点阵回落。用户自己的 `QUILL_FONT` 仍然优先。
+    /// 走系统字体 / 点阵回落。
     default_face: Option<FaceRef>,
     /// 当前修饰键状态（Ctrl/Cmd+Z 这类快捷键在平台层处理）。
     modifiers: ModifiersState,
@@ -106,7 +106,7 @@ struct App {
 impl App {
     fn new(options: Options) -> Self {
         tracing::info!(target: "image_editor", light = options.light, "application_start");
-        // 默认用随包字体，除非显式选了点阵字体；`QUILL_FONT` 仍然优先。
+        // 默认用随包字体，除非显式选了点阵字体。
         let default_face = if options.pixel_font {
             None
         } else {
@@ -217,7 +217,7 @@ impl App {
     fn open_main_window(&mut self, event_loop: &ActiveEventLoop) {
         let theme = self.theme();
         let attributes = Window::default_attributes()
-            .with_title("quill 图像编辑器")
+            .with_title("igui 图像编辑器")
             .with_inner_size(LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
         let window = Arc::new(
             event_loop
@@ -262,7 +262,7 @@ impl App {
 
         let theme = self.theme();
         let attributes = Window::default_attributes()
-            .with_title("新建文档 — quill 图像编辑器")
+            .with_title("新建文档 — igui 图像编辑器")
             .with_inner_size(LogicalSize::new(NEW_DOCUMENT_WIDTH, NEW_DOCUMENT_HEIGHT));
         let window = Arc::new(
             event_loop
@@ -333,7 +333,7 @@ impl App {
 
         self.windows[index]
             .window
-            .set_title(&format!("{} — quill 图像编辑器", editor.document_name()));
+            .set_title(&format!("{} — igui 图像编辑器", editor.document_name()));
         self.windows[index].view = View::Editor(editor);
         self.windows[index].window.request_redraw();
     }
@@ -607,7 +607,7 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } => {
                 let pressed = event.state == ElementState::Pressed;
                 // Ctrl/Cmd+Z 这类快捷键先在这里截掉：`InputEvent::KeyDown` 没有
-                // 修饰键字段（`draw_core` 刻意保持最小），所以由宿主映射到
+                // 修饰键字段（`igui_core` 刻意保持最小），所以由宿主映射到
                 // `EditorView::undo/redo`，不当作普通按键 / 文本。主页窗口没有
                 // 编辑器，直接跳过。
                 let mut consumed = false;
@@ -689,8 +689,8 @@ fn wheel_pixels(delta: MouseScrollDelta, scale: f32) -> f32 {
     }
 }
 
-/// 窗口清屏色 = 主题的底层背景（`draw_ui` 之外的地方由后端填）。
-fn theme_background(theme: &'static dyn Theme) -> draw_core::Color {
+/// 窗口清屏色 = 主题的底层背景（`igui_ui` 之外的地方由后端填）。
+fn theme_background(theme: &'static dyn Theme) -> igui_core::Color {
     theme.surface(SurfaceLevel::Base)
 }
 
@@ -701,7 +701,7 @@ struct BackendTextMeasurer {
 
 /// 大写字高相对字号的比例（约 0.7 em），用来把字形视觉居中到行框。
 ///
-/// 换字体后上下会偏，是因为 `draw_ui` 的居中公式用的是字体的原生 `ascent`：
+/// 换字体后上下会偏，是因为 `igui_ui` 的居中公式用的是字体的原生 `ascent`：
 /// `baseline = 行框中心 - line_height/2 + ascent`，而不同字体的
 /// `ascent / line_height` 分布差别很大。这里覆盖 `ascent` 为
 /// `line_height/2 + cap/2`，让**字形视觉中心**落在行框中心；对度量正常的

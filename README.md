@@ -1,13 +1,14 @@
-# image_editor — 用 quill 自己画的图像编辑器
+# image_editor — 用 igui 自己画的图像编辑器
 
-一个精简版 Photoshop 风格的 2D 图像编辑器。**界面用 quill 的 UI 栈**
-（`draw_theme` / `draw_components` / `draw_ui` + `draw_backend_wgpu`）实现，
+一个精简版 Photoshop 风格的 2D 图像编辑器。**界面用 igui 的 UI 栈**
+（`igui_theme` / `igui_components` / `igui_ui` + `igui_backend_wgpu`）实现，
 不用 `egui`。
 
-这是一个独立项目（自己的 git 仓库），通过相对路径依赖相邻的 quill checkout
-（`Cargo.toml` 里的 `../quill/crates/*`）—— 把 `image_editor/` 和 `quill/` 放在
-同一父目录下即可。图标用核心的 `draw_svg`（零外部依赖）；PNG 编解码用 `png`
-crate；结构化日志用 `tracing`。
+这是一个独立项目（自己的 git 仓库），通过 **git 依赖**引用上游的 igui
+（`Cargo.toml` 里的 `https://github.com/lazyfury/igui`，按 `release.md` 记录
+的 release tag 固定，当前 `v0.2.0`）—— 不再需要相邻的路径 checkout。图标用
+核心的 `igui_svg`（零外部依赖）；PNG 编解码用 `png` crate；结构化日志用
+`tracing`。
 
 ## 运行
 
@@ -47,7 +48,7 @@ cargo run -- --pixel-font
 - [x] **Phase 3 — Canvas（缩放 / 平移 / 坐标转换 / 显示图像）**：
   `src/renderer/` 的 CPU 合成器把文档图层合成为一张 `PixelBuffer`；宿主用
   `register_texture` 上传，画布是场景里的一个 `Node2D`（`Visual::Image`），
-  相机变换挂在它的 `Transform2D` 上，由 `draw_scene` 绘制、UI 覆盖其上。
+  相机变换挂在它的 `Transform2D` 上，由 `igui_scene` 绘制、UI 覆盖其上。
   `src/canvas/` 提供相机与坐标转换；滚轮缩放（锚定指针）、中键平移、
   `+`/`-`/`0`/`F` 快捷键，状态栏显示指针下的像素坐标。画布默认带一层透明
   棋盘格背景（`src/canvas/checkerboard.rs`）：只在显示用的合成结果上生成，
@@ -103,13 +104,13 @@ cargo run -- --pixel-font
   颜色写进前景色。三个工具的纯逻辑分别放在 `canvas` / `renderer` / `tools`，
   视图只做坐标换算与状态同步。
 - [x] **Phase 9 — 菜单栏（真实下拉）**：标题点击改成一个共享请求格，
-  `EditorView::update` 用它调 `draw_components::Overlays::menu` 弹出下拉；
+  `EditorView::update` 用它调 `igui_components::Overlays::menu` 弹出下拉；
   下拉内容是一个 `Menu`（`MenuItem` 行 = 左标签 + 右快捷键，动作不可用时
   `disabled`）。撤销 / 重做、导入 / 导出、缩放 / 适配、取消选区、关于已接真实
   动作，其余是带标注的占位项。菜单打开时点**另一个**标题会一次点击切换、点
   当前标题则关闭（标题的点击在覆盖层消费外部点击之前被 `EditorView` 拦下，
   再交给主树）。`Menu` / `MenuItem` / `Overlays::menu` 都在核心包
-  `draw_components`，Phase 11 的右键菜单直接复用。
+  `igui_components`，Phase 11 的右键菜单直接复用。
 - [x] **Phase 9.x — 工具选项栏 + 可拖动右栏**：菜单栏下面多一行工具选项栏
   （`ui/options_bar.rs`）：画笔 / 橡皮显示笔刷大小、不透明度与 `−` / `+`
   按钮，其余工具显示一句操作提示；`−` / `+` 只写请求格，`update` 统一调整。
@@ -136,7 +137,7 @@ Phase 10/11 和性能收尾），README 只留功能说明。要点：
 - **Phase 10 — 文件浏览器**：路径输入换成 `List` 覆盖层，扫描走工作线程，
   过滤 `*.png`，选中即导入 / 设导出路径。
 - **Phase 11 — 图层右键菜单**：两个前置（增量）：`Overlays` 支持原始矩形 / 指针
-  位置锚点；`draw_ui` 增加右键回调。
+  位置锚点；`igui_ui` 增加右键回调。
 
 ## 主题（紧凑）
 
@@ -170,7 +171,7 @@ Phase 10/11 和性能收尾），README 只留功能说明。要点：
 | `F` | 适配画布区域 |
 
 > 修饰键快捷键在**宿主层**处理：`InputEvent::KeyDown` 没有修饰键字段
-> （`draw_core` 刻意保持最小），所以 `app/application.rs` 把 `Ctrl/Cmd+Z`
+> （`igui_core` 刻意保持最小），所以 `app/application.rs` 把 `Ctrl/Cmd+Z`
 > 直接映射到 `EditorView::undo/redo`，不当作普通按键。
 
 ## 结构
@@ -182,7 +183,7 @@ src/
 ├── app/
 │   ├── state.rs         # ActiveTool / CanvasCamera / AppState（纯数据）
 │   └── application.rs   # winit + wgpu 宿主（滚轮 -> Wheel、纹理上传）
-├── icons.rs             # Lucide 图标包加载 + `Icon` 组件（draw_svg）
+├── icons.rs             # Lucide 图标包加载 + `Icon` 组件（igui_svg）
 ├── document/            # Phase 2：后端无关的数据模型
 │   ├── mod.rs
 │   ├── color.rs         # 8-bit RGBA
@@ -223,7 +224,7 @@ src/
 │   ├── history_panel.rs # 历史面板（List：undo/redo 栈，点一步跳过去）
 │   ├── properties_panel.rs  # 当前图层属性（只读）
 │   └── status_bar.rs
-└── selfcheck.rs         # 无头自检（录制 DrawList + draw_profile 体检）
+└── selfcheck.rs         # 无头自检（录制 DrawList + igui_profile 体检）
 ```
 
 ## 画布操作
@@ -274,7 +275,7 @@ Esc 取消）。列表第 0 行是最上面的图层。
 ## 验证（无截图）
 
 遵守仓库规则：不截图。`--selfcheck` 把同一棵视图画进
-`draw_backend_recording::RecordingBackend`，用 `draw_profile::inspect` 做结构
+`igui_backend_recording::RecordingBackend`，用 `igui_profile::inspect` 做结构
 体检，并断言菜单 / 工具 / 画布 / 图层 / 图标 / 状态栏的文字都在命令流里。
 Phase 6 起还做一次**真实的撤销 / 重做往返**：画笔一笔 → 点工具栏「撤销」→ 断言
 合成结果回到白底且有 redo → 点「重做」→ 断言又变黑；最后断言历史栈是
@@ -295,7 +296,7 @@ Phase 6 起还做一次**真实的撤销 / 重做往返**：画笔一笔 → 点
 当前工具用 `theme.palette().selection` 高亮（`Button` 的显式 `dynamic_background`
 会覆盖 variant 的默认背景）。
 
-描边走核心的 `draw_svg`（backend-neutral：把 SVG 描边成 IR 的 `Line` /
+描边走核心的 `igui_svg`（backend-neutral：把 SVG 描边成 IR 的 `Line` /
 `FillCircle`）——**不栅格化成纹理**，也不加额外依赖；小字标签在按钮下面。
 默认加载仓库自带的 7 个图标（`assets/icons/`，含 Lucide 的 ISC `LICENSE`），
 测试与 `--selfcheck` 因而可复现。

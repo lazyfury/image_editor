@@ -373,102 +373,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
-name = "draw_backend_recording"
-version = "0.1.0"
-dependencies = [
- "draw_core",
- "draw_render",
-]
-
-[[package]]
-name = "draw_backend_wgpu"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "draw_core",
- "draw_font",
- "draw_render",
- "pollster",
- "wgpu",
-]
-
-[[package]]
-name = "draw_components"
-version = "0.1.0"
-dependencies = [
- "draw_core",
- "draw_render",
- "draw_scene",
- "draw_theme",
- "draw_ui",
-]
-
-[[package]]
-name = "draw_core"
-version = "0.1.0"
-
-[[package]]
-name = "draw_font"
-version = "0.1.0"
-dependencies = [
- "ab_glyph",
- "draw_core",
- "font8x8",
- "memmap2",
- "rustybuzz",
- "ttf-parser",
- "unicode-bidi",
- "unicode-script",
-]
-
-[[package]]
-name = "draw_profile"
-version = "0.1.0"
-dependencies = [
- "draw_core",
- "draw_render",
-]
-
-[[package]]
-name = "draw_render"
-version = "0.1.0"
-dependencies = [
- "draw_core",
-]
-
-[[package]]
-name = "draw_scene"
-version = "0.1.0"
-dependencies = [
- "draw_core",
- "draw_render",
-]
-
-[[package]]
-name = "draw_svg"
-version = "0.1.0"
-dependencies = [
- "draw_core",
- "draw_render",
-]
-
-[[package]]
-name = "draw_theme"
-version = "0.1.0"
-dependencies = [
- "draw_core",
-]
-
-[[package]]
-name = "draw_ui"
-version = "0.1.0"
-dependencies = [
- "draw_core",
- "draw_render",
- "draw_scene",
-]
-
-[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -723,20 +627,127 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "igui_backend_recording"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+ "igui_render",
+]
+
+[[package]]
+name = "igui_backend_wgpu"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "bytemuck",
+ "igui_core",
+ "igui_font",
+ "igui_render",
+ "pollster",
+ "wgpu",
+]
+
+[[package]]
+name = "igui_components"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+ "igui_render",
+ "igui_scene",
+ "igui_theme",
+ "igui_ui",
+]
+
+[[package]]
+name = "igui_core"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+
+[[package]]
+name = "igui_font"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "ab_glyph",
+ "font8x8",
+ "igui_core",
+ "memmap2",
+ "rustybuzz",
+ "ttf-parser",
+ "unicode-bidi",
+ "unicode-script",
+]
+
+[[package]]
+name = "igui_profile"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+ "igui_render",
+]
+
+[[package]]
+name = "igui_render"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+]
+
+[[package]]
+name = "igui_scene"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+ "igui_render",
+]
+
+[[package]]
+name = "igui_svg"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+ "igui_render",
+]
+
+[[package]]
+name = "igui_theme"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+]
+
+[[package]]
+name = "igui_ui"
+version = "0.1.0"
+source = "git+https://github.com/lazyfury/igui?tag=v0.2.0#ea24069148e36073f814453c98c85377ec952c9a"
+dependencies = [
+ "igui_core",
+ "igui_render",
+ "igui_scene",
+]
+
+[[package]]
 name = "image_editor"
 version = "0.1.0"
 dependencies = [
- "draw_backend_recording",
- "draw_backend_wgpu",
- "draw_components",
- "draw_core",
- "draw_font",
- "draw_profile",
- "draw_render",
- "draw_scene",
- "draw_svg",
- "draw_theme",
- "draw_ui",
+ "igui_backend_recording",
+ "igui_backend_wgpu",
+ "igui_components",
+ "igui_core",
+ "igui_font",
+ "igui_profile",
+ "igui_render",
+ "igui_scene",
+ "igui_svg",
+ "igui_theme",
+ "igui_ui",
  "png",
  "tracing",
  "winit",

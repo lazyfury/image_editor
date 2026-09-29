@@ -9,11 +9,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use draw_components::{Component, Flex, NodeRef, Spec, Text};
-use draw_core::{Color, Edges, NodeId, Vec2};
-use draw_scene::SceneTree;
-use draw_theme::{space, SurfaceLevel, Theme};
-use draw_ui::{FlexStyle, MouseFilter, SurfaceStyle, Widget};
+use igui_components::{Component, Flex, NodeRef, Spec, Text};
+use igui_core::{Color, Edges, NodeId, Vec2};
+use igui_scene::SceneTree;
+use igui_theme::{space, SurfaceLevel, Theme};
+use igui_ui::{Container, FlexStyle, MouseFilter, SurfaceStyle};
 
 /// 侧栏标签页。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -96,8 +96,8 @@ impl Component for TabsView {
         "TabsView"
     }
 
-    fn widget(&self) -> Widget {
-        Widget::Flex(
+    fn container(&self) -> Container {
+        Container::Flex(
             FlexStyle::column()
                 .gap(space::SM)
                 .padding(Edges::all(space::SM)),
@@ -136,7 +136,7 @@ pub fn show_active(
     for (tab, node) in contents {
         tree.set_visible(*node, *tab == active);
     }
-    draw_ui::mark_dirty(tree, panel);
+    igui_ui::mark_dirty(tree, panel);
 }
 
 /// 一个标签按钮：点击选中；选中的有底色 + 底部一条 accent 下划线。
@@ -180,8 +180,8 @@ fn tab_button(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draw_core::{Size, ViewportSize};
-    use draw_ui::SizeBasis;
+    use igui_core::{Size, ViewportSize};
+    use igui_ui::SizeBasis;
 
     #[test]
     fn tab_contents_stack_below_the_tab_bar() {
@@ -208,10 +208,10 @@ mod tests {
             Flex::column().basis(SizeBasis::Px(200.0)).child(view),
         );
         tree.set_viewport_size(Size::new(320.0, 240.0));
-        draw_ui::layout(&mut tree, ViewportSize::new(Size::new(320.0, 240.0)));
+        igui_ui::layout(&mut tree, ViewportSize::new(Size::new(320.0, 240.0)));
 
-        let file_rect = draw_ui::control(&tree, file.1.get().unwrap()).unwrap().rect;
-        let hist_rect = draw_ui::control(&tree, hist.1.get().unwrap()).unwrap().rect;
+        let file_rect = igui_ui::control(&tree, file.1.get().unwrap()).unwrap().rect;
+        let hist_rect = igui_ui::control(&tree, hist.1.get().unwrap()).unwrap().rect;
         assert!(file_rect.top() > 0.0, "内容应在标签栏下面：{file_rect:?}");
         assert!(
             hist_rect.top() >= file_rect.max().y,
@@ -268,8 +268,8 @@ mod tests {
         )
     }
 
-    fn content_rect(tree: &SceneTree, id: NodeId) -> draw_core::Rect {
-        draw_ui::control(tree, id).unwrap().rect
+    fn content_rect(tree: &SceneTree, id: NodeId) -> igui_core::Rect {
+        igui_ui::control(tree, id).unwrap().rect
     }
 
     #[test]
@@ -283,9 +283,9 @@ mod tests {
             SidebarTab::File,
             &[(SidebarTab::File, file), (SidebarTab::History, hist)],
         );
-        draw_ui::layout(&mut tree, viewport);
+        igui_ui::layout(&mut tree, viewport);
         assert!(content_rect(&tree, file).top() > 0.0);
-        assert_eq!(content_rect(&tree, hist), draw_core::Rect::ZERO);
+        assert_eq!(content_rect(&tree, hist), igui_core::Rect::ZERO);
     }
 
     #[test]
@@ -295,17 +295,17 @@ mod tests {
         let contents = [(SidebarTab::File, file), (SidebarTab::History, hist)];
 
         show_active(&mut tree, panel, SidebarTab::File, &contents);
-        draw_ui::layout(&mut tree, viewport);
-        assert_eq!(content_rect(&tree, hist), draw_core::Rect::ZERO);
+        igui_ui::layout(&mut tree, viewport);
+        assert_eq!(content_rect(&tree, hist), igui_core::Rect::ZERO);
 
         show_active(&mut tree, panel, SidebarTab::History, &contents);
-        draw_ui::layout(&mut tree, viewport);
+        igui_ui::layout(&mut tree, viewport);
         let hist_rect = content_rect(&tree, hist);
         assert!(
             hist_rect.top() > 0.0,
             "切换后内容应重新排布，而不是停在 (0, 0)：{hist_rect:?}"
         );
-        assert_eq!(content_rect(&tree, file), draw_core::Rect::ZERO);
+        assert_eq!(content_rect(&tree, file), igui_core::Rect::ZERO);
     }
 
     #[test]

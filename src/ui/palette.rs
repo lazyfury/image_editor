@@ -6,17 +6,17 @@
 //! 16 个预设色块，点一下直接选色。
 //!
 //! 文档色是 8 位 RGBA（[`crate::document::Color`]），UI 的 `SurfaceStyle` 要
-//! 浮点 RGBA（`draw_core::Color`）；转换只在这一层做。取色器没有渐变图元，用
+//! 浮点 RGBA（`igui_core::Color`）；转换只在这一层做。取色器没有渐变图元，用
 //! 一小片实心色块拼出方块 / 色相条（分辨率见 `SV_CELLS` / `HUE_CELLS`）。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use draw_components::{Button, Component, Flex, NodeRef, Text};
-use draw_core::{Color, Edges, Rect, Size, Vec2};
-use draw_render::PaintContext;
-use draw_theme::{radius, space, Theme};
-use draw_ui::{Align, MouseFilter, SurfaceStyle};
+use igui_components::{Button, Component, Flex, NodeRef, Text};
+use igui_core::{Color, Edges, Rect, Size, Vec2};
+use igui_render::PaintContext;
+use igui_theme::{radius, space, Theme};
+use igui_ui::{Align, MouseFilter, SurfaceStyle};
 
 use crate::app::state::AppState;
 use crate::document::Color as DocColor;

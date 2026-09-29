@@ -1,9 +1,9 @@
 # AGENTS.md — image_editor
 
 A standalone, Photoshop-style 2D image editor whose entire UI is drawn by the
-**quill** stack (`draw_core` / `draw_render` / `draw_scene` / `draw_theme` /
-`draw_ui` / `draw_components` / `draw_svg` / `draw_backend_wgpu`). No `egui`, no
-DOM.
+**igui** stack (formerly quill) (`igui_core` / `igui_render` / `igui_scene` /
+`igui_theme` / `igui_ui` / `igui_components` / `igui_svg` /
+`igui_backend_wgpu`). No `egui`, no DOM.
 
 This file is the short source of truth for rules. Details live in `README.md`
 (features, phases) and `todo.md` (project backlog).
@@ -19,8 +19,8 @@ src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser, Move, Rectangle-select, Eyedropper
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard
 src/io/         PNG encode/decode + path helpers
-src/fonts.rs    bundled-font discovery (assets/fonts/, `QUILL_FONT`)
-src/icons.rs    vendored Lucide SVG subset, drawn via draw_svg (no textures)
+src/fonts.rs    bundled-font discovery (assets/fonts/)
+src/icons.rs    vendored Lucide SVG subset, drawn via igui_svg (no textures)
 src/theme.rs    editor theme (compact density)
 src/selfcheck.rs headless `--selfcheck` / `--dump`
 packaging/      macOS .app `Info.plist`
@@ -30,13 +30,16 @@ package-macos.sh  build --release and assemble `dist/*.app` (ad-hoc codesign)
 Flow: `Input -> view -> SceneTree -> layout -> paint -> DrawList -> RenderBackend
 -> pixels`.
 
-## Dependency on quill
+## Dependency on igui (formerly quill)
 
-This project consumes the quill crates from the **sibling checkout** via relative
-path deps (`../quill/crates/*` in `Cargo.toml`). Keep `image_editor/` and
-`quill/` adjacent under the same parent directory. Do **not** vendor or fork the
-quill crates here; shared UI-layer changes belong in the quill repo and must keep
-its own gate green.
+This project consumes the **igui** UI stack from the upstream GitHub repo in
+**git dependency mode** — every `igui_*` crate in `Cargo.toml` points at
+`https://github.com/lazyfury/igui`, pinned to the release tag documented in that
+repo's `release.md` (currently `v0.2.0`). No sibling path checkout is required;
+Cargo fetches the repo once for all crates. Do **not** vendor or fork the igui
+crates here; shared UI-layer changes belong in the igui repo and must keep its
+own gate green. To upgrade, bump the tag here and follow `release.md`'s
+rename / API mapping.
 
 ## Bundled font
 
@@ -48,13 +51,13 @@ assets/fonts/jinghua-laosong-v3.0.ttf
 
 - **Not committed.** `assets/fonts/` is in `.gitignore` (large file, unclear
   redistribution license). Drop the `.ttf` there to build/run with it.
-- `src/fonts.rs` locates that file and hands it to quill's
-  `FontConfig::default_face` (`FaceRef`) as the default face, unless the user set
-  `QUILL_FONT` (their value wins) or passed `--pixel-font`. The default face seeds
+- `src/fonts.rs` locates that file and hands it to igui's
+  `FontConfig::default_face` (`FaceRef`) as the default face, unless `--pixel-font`
+  was passed. The default face seeds
   the `FontServer` without scanning the system; that scan is deferred to the first
   missing glyph or font-picker.
 - It is searched next to the crate root (dev), the executable (packaged), then
-  the current directory. If missing, quill falls back to its system-font
+  the current directory. If missing, igui falls back to its system-font
   candidate list, then the built-in pixel font.
 - To swap the font, replace that file (or change `fonts::BUNDLED_FONT`).
 
@@ -86,7 +89,7 @@ assets/fonts/jinghua-laosong-v3.0.ttf
 5. Order of work: **API -> test -> implementation -> integration.**
 6. Scope: 2D raster editing only. No ECS, shaders, render graph, particles, or an
    in-app editor editor. `png` / `tracing` are fine here; keep new dependencies
-   out of the quill core crates.
+   out of the igui core crates.
 
 ## Build / run / verify
 
@@ -104,9 +107,9 @@ cargo fmt -- --check && cargo check && cargo test   # per-change gate
 ```
 
 The app has no screenshot tests; `--selfcheck` (and the unit tests) are the
-verification. When you change a shared quill crate, also run quill's own gate in
-`../quill` (`cargo fmt --all -- --check && cargo check --workspace &&
-cargo test --workspace`).
+verification. When you change a shared igui crate, do it in the igui repo, run
+its own gate there (`cargo fmt --all -- --check && cargo check --workspace &&
+cargo test --workspace`), then bump the pinned tag here.
 
 ## Doc division
 

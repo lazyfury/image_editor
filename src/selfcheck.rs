@@ -4,7 +4,7 @@
 //! [`RecordingBackend`] —— 录下这一帧的 viewport 和完整的 `DrawCommand`
 //! 序列，也就是真实后端本来要变成像素的那份数据。两层检查读它：
 //!
-//! 1. `draw_profile::inspect` 做结构体检（退化几何、`NaN`、`Save`/`Restore`
+//! 1. `igui_profile::inspect` 做结构体检（退化几何、`NaN`、`Save`/`Restore`
 //!    配不上、opacity 越界、命令预算），按严重度排序。
 //! 2. 语义检查看命令**里面**：菜单栏、工具栏、画布、图层面板、状态栏的文字
 //!    都得出现；再点一下画笔按钮，状态栏必须跟着变。
@@ -15,10 +15,10 @@
 //! - `cargo test --manifest-path examples/image_editor/Cargo.toml` 断言同样
 //!   的条件，不开窗就能抓到 UI 回归。
 
-use draw_backend_recording::{RecordedFrame, RecordingBackend};
-use draw_core::{InputEvent, Key, PointerButton, Size, Vec2, ViewportSize};
-use draw_profile::{inspect_with, FrameCounters, FrameStats, InspectionConfig, Severity};
-use draw_render::{DrawCommand, PaintContext, RenderBackend};
+use igui_backend_recording::{RecordedFrame, RecordingBackend};
+use igui_core::{InputEvent, Key, PointerButton, Size, Vec2, ViewportSize};
+use igui_profile::{inspect_with, FrameCounters, FrameStats, InspectionConfig, Severity};
+use igui_render::{DrawCommand, PaintContext, RenderBackend};
 
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::document::{Color, PixelBuffer};

@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-APP_NAME="quill 图像编辑器"
+APP_NAME="igui 图像编辑器"
 BINARY="image_editor"
 
 # Paths are resolved from this script, so it works from any cwd.

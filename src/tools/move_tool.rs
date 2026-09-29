@@ -4,7 +4,7 @@
 //! 一样，移动**不进撤销栈**（History 目前只有 `PaintCommand`）；一次拖拽只是把
 //! 偏移设到新的整数点。
 
-use draw_core::Vec2;
+use igui_core::Vec2;
 
 use super::tool::{PointerEvent, Tool, ToolContext};
 use crate::document::{LayerId, Point, SetLayerPositionCommand};
@@ -78,7 +78,7 @@ impl Tool for MoveTool {
 mod tests {
     use super::*;
     use crate::document::{Document, History};
-    use draw_core::PointerButton;
+    use igui_core::PointerButton;
 
     fn left(position: Vec2) -> PointerEvent {
         PointerEvent {

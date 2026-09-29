@@ -8,10 +8,10 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use draw_components::{Button, Component, Flex, NodeRef, Text};
-use draw_core::Edges;
-use draw_theme::{space, TextSize, Theme, Tone};
-use draw_ui::MouseFilter;
+use igui_components::{Button, Component, Flex, NodeRef, Text};
+use igui_core::Edges;
+use igui_theme::{space, TextSize, Theme, Tone};
+use igui_ui::MouseFilter;
 
 /// 文件面板上的动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 //! 画布：相机（缩放 / 平移）与坐标转换。
 //!
 //! 画布渲染走场景里的一个 `Node2D`：它的 `Transform2D` 就是
-//! [`CanvasCamera::transform`]，`draw_scene` 在画它时套上这个变换，所以
+//! [`CanvasCamera::transform`]，`igui_scene` 在画它时套上这个变换，所以
 //! **文档像素坐标 -> 屏幕逻辑坐标** 只有一个定义，相机的数学和节点的变换
 //! 不会各算一套。这里只放纯数学，方便无头测试。
 
@@ -17,7 +17,7 @@ pub use checkerboard::paint_backdrop;
 pub use checkerboard::{DARK as CHECKER_DARK, LIGHT as CHECKER_LIGHT};
 pub use coordinate::{document_to_pixel, pixel_selection, screen_to_document};
 
-use draw_render::TextureId;
+use igui_render::TextureId;
 
 /// 文档合成结果在渲染后端里的纹理句柄。
 ///

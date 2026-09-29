@@ -1,16 +1,16 @@
 //! 工具栏：切换激活工具 + 撤销 / 重做。
 //!
 //! 每个入口是「图标按钮 + 小字标签」：按钮只负责点击 / 高亮（`dynamic_background`），
-//! 图标由 `EditorView` 在树建好后用 `crate::icons` 描边上去（`draw_svg`，见
+//! 图标由 `EditorView` 在树建好后用 `crate::icons` 描边上去（`igui_svg`，见
 //! `assets/icons/`）。这样切换工具不需要重建这棵树，只有高亮的按钮换颜色。
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use draw_components::{Button, Component, Divider, Flex, NodeRef, Text};
-use draw_core::{Color, Edges};
-use draw_theme::{radius, space, SurfaceLevel, Theme};
-use draw_ui::{Align, MouseFilter, SizeBasis, SurfaceStyle};
+use igui_components::{Button, Component, Divider, Flex, NodeRef, Text};
+use igui_core::{Color, Edges};
+use igui_theme::{radius, space, SurfaceLevel, Theme};
+use igui_ui::{Align, MouseFilter, SizeBasis, SurfaceStyle};
 
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::icons::{Icon, IconSet, TOOLBAR_ICON};

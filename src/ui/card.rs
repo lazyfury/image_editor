@@ -2,15 +2,15 @@
 //!
 //! 一个竖直 `Flex`：`surface(SurfaceLevel::Surface)` 底 + 内边距 + 行间距，
 //! 不带边框 / 圆角。右栏的「文件 / 图层 / 属性 / 历史」和左侧调色盘都用它，
-//! 于是侧栏各块看起来是同一系列的卡片（而不是核心 `draw_components::Card`
+//! 于是侧栏各块看起来是同一系列的卡片（而不是核心 `igui_components::Card`
 //! 的 raised 圆角风格）。
 //!
 //! 只是外观容器：标题、分隔线、内容由调用方自己 `.child(..)`。
 
-use draw_components::{Component, Spec};
-use draw_core::{Color, Edges};
-use draw_theme::{space, SurfaceLevel, Theme};
-use draw_ui::{FlexStyle, MouseFilter, SurfaceStyle, Widget};
+use igui_components::{Component, Spec};
+use igui_core::{Color, Edges};
+use igui_theme::{space, SurfaceLevel, Theme};
+use igui_ui::{Container, FlexStyle, MouseFilter, SurfaceStyle};
 
 /// 一块侧栏卡片：surface 底 + 内边距 + 纵向间距。
 pub struct Card {
@@ -63,8 +63,8 @@ impl Component for Card {
         "Card"
     }
 
-    fn widget(&self) -> Widget {
-        Widget::Flex(FlexStyle::column().gap(self.gap).padding(self.padding))
+    fn container(&self) -> Container {
+        Container::Flex(FlexStyle::column().gap(self.gap).padding(self.padding))
     }
 
     fn prepare(&mut self) {
@@ -85,7 +85,7 @@ impl Component for Card {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draw_ui::InteractState;
+    use igui_ui::InteractState;
 
     fn resolved_fill(card: &Card) -> Color {
         (card.spec.background.as_ref().expect("background"))(InteractState::default()).fill

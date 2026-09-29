@@ -1,6 +1,6 @@
 //! Lucide 图标：加载 SVG 图标包，并把图标作为 [`Icon`] **组件**描边到界面里。
 //!
-//! 渲染走核心的 `draw_svg`（backend-neutral：把 SVG flatten 成 IR 的 `Line` /
+//! 渲染走核心的 `igui_svg`（backend-neutral：把 SVG flatten 成 IR 的 `Line` /
 //! `FillCircle`），所以图标**不需要**栅格化成纹理，也不引额外依赖。
 //!
 //! [`Icon`] 是一个普通 `Component`，所以在构建按钮时就能 `.child(Icon::new(..))`
@@ -15,11 +15,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use draw_components::{Component, Spec};
-use draw_core::{Color, Rect, Size};
-use draw_render::PaintContext;
-use draw_svg::{IconPack, SvgDocument};
-use draw_ui::{InteractState, MouseFilter, Widget};
+use igui_components::{Component, Spec};
+use igui_core::{Color, Rect, Size};
+use igui_render::PaintContext;
+use igui_svg::{IconPack, SvgDocument};
+use igui_ui::{InteractState, MouseFilter};
 
 /// 仓库里 vendor 的图标目录（测试 / 自检用它，保证可复现）。
 const VENDORED_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icons");
@@ -103,13 +103,6 @@ impl Component for Icon {
         "Icon"
     }
 
-    fn widget(&self) -> Widget {
-        Widget::Panel {
-            color: Color::TRANSPARENT,
-            border: None,
-        }
-    }
-
     fn prepare(&mut self) {
         self.spec.data.min_size = Size::splat(self.size);
         self.spec.data.mouse_filter = MouseFilter::Ignore;
@@ -128,15 +121,15 @@ impl Component for Icon {
     }
 }
 
-draw_components::impl_scene_child!(Icon);
+igui_components::impl_scene_child!(Icon);
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use draw_components::Flex;
-    use draw_core::{Edges, Vec2, ViewportSize};
-    use draw_render::DrawCommand;
-    use draw_scene::SceneTree;
+    use igui_components::Flex;
+    use igui_core::{Edges, Vec2, ViewportSize};
+    use igui_render::DrawCommand;
+    use igui_scene::SceneTree;
 
     #[test]
     fn the_vendored_pack_indexes_every_ui_icon() {
@@ -163,7 +156,7 @@ mod tests {
         let mut ctx = PaintContext::new();
         document.draw(
             &mut ctx,
-            Rect::from_min_size(draw_core::Vec2::ZERO, Size::splat(24.0)),
+            Rect::from_min_size(igui_core::Vec2::ZERO, Size::splat(24.0)),
             Color::BLACK,
         );
         assert!(!ctx.into_draw_list().is_empty(), "icon drew no commands");
@@ -190,10 +183,10 @@ mod tests {
                 .child(Icon::new(icons, "brush", Color::BLACK, TOOLBAR_ICON)),
         );
         let _ = page;
-        draw_ui::layout(&mut tree, ViewportSize::new(Size::new(200.0, 200.0)));
+        igui_ui::layout(&mut tree, ViewportSize::new(Size::new(200.0, 200.0)));
 
         let mut ctx = PaintContext::new();
-        draw_ui::paint(&tree, &mut ctx);
+        igui_ui::paint(&tree, &mut ctx);
         let mut min = Vec2::splat(f32::MAX);
         let mut max = Vec2::splat(f32::MIN);
         for command in ctx.into_draw_list().commands() {

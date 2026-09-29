@@ -2,7 +2,7 @@
 //!
 //! 标题点击只写一个共享请求格（[`Rc<Cell<Option<usize>>>`]），真正的下拉由
 //! [`EditorView`](crate::ui::EditorView) 在 `update` 里用
-//! [`Overlays::menu`](draw_components::Overlays::menu) 打开 —— 回调拿不到
+//! [`Overlays::menu`](igui_components::Overlays::menu) 打开 —— 回调拿不到
 //! `&mut self`，所以走请求格。菜单项再写 [`MenuAction`] 请求格，由 `update`
 //! 统一执行（这也是关闭菜单的时机）。
 //!
@@ -12,11 +12,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use draw_components::{Button, Component, Flex, Menu, MenuItem, NodeRef};
-use draw_core::Edges;
-use draw_scene::SceneTree;
-use draw_theme::{space, SurfaceLevel, TextSize, Theme};
-use draw_ui::MouseFilter;
+use igui_components::{Button, Component, Flex, Menu, MenuItem, NodeRef};
+use igui_core::Edges;
+use igui_scene::SceneTree;
+use igui_theme::{space, SurfaceLevel, TextSize, Theme};
+use igui_ui::MouseFilter;
 
 /// 菜单栏标题，从左到右。
 pub const MENUS: [&str; 8] = [
@@ -72,7 +72,7 @@ pub fn menu_bar(
 /// 构建第 `index` 个菜单的内容，挂到 `root`（覆盖层给的定位节点）下。
 pub fn menu_content(
     tree: &mut SceneTree,
-    root: draw_core::NodeId,
+    root: igui_core::NodeId,
     theme: &'static dyn Theme,
     index: usize,
     action: Rc<Cell<Option<MenuAction>>>,
@@ -295,7 +295,7 @@ fn placeholder(
 
 /// 关于对话框 / 状态栏用的版本串。
 pub fn about_text() -> String {
-    format!("image_editor · 用 quill UI 栈绘制 · {} 个菜单", MENUS.len())
+    format!("image_editor · 用 igui UI 栈绘制 · {} 个菜单", MENUS.len())
 }
 
 #[cfg(test)]
