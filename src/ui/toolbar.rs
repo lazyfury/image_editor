@@ -75,7 +75,7 @@ fn tool_button(
             Icon::new(icons, tool.icon(), theme.palette().foreground, TOOLBAR_ICON)
                 .min_size(12.0, 12.0),
         )
-        .on_click(move || {
+        .on_click(move |_tree, _id| {
             click_state.borrow_mut().active_tool = tool;
         })
         .dynamic_background(move |interact| {
@@ -108,7 +108,7 @@ fn history_button(
             theme.palette().foreground,
             TOOLBAR_ICON,
         ))
-        .on_click(move || {
+        .on_click(move |_tree, _id| {
             let result = {
                 let mut state = state.borrow_mut();
                 match action {

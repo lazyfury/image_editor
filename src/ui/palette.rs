@@ -145,7 +145,7 @@ fn sv_area(
     let draw = hsv.clone();
     Flex::new()
         .min_size(SV_SIZE, SV_SIZE)
-        .on_pointer(move |rect, at| {
+        .on_pointer(move |_tree, _id, _phase, rect, at| {
             let s = norm(at.x - rect.left(), rect.size.width);
             let v = 1.0 - norm(at.y - rect.top(), rect.size.height);
             let h = pointer.get().0;
@@ -168,7 +168,7 @@ fn hue_strip(
     let draw = hsv.clone();
     Flex::new()
         .min_size(SV_SIZE, HUE_HEIGHT)
-        .on_pointer(move |rect, at| {
+        .on_pointer(move |_tree, _id, _phase, rect, at| {
             let h = norm(at.x - rect.left(), rect.size.width);
             let (_, s, v) = pointer.get();
             pointer.set((h, s, v));
@@ -228,7 +228,7 @@ fn current_colors(theme: &'static dyn Theme, state: Rc<RefCell<AppState>>) -> im
         let state = state.clone();
         Button::ghost("⇄", theme)
             .min_size(18.0, 18.0)
-            .on_click(move || {
+            .on_click(move |_tree, _id| {
                 let mut state = state.borrow_mut();
                 let AppState {
                     foreground,
@@ -283,7 +283,7 @@ fn swatch(
     Flex::new()
         .padding(Edges::ZERO)
         .min_size(18.0, 18.0)
-        .on_click(move || {
+        .on_click(move |_tree, _id| {
             state.borrow_mut().foreground = color;
         })
         .dynamic_background(move |interact| {

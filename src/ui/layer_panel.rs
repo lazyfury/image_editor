@@ -15,7 +15,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use igui_components::{Button, Column, Component, Divider, Flex, List, ListColumn, Text};
-use igui_core::Edges;
+use igui_core::{Edges, NodeId};
+use igui_scene::SceneTree;
 use igui_theme::{space, TextSize, Theme, Tone};
 use igui_ui::MouseFilter;
 
@@ -109,7 +110,7 @@ fn action_buttons(
 ) -> impl Component {
     let add = {
         let state = state.clone();
-        button(theme, "+ 图层", move || {
+        button(theme, "+ 图层", move |_tree, _id| {
             let mut state = state.borrow_mut();
             let index = state.document.layers.len();
             let before_active = state.document.active_layer;
@@ -123,7 +124,7 @@ fn action_buttons(
     };
     let delete = {
         let state = state.clone();
-        button(theme, "− 删除", move || {
+        button(theme, "− 删除", move |_tree, _id| {
             let mut state = state.borrow_mut();
             if let Some(id) = state.document.active_layer {
                 state.execute(Box::new(RemoveLayerCommand::new(id, Some(id))));
@@ -132,11 +133,13 @@ fn action_buttons(
     };
     let rename = {
         let rename_request = rename_request.clone();
-        button(theme, "重命名", move || rename_request.set(true))
+        button(theme, "重命名", move |_tree, _id| {
+            rename_request.set(true)
+        })
     };
     let toggle = {
         let state = state.clone();
-        button(theme, "显示/隐藏", move || {
+        button(theme, "显示/隐藏", move |_tree, _id| {
             let mut state = state.borrow_mut();
             let Some(id) = state.document.active_layer else {
                 return;
@@ -153,7 +156,7 @@ fn action_buttons(
     };
     let less = {
         let state = state.clone();
-        button(theme, "−", move || {
+        button(theme, "−", move |_tree, _id| {
             let mut state = state.borrow_mut();
             let Some(id) = state.document.active_layer else {
                 return;
@@ -170,7 +173,7 @@ fn action_buttons(
     };
     let more = {
         let state = state.clone();
-        button(theme, "+", move || {
+        button(theme, "+", move |_tree, _id| {
             let mut state = state.borrow_mut();
             let Some(id) = state.document.active_layer else {
                 return;
@@ -187,7 +190,7 @@ fn action_buttons(
     };
     let up = {
         let state = state.clone();
-        button(theme, "↑", move || {
+        button(theme, "↑", move |_tree, _id| {
             let mut state = state.borrow_mut();
             let Some(id) = state.document.active_layer else {
                 return;
@@ -201,7 +204,7 @@ fn action_buttons(
     };
     let down = {
         let state = state.clone();
-        button(theme, "↓", move || {
+        button(theme, "↓", move |_tree, _id| {
             let mut state = state.borrow_mut();
             let Some(id) = state.document.active_layer else {
                 return;
@@ -249,7 +252,7 @@ fn meta_edit(state: &mut AppState, label: &'static str, mutate: impl FnOnce(&mut
 fn button(
     theme: &'static dyn Theme,
     label: &'static str,
-    action: impl FnMut() + 'static,
+    action: impl FnMut(&mut SceneTree, NodeId) + 'static,
 ) -> Button {
     Button::secondary(label, theme)
         .font_size(TextSize::Small.px())

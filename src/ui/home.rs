@@ -46,7 +46,7 @@ impl HomeView {
                 .child(
                     Flex::row().padding(Edges::ZERO).child(
                         Button::primary("新建项目", theme)
-                            .on_click(move || request.set(true))
+                            .on_click(move |_tree, _id| request.set(true))
                             .ref_(&button_ref),
                     ),
                 ),

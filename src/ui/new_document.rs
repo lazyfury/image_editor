@@ -346,7 +346,7 @@ fn step_button(
     dirty: Rc<Cell<bool>>,
     apply: fn(&mut NewDocumentSpec),
 ) -> Button {
-    Button::secondary(label, theme).on_click(move || {
+    Button::secondary(label, theme).on_click(move |_tree, _id| {
         apply(&mut choices.borrow_mut());
         dirty.set(true);
     })
@@ -362,7 +362,7 @@ fn preset_button(
 ) -> impl Component {
     Button::secondary(format!("{width}×{height}"), theme)
         .font_size(TextSize::Small.px())
-        .on_click(move || {
+        .on_click(move |_tree, _id| {
             let mut spec = choices.borrow_mut();
             spec.width = width;
             spec.height = height;
@@ -387,7 +387,7 @@ fn background_swatch(
     Flex::new()
         .padding(Edges::ZERO)
         .min_size(28.0, 28.0)
-        .on_click(move || {
+        .on_click(move |_tree, _id| {
             clicked.borrow_mut().background = color;
             dirty.set(true);
         })

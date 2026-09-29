@@ -152,7 +152,7 @@ fn tab_button(
     Flex::row()
         .gap(0.0)
         .padding(Edges::new(space::SM, space::XS, space::SM, space::XS))
-        .on_click(move || clicked.set(tab))
+        .on_click(move |_tree, _id| clicked.set(tab))
         .dynamic_background(move |state| {
             if fill.get() == tab {
                 SurfaceStyle::new(theme.palette().selection)

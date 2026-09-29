@@ -80,6 +80,6 @@ fn action_button(
     let request = request.clone();
     Button::secondary(action.label(), theme)
         .font_size(TextSize::Small.px())
-        .on_click(move || request.set(Some(action)))
+        .on_click(move |_tree, _id| request.set(Some(action)))
         .ref_(slot)
 }

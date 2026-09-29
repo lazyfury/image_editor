@@ -62,7 +62,7 @@ pub fn menu_bar(
         bar = bar.child(
             Button::ghost(*name, theme)
                 .font_size(TextSize::Small.px())
-                .on_click(move || request.set(Some(index)))
+                .on_click(move |_tree, _id| request.set(Some(index)))
                 .ref_(&slot),
         );
     }
@@ -281,7 +281,7 @@ fn menu_item(
         item = item.shortcut(shortcut);
     }
     let action = action.clone();
-    item.on_click(move || action.set(Some(value)))
+    item.on_click(move |_tree, _id| action.set(Some(value)))
 }
 
 fn placeholder(

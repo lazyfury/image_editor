@@ -157,7 +157,7 @@ fn step_button(
     let slot = NodeRef::new();
     buttons.push((adjust, slot.clone()));
     Button::ghost(label, theme)
-        .on_click(move || request.set(Some(adjust)))
+        .on_click(move |_tree, _id| request.set(Some(adjust)))
         .ref_(&slot)
 }
 
@@ -172,7 +172,7 @@ fn toggle_button(
     toggles.push((toggle, slot.clone()));
     let click_state = state.clone();
     Button::ghost(toggle.label(), theme)
-        .on_click(move || click_state.set(!click_state.get()))
+        .on_click(move |_tree, _id| click_state.set(!click_state.get()))
         .dynamic_background(move |interact| {
             if state.get() {
                 SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
