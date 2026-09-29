@@ -6,9 +6,10 @@
 约定（见 `AGENTS.md`）：每阶段 **API → 测试 → 实现 → 集成**，结束出报告等确认；
 验证只允许程序化（DrawList 命令 / 布局矩形 / 回调 / 后端像素缓冲），**不做截图**。
 
-最近落地：主页 + 原生「新建文档」窗口（`ui/home.rs` 的 `HomeView` +
-`ui/new_document.rs` 的 `NewDocumentView`；「新建窗口」由 `application.rs` 开
-**原生**窗口选尺寸 / 背景色，不是模态框；创建后编辑器仍在**主窗口**）；侧栏
+最近落地：单窗口 + `igui_app` 运行时（`src/app/application.rs` 用
+`WinitPlugin`/`WgpuPlugin`/输入插件组装，业务逻辑是一个 `AppLogic`）；「新建
+项目」现在是主窗口内的**应用内模态浮层**（`ui/new_document.rs` 的
+`NewDocumentView`，scrim + 居中面板 + 输入吞掉），不再开第二个原生窗口；侧栏
 「文件 / 历史 / 属性」标签页；透明棋盘格背景；默认 128×128 像素画布 + 1px 硬边笔
 + 最近邻采样；移动图层后画笔对准光标、画布外像素不裁。
 

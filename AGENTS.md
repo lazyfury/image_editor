@@ -11,7 +11,8 @@ This file is the short source of truth for rules. Details live in `README.md`
 ## Where things are
 
 ```
-src/app/        state (AppState/document session) + window host (winit/wgpu, multi-window)
+src/app/        state (AppState/document session) + single-window host on the
+                igui_app runtime + igui_winit plugins (new-document modal)
 src/ui/         views + project-local components: home, new_document, editor (mod.rs),
                 menu, toolbar, options_bar, canvas, layer/file/properties/tabs/palette panels
 src/document/   Document / Layer / PixelBuffer / Color / History + commands
@@ -27,8 +28,9 @@ packaging/      macOS .app `Info.plist`
 package-macos.sh  build --release and assemble `dist/*.app` (ad-hoc codesign)
 ```
 
-Flow: `Input -> view -> SceneTree -> layout -> paint -> DrawList -> RenderBackend
--> pixels`.
+Flow: `Input -> AppLogic -> view -> SceneTree -> layout -> paint -> DrawList ->
+Presenter -> pixels`. The window/GPU/input plumbing is `igui_app` + `igui_winit`
+plugins; the app implements one `AppLogic`.
 
 ## Dependency on igui (formerly quill)
 

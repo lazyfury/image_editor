@@ -1,47 +1,51 @@
-//! 窗口宿主：拥有 winit 窗口与 wgpu 后端，把平台事件翻译成后端无关的
-//! `InputEvent`。
+//! 窗口宿主：用 `igui_app` 运行时 + `igui_winit` 插件组装**单窗口**应用。
 //!
 //! 视图（[`crate::ui::HomeView`] / [`crate::ui::EditorView`]）完全不碰平台；
-//! 这一层照 `examples/file_browser` / `examples/wgpu_demo` 的骨架来：
+//! 这一层把它们接进 `igui_app` 的插件运行时：
 //!
 //! ```text
-//! winit events -> InputEvent -> view -> DrawList -> WgpuBackend -> surface
+//! winit events -> InputEvent -> AppLogic -> view -> DrawList -> WgpuPresenter -> surface
 //! ```
 //!
-//! **多窗口**：主窗口首屏是主页（[`crate::ui::HomeView`]），点「新建窗口」不由
-//! 这里弹模态框，而是 `event_loop.create_window` 开一个**原生**的「新建文档」
-//! 窗口（[`crate::ui::NewDocumentView`]）选尺寸 / 背景色；创建后编辑器仍然在
-//! **主窗口**里（主窗口从主页切到 [`EditorView`]）。每个窗口有自己的 surface /
-//! `WgpuBackend`（纹理命名空间独立）。
+//! **单窗口 + 应用内模态框**：首屏是主页；点「新建项目」不再开第二个原生窗口
+//! （macOS 15 上多 surface 会崩），而是在主窗口里打开「新建文档」**模态浮层** ——
+//! 宿主画 scrim + 居中面板，输入先给浮层并全部吞掉。创建之后编辑器仍在同一个窗口。
 //!
-//! Phase 1 没有长任务，所以没有工作线程；`--frames N` 让真实渲染管线能在
-//! 无头环境里跑够帧数再退出。
+//! `--frames N` 由 [`FrameLimitPlugin`] 在 N 帧后结束进程，让真实渲染管线能在
+//! 无头环境里被验证。
 
 use std::rc::Rc;
-use std::sync::Arc;
 
-use igui_backend_wgpu::{wgpu, TextureFilter, WgpuBackend};
-use igui_core::{InputEvent, Key, PointerButton, Size, Vec2, ViewportSize};
-use igui_font::{FaceRef, FontConfig, FontMetrics, FontMode};
-use igui_render::{PaintContext, RenderBackend};
+use igui_app::{
+    App, AppBuilder, AppConfig, AppLogic, EventContext, FrameContext, FrameObserver, InitContext,
+    LifecycleObserver, Plugin,
+};
+use igui_backend_wgpu::{FontConfig, FontMetrics, FontMode, TextureFilter};
+use igui_core::{
+    Color, EventResult, InputEvent, Key, Modifiers, Rect, Size, Transform2D, Vec2, ViewportSize,
+};
+use igui_render::{DrawList, PaintContext};
 use igui_theme::{SurfaceLevel, Theme};
 use igui_ui::TextMeasurer;
-use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
-use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
-use winit::window::{Window, WindowId};
+use igui_winit::{
+    ClipboardPlugin, GpuConfig, ImePlugin, KeyboardPlugin, PointerPlugin, SharedBackend,
+    SharedWindow, WgpuPlugin, WindowConfig, WinitPlugin,
+};
 
 use crate::app::state::AppState;
+use crate::document::PixelBuffer;
 use crate::ui::{EditorView, HomeView, NewDocumentResult, NewDocumentSpec, NewDocumentView};
 
-/// 主窗口（主页 / 编辑器）的初始大小。
+/// 主窗口（也是唯一的窗口）的初始大小。
 const WINDOW_WIDTH: f64 = 1280.0;
 const WINDOW_HEIGHT: f64 = 800.0;
-/// 「新建文档」窗口的初始大小。
-const NEW_DOCUMENT_WIDTH: f64 = 360.0;
-const NEW_DOCUMENT_HEIGHT: f64 = 480.0;
+
+/// 「新建文档」模态面板的逻辑尺寸。
+const MODAL_WIDTH: f32 = 360.0;
+const MODAL_HEIGHT: f32 = 480.0;
+
+/// 模态后面的遮罩：压暗底层，也表明它不可点。
+const SCRIM: Color = Color::new(0.0, 0.0, 0.0, 0.45);
 
 /// 命令行选项（由 [`crate::main`] 解析）。
 #[derive(Clone, Debug, Default)]
@@ -54,252 +58,153 @@ pub struct Options {
     pub pixel_font: bool,
 }
 
-/// 打开窗口跑编辑器，直到关闭（或 `--frames` 跑完）。
+/// 用 `igui_app` 运行时打开窗口跑编辑器。
 pub fn run(options: Options) {
-    let event_loop = EventLoop::new().expect("create event loop");
-    // 事件驱动：只有输入、尺寸变化才重画。`Poll` 会一直重画没变的帧，白烧 CPU。
-    event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App::new(options);
-    event_loop.run_app(&mut app).expect("run event loop");
+    build_app(options).run();
 }
 
-/// 一个窗口承载的视图。
-enum View {
-    /// 主窗口的落地页。
-    Home(HomeView),
-    /// 主窗口的编辑器。
-    Editor(EditorView),
-    /// 「新建文档」辅助窗口。
-    NewDocument(NewDocumentView),
-}
+/// 组装插件运行时：平台插件（winit / wgpu / 输入 / 文本度量）+ 应用逻辑。
+fn build_app(options: Options) -> App {
+    let theme = crate::theme::editor_theme(options.light);
+    let font_mode = if options.pixel_font {
+        FontMode::Pixel
+    } else {
+        FontMode::System
+    };
 
-/// 一个原生窗口 + 它自己的 surface / 后端 / 状态。
-struct WindowState {
-    window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
-    backend: WgpuBackend,
-    config: wgpu::SurfaceConfiguration,
-    scale_factor: f64,
-    cursor: Vec2,
-    view: View,
-}
-
-struct App {
-    instance: wgpu::Instance,
-    windows: Vec<WindowState>,
-    /// 主窗口（主页 -> 编辑器）；关闭它即退出应用。
-    main_window: Option<WindowId>,
-    /// 当前打开的「新建文档」窗口（同时只允许一个）。
-    new_document: Option<WindowId>,
-    /// 主题配色（`--light`）。
-    light: bool,
-    font_mode: FontMode,
-    /// 随包字体（`assets/fonts/`）作为 `FontServer` 的默认 face；`None` 时
-    /// 走系统字体 / 点阵回落。
-    default_face: Option<FaceRef>,
-    /// 当前修饰键状态（Ctrl/Cmd+Z 这类快捷键在平台层处理）。
-    modifiers: ModifiersState,
-    /// `--frames` 剩下的帧数。
-    frames_left: Option<u32>,
-}
-
-impl App {
-    fn new(options: Options) -> Self {
-        tracing::info!(target: "image_editor", light = options.light, "application_start");
-        // 默认用随包字体，除非显式选了点阵字体。
-        let default_face = if options.pixel_font {
-            None
-        } else {
-            let face = crate::fonts::bundled_face();
-            if let Some(face) = face.as_ref() {
-                tracing::info!(target: "image_editor", font = %face.file.display(), "bundled_font");
-            }
-            face
-        };
-        Self {
-            instance: wgpu::Instance::default(),
-            windows: Vec::new(),
-            main_window: None,
-            new_document: None,
-            light: options.light,
-            font_mode: if options.pixel_font {
-                FontMode::Pixel
-            } else {
-                FontMode::System
-            },
-            default_face,
-            modifiers: ModifiersState::empty(),
-            frames_left: options.frames,
-        }
-    }
-
-    /// 编辑器自己的主题：设计系统的调色板 + 紧凑密度（更小 padding、mini 控件）。
-    fn theme(&self) -> &'static dyn Theme {
-        crate::theme::editor_theme(self.light)
-    }
-
-    /// 首次 resume 时创建主窗口（首屏是主页）。
-    fn init(&mut self, event_loop: &ActiveEventLoop) {
-        if !self.windows.is_empty() {
-            return;
-        }
-        self.open_main_window(event_loop);
-    }
-
-    fn window_index(&self, id: WindowId) -> Option<usize> {
-        self.windows
-            .iter()
-            .position(|state| state.window.id() == id)
-    }
-
-    /// 建 surface + 后端 + 交换链配置（每个窗口一套，纹理互相隔离）。
-    fn create_surface(
-        &self,
-        window: &Arc<Window>,
-    ) -> (
-        wgpu::Surface<'static>,
-        WgpuBackend,
-        wgpu::SurfaceConfiguration,
-    ) {
-        let surface = self
-            .instance
-            .create_surface(window.clone())
-            .expect("create surface");
-
-        let backend = WgpuBackend::from_instance(
-            &self.instance,
-            Some(&surface),
-            wgpu::PowerPreference::HighPerformance,
-        )
-        .expect("create wgpu backend");
-
-        // 非 sRGB 的格式能让 shader 写出的 unorm 颜色跟 Canvas 后端一致。
-        let capabilities = surface.get_capabilities(backend.adapter());
-        let format = capabilities
-            .formats
-            .iter()
-            .copied()
-            .find(|format| !format.is_srgb())
-            .unwrap_or(capabilities.formats[0]);
-
-        let size = window.inner_size();
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: size.width.max(1),
-            height: size.height.max(1),
-            present_mode: wgpu::PresentMode::Fifo,
-            desired_maximum_frame_latency: 2,
-            alpha_mode: capabilities.alpha_modes[0],
-            view_formats: Vec::new(),
-        };
-        surface.configure(backend.device(), &config);
-        (surface, backend, config)
-    }
-
-    /// 给一个后端装字体，并返回用真实度量排版的 `TextMeasurer`。
-    fn text_measurer(&self, backend: &mut WgpuBackend) -> Rc<dyn TextMeasurer> {
-        let font_config = FontConfig {
-            mode: self.font_mode,
+    let mut builder = App::new(AppConfig {
+        title: "igui 图像编辑器".into(),
+        size: (WINDOW_WIDTH, WINDOW_HEIGHT),
+        ..Default::default()
+    })
+    .plugin(WinitPlugin::new(WindowConfig {
+        title: "igui 图像编辑器".into(),
+        size: (WINDOW_WIDTH, WINDOW_HEIGHT),
+        // 图层 / 文件路径要能输入中文，所以打开平台 IME。
+        ime: true,
+        ..Default::default()
+    }))
+    .plugin(WgpuPlugin::new(GpuConfig {
+        clear_color: theme_background(theme),
+        font: FontConfig {
+            mode: font_mode,
             device_pixel_rasterization: true,
             default_family: None,
-            default_face: self.default_face.clone(),
-        };
-        if let Err(error) = backend.set_font_config(font_config) {
-            eprintln!("font setup failed, using fallback: {error}");
+            default_face: crate::fonts::bundled_face(),
+        },
+        ..Default::default()
+    }))
+    // 用编辑器自己的 `ascent` 校正注册度量（见 `EditorTextMeasurer`）。
+    .plugin(EditorTextMeasurePlugin)
+    .plugin(PointerPlugin)
+    .plugin(KeyboardPlugin)
+    .plugin(ImePlugin)
+    .plugin(ClipboardPlugin);
+
+    if let Some(frames) = options.frames {
+        builder = builder.plugin(FrameLimitPlugin { frames });
+    }
+
+    builder.logic(ImageEditorLogic::new(theme)).build()
+}
+
+/// 应用逻辑：主页 / 编辑器 +「新建文档」模态框，都在这一个 `AppLogic` 里。
+struct ImageEditorLogic {
+    theme: &'static dyn Theme,
+    /// 后端真实字体度量（`init` 时从服务里取；模态 / 新编辑器共享）。
+    measurer: Option<Rc<dyn TextMeasurer>>,
+    screen: Screen,
+    modal: Option<Modal>,
+    modifiers: Modifiers,
+    /// 文档换了标题，下一帧写回原生窗口。
+    title_dirty: bool,
+}
+
+/// 主窗口当前显示哪一屏。
+enum Screen {
+    Home(HomeView),
+    Editor(EditorView),
+}
+
+/// 「新建文档」模态浮层：一棵独立的视图树 + 它在窗口里的位置。
+struct Modal {
+    view: NewDocumentView,
+    /// 面板左上角在窗口逻辑坐标里的位置（每帧 `layout` 更新）。
+    origin: Vec2,
+}
+
+impl ImageEditorLogic {
+    fn new(theme: &'static dyn Theme) -> Self {
+        Self {
+            theme,
+            measurer: None,
+            screen: Screen::Home(HomeView::new(theme)),
+            modal: None,
+            modifiers: Modifiers::NONE,
+            title_dirty: false,
         }
-        Rc::new(BackendTextMeasurer {
-            metrics: backend.text_metrics(),
-        })
     }
 
-    /// 开主窗口（首屏是主页）。
-    fn open_main_window(&mut self, event_loop: &ActiveEventLoop) {
-        let theme = self.theme();
-        let attributes = Window::default_attributes()
-            .with_title("igui 图像编辑器")
-            .with_inner_size(LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
-        let window = Arc::new(
-            event_loop
-                .create_window(attributes)
-                .expect("create main window"),
-        );
-
-        let scale_factor = window.scale_factor();
-        let (surface, mut backend, config) = self.create_surface(&window);
-        backend.set_scale_factor(scale_factor as f32);
-        backend.set_clear_color(theme_background(theme));
-
-        let mut home = HomeView::new(theme);
-        let measurer = self.text_measurer(&mut backend);
-        home.set_text_measurer(measurer);
-
-        self.main_window = Some(window.id());
-        tracing::info!(target: "image_editor", "home_window_opened");
-        let window = self.push_window(
-            window,
-            surface,
-            backend,
-            config,
-            scale_factor,
-            View::Home(home),
-        );
-        window.request_redraw();
+    /// Ctrl/Cmd 按下：此时字母键是快捷键，不该再当文本送进输入框。
+    fn shortcut_modifier(&self) -> bool {
+        self.modifiers.ctrl || self.modifiers.meta
     }
 
-    /// 开一个**原生**的「新建文档」窗口（首页「新建窗口」真正走的路）。
-    ///
-    /// 只负责选尺寸 / 背景色，不是模态框；创建后编辑器仍然在**主窗口**里
-    /// （见 [`apply_new_document`](Self::apply_new_document)）。
-    fn open_new_document_window(&mut self, event_loop: &ActiveEventLoop) {
-        // 已经开着就把它提到前面，不再开第二个。
-        if let Some(id) = self.new_document {
-            if let Some(index) = self.window_index(id) {
-                self.windows[index].window.focus_window();
-                return;
+    /// 主页点过「新建项目」就打开模态浮层（同时只允许一个）。
+    fn open_modal_if_requested(&mut self) {
+        if self.modal.is_some() {
+            return;
+        }
+        let requested =
+            matches!(&self.screen, Screen::Home(home) if home.take_new_document_request());
+        if !requested {
+            return;
+        }
+        let mut view = NewDocumentView::new(self.theme);
+        if let Some(measurer) = self.measurer.clone() {
+            view.set_text_measurer(measurer);
+        }
+        self.modal = Some(Modal {
+            view,
+            origin: Vec2::ZERO,
+        });
+        tracing::info!(target: "image_editor", "new_document_modal_opened");
+    }
+
+    /// 模态浮层的创建 / 取消出结果：创建 -> 换成编辑器；取消 -> 只关掉浮层。
+    fn finish_modal(&mut self, ctx: &FrameContext<'_>) {
+        let result = self
+            .modal
+            .as_ref()
+            .and_then(|modal| modal.view.take_result());
+        let Some(result) = result else {
+            return;
+        };
+        self.modal = None;
+        if let NewDocumentResult::Create(spec) = result {
+            self.open_editor(ctx, spec);
+        }
+    }
+
+    /// 把「新建文档」的选择变成同窗口里的一个新 [`EditorView`]。
+    fn open_editor(&mut self, ctx: &FrameContext<'_>, spec: NewDocumentSpec) {
+        let state = AppState::with_document(spec.width, spec.height, spec.background);
+        let mut editor = EditorView::new(self.theme, state);
+        if let Some(measurer) = self.measurer.clone() {
+            editor.set_text_measurer(measurer);
+        }
+
+        // 文档纹理放大时用最近邻：硬边像素而不是模糊插值。首帧之前上传，
+        // 否则视图画的 `Visual::Image(DOCUMENT_TEXTURE)` 会先退回白色兜底。
+        if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
+            backend
+                .borrow_mut()
+                .set_texture_filter(crate::canvas::DOCUMENT_TEXTURE, TextureFilter::Nearest);
+            if let Some(pixels) = editor.take_texture_upload() {
+                upload_texture(&backend, &pixels);
             }
         }
 
-        let theme = self.theme();
-        let attributes = Window::default_attributes()
-            .with_title("新建文档 — igui 图像编辑器")
-            .with_inner_size(LogicalSize::new(NEW_DOCUMENT_WIDTH, NEW_DOCUMENT_HEIGHT));
-        let window = Arc::new(
-            event_loop
-                .create_window(attributes)
-                .expect("create new-document window"),
-        );
-
-        let scale_factor = window.scale_factor();
-        let (surface, mut backend, config) = self.create_surface(&window);
-        backend.set_scale_factor(scale_factor as f32);
-        backend.set_clear_color(theme_background(theme));
-
-        let mut view = NewDocumentView::new(theme);
-        let measurer = self.text_measurer(&mut backend);
-        view.set_text_measurer(measurer);
-
-        self.new_document = Some(window.id());
-        tracing::info!(target: "image_editor", "new_document_window_opened");
-        let window = self.push_window(
-            window,
-            surface,
-            backend,
-            config,
-            scale_factor,
-            View::NewDocument(view),
-        );
-        window.request_redraw();
-    }
-
-    /// 把「新建文档」窗口的选择变成主窗口里的一个新编辑器。
-    fn apply_new_document(&mut self, spec: NewDocumentSpec) {
-        let Some(index) = self.main_window.and_then(|id| self.window_index(id)) else {
-            return;
-        };
-        let theme = self.theme();
-        let state = AppState::with_document(spec.width, spec.height, spec.background);
-        let mut editor = EditorView::new(theme, state);
         tracing::info!(
             target: "image_editor",
             name = editor.document_name().as_str(),
@@ -307,367 +212,155 @@ impl App {
             height = spec.height,
             "document_created"
         );
-
-        let metrics = self.windows[index].backend.text_metrics();
-        editor.set_text_measurer(Rc::new(BackendTextMeasurer { metrics }));
-        self.windows[index]
-            .backend
-            .set_clear_color(theme_background(editor.theme()));
-
-        // 像素图：文档纹理放大时用最近邻采样，放大后是硬边像素而不是模糊插值。
-        self.windows[index]
-            .backend
-            .set_texture_filter(crate::canvas::DOCUMENT_TEXTURE, TextureFilter::Nearest);
-        // 文档合成结果 -> 后端纹理。视图画的是 `Visual::Image(DOCUMENT_TEXTURE)`，
-        // 所以必须在首帧之前把同一 id 注册好，否则后端会退回白色兜底纹理。
-        if let Some(pixels) = editor.take_texture_upload() {
-            if let Err(error) = self.windows[index].backend.update_texture(
-                crate::canvas::DOCUMENT_TEXTURE,
-                pixels.width,
-                pixels.height,
-                &pixels.data,
-            ) {
-                eprintln!("document texture upload failed: {error}");
-            }
-        }
-
-        self.windows[index]
-            .window
-            .set_title(&format!("{} — igui 图像编辑器", editor.document_name()));
-        self.windows[index].view = View::Editor(editor);
-        self.windows[index].window.request_redraw();
+        self.screen = Screen::Editor(editor);
+        self.title_dirty = true;
     }
 
-    /// 关掉一个窗口，并维护主 / 辅助窗口的登记。
-    fn close_window(&mut self, event_loop: &ActiveEventLoop, id: WindowId) {
-        let Some(index) = self.window_index(id) else {
-            return;
+    /// 文档换了就把「名字 — igui 图像编辑器」写回原生窗口标题。
+    fn apply_title(&self, ctx: &FrameContext<'_>) {
+        let title = match &self.screen {
+            Screen::Editor(editor) => format!("{} — igui 图像编辑器", editor.document_name()),
+            Screen::Home(_) => "igui 图像编辑器".to_string(),
         };
-        self.windows.remove(index);
-        if self.main_window == Some(id) {
-            // 主窗口关闭 = 退出应用（辅助窗口随之结束）。
-            self.main_window = None;
-            event_loop.exit();
-            return;
-        }
-        if self.new_document == Some(id) {
-            self.new_document = None;
-        }
-    }
-
-    /// 收下一个已经建好的窗口状态，返回它的窗口句柄。
-    fn push_window(
-        &mut self,
-        window: Arc<Window>,
-        surface: wgpu::Surface<'static>,
-        backend: WgpuBackend,
-        config: wgpu::SurfaceConfiguration,
-        scale_factor: f64,
-        view: View,
-    ) -> Arc<Window> {
-        self.windows.push(WindowState {
-            window: window.clone(),
-            surface,
-            backend,
-            config,
-            scale_factor,
-            cursor: Vec2::ZERO,
-            view,
-        });
-        window
-    }
-
-    fn resize(&mut self, index: usize, width: u32, height: u32) {
-        let Some(state) = self.windows.get_mut(index) else {
-            return;
-        };
-        if width == 0 || height == 0 {
-            return;
-        }
-        state.config.width = width;
-        state.config.height = height;
-        state
-            .surface
-            .configure(state.backend.device(), &state.config);
-    }
-
-    /// 把一个后端无关的输入事件送给这个窗口的视图。
-    fn feed(&mut self, index: usize, event: &InputEvent) {
-        let Some(state) = self.windows.get_mut(index) else {
-            return;
-        };
-        match &mut state.view {
-            View::Home(home) => {
-                let _ = home.event(event);
+        if let Some(window) = ctx.service::<SharedWindow>() {
+            if let Some(window) = window.borrow().as_ref() {
+                window.set_title(&title);
             }
-            View::Editor(editor) => {
-                let _ = editor.event(event);
-            }
-            View::NewDocument(view) => {
-                let _ = view.event(event);
-            }
-        }
-    }
-
-    fn render(&mut self, event_loop: &ActiveEventLoop, index: usize) {
-        let Some(state) = self.windows.get_mut(index) else {
-            return;
-        };
-
-        let logical = Size::new(
-            state.config.width as f32 / state.scale_factor as f32,
-            state.config.height as f32 / state.scale_factor as f32,
-        );
-        let viewport = ViewportSize::new(logical);
-
-        let list = {
-            let mut ctx = PaintContext::new();
-            match &mut state.view {
-                View::Home(home) => {
-                    home.layout(viewport);
-                    home.paint(&mut ctx);
-                }
-                View::NewDocument(view) => {
-                    view.update();
-                    view.layout(viewport);
-                    view.paint(&mut ctx);
-                }
-                View::Editor(editor) => {
-                    // 1. 把共享状态（工具、提示）同步到控件上。
-                    editor.update();
-                    // 2. 文档像素有变化就重新合成并上传纹理。
-                    if let Some(pixels) = editor.take_texture_upload() {
-                        if let Err(error) = state.backend.update_texture(
-                            crate::canvas::DOCUMENT_TEXTURE,
-                            pixels.width,
-                            pixels.height,
-                            &pixels.data,
-                        ) {
-                            eprintln!("document texture upload failed: {error}");
-                        }
-                    }
-                    // 3. 排布 -> 绘制成后端无关的 DrawList。
-                    editor.layout(viewport);
-                    editor.paint(&mut ctx);
-                }
-            }
-            ctx.into_draw_list()
-        };
-        // 主页点过「新建窗口」没有？取走请求（只在主页窗口才可能为真）。
-        let open_new_document =
-            matches!(&state.view, View::Home(home) if home.take_new_window_request());
-        // 「新建文档」窗口按了创建 / 取消没有？
-        let new_document_result = match &state.view {
-            View::NewDocument(view) => view.take_result(),
-            _ => None,
-        };
-
-        // 4. 交给后端。
-        let surface_texture = match state.surface.get_current_texture() {
-            Ok(texture) => texture,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                state
-                    .surface
-                    .configure(state.backend.device(), &state.config);
-                return;
-            }
-            Err(wgpu::SurfaceError::Timeout) => return,
-            Err(error) => {
-                eprintln!("surface error: {error}");
-                return;
-            }
-        };
-        let view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-        if state
-            .backend
-            .begin_frame_with_view(
-                view,
-                state.config.width,
-                state.config.height,
-                state.config.format,
-                viewport,
-            )
-            .is_ok()
-        {
-            let _ = state.backend.submit(&list);
-            let _ = state.backend.end_frame();
-        }
-        surface_texture.present();
-
-        let window_id = self.windows[index].window.id();
-        // 主窗口的「新建窗口」：开原生「新建文档」窗口。
-        if open_new_document {
-            tracing::info!(target: "image_editor", "new_window_requested");
-            self.open_new_document_window(event_loop);
-        }
-        // 「新建文档」窗口出结果：创建 -> 主窗口换成编辑器；取消 -> 只关窗。
-        if let Some(result) = new_document_result {
-            if let NewDocumentResult::Create(spec) = result {
-                self.apply_new_document(spec);
-            }
-            self.close_window(event_loop, window_id);
-        }
-
-        // `event_loop.exit()` 不会立刻停 —— 退出前可能还排着一次重画，所以
-        // 先把计数清掉，免得重复触发（也免得重复打印）。
-        // 计数器还在时自己排下一帧：否则事件循环会 `Wait` 在一个不会再来的
-        // RedrawRequested 上（Phase 1 没有工作线程来唤醒它）。
-        if let Some(left) = self.frames_left.take() {
-            let left = left.saturating_sub(1);
-            if left == 0 {
-                eprintln!("--frames 跑完了，退出");
-                event_loop.exit();
-            } else {
-                self.frames_left = Some(left);
-                if let Some(state) = self.windows.get(index) {
-                    state.window.request_redraw();
-                }
-            }
-        }
-    }
-
-    fn to_logical(&self, index: usize, position: winit::dpi::PhysicalPosition<f64>) -> Vec2 {
-        let scale = self
-            .windows
-            .get(index)
-            .map(|state| state.scale_factor)
-            .unwrap_or(1.0) as f32;
-        Vec2::new(position.x as f32 / scale, position.y as f32 / scale)
-    }
-}
-
-impl ApplicationHandler for App {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.init(event_loop);
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        let Some(index) = self
-            .windows
-            .iter()
-            .position(|state| state.window.id() == window_id)
-        else {
-            return;
-        };
-
-        // A redraw is already the render itself; do not request another.
-        if matches!(event, WindowEvent::RedrawRequested) {
-            self.render(event_loop, index);
-            return;
-        }
-
-        match event {
-            WindowEvent::CloseRequested => {
-                self.close_window(event_loop, window_id);
-                return;
-            }
-            WindowEvent::Resized(size) => self.resize(index, size.width, size.height),
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                if let Some(state) = self.windows.get_mut(index) {
-                    state.scale_factor = scale_factor;
-                    state.backend.set_scale_factor(scale_factor as f32);
-                }
-            }
-            WindowEvent::CursorMoved { position, .. } => {
-                let position = self.to_logical(index, position);
-                if let Some(state) = self.windows.get_mut(index) {
-                    state.cursor = position;
-                }
-                self.feed(index, &InputEvent::PointerMove { position });
-            }
-            WindowEvent::CursorLeft { .. } => self.feed(index, &InputEvent::PointerLeave),
-            WindowEvent::MouseInput { state, button, .. } => {
-                let position = self.windows[index].cursor;
-                let button = pointer_button(button);
-                let event = match state {
-                    ElementState::Pressed => InputEvent::PointerDown { position, button },
-                    ElementState::Released => InputEvent::PointerUp { position, button },
-                };
-                self.feed(index, &event);
-            }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let scale = self.windows[index].scale_factor as f32;
-                let delta = wheel_pixels(delta, scale);
-                let position = self.windows[index].cursor;
-                self.feed(
-                    index,
-                    &InputEvent::Wheel {
-                        position,
-                        delta: Vec2::new(0.0, delta),
-                    },
-                );
-            }
-            WindowEvent::KeyboardInput { event, .. } => {
-                let pressed = event.state == ElementState::Pressed;
-                // Ctrl/Cmd+Z 这类快捷键先在这里截掉：`InputEvent::KeyDown` 没有
-                // 修饰键字段（`igui_core` 刻意保持最小），所以由宿主映射到
-                // `EditorView::undo/redo`，不当作普通按键 / 文本。主页窗口没有
-                // 编辑器，直接跳过。
-                let mut consumed = false;
-                if pressed {
-                    if let Some(View::Editor(editor)) =
-                        self.windows.get_mut(index).map(|state| &mut state.view)
-                    {
-                        consumed = history_shortcut(editor, self.modifiers, &event.logical_key);
-                    }
-                }
-                if !consumed {
-                    // 已提交文本（IME / 打字）先送：重命名编辑用它写入缓冲区。
-                    if pressed {
-                        if let Some(text) = event.text.as_ref() {
-                            let text: String = text.chars().filter(|ch| !ch.is_control()).collect();
-                            if !text.is_empty() {
-                                self.feed(index, &InputEvent::TextInput { text });
-                            }
-                        }
-                    }
-                    if let Some(key) = map_key(&event.logical_key) {
-                        let input = match event.state {
-                            ElementState::Pressed => InputEvent::KeyDown { key },
-                            ElementState::Released => InputEvent::KeyUp { key },
-                        };
-                        self.feed(index, &input);
-                    }
-                }
-            }
-            WindowEvent::ModifiersChanged(modifiers) => {
-                self.modifiers = modifiers.state();
-            }
-            _ => {}
-        }
-
-        // Any handled event may have changed the UI; schedule exactly one frame.
-        if let Some(state) = self.windows.get(index) {
-            state.window.request_redraw();
         }
     }
 }
 
-/// Ctrl/Cmd+Z 撤销，Ctrl+Y 或 Shift+Ctrl/Cmd+Z 重做；命中返回 `true`。
-fn history_shortcut(editor: &mut EditorView, modifiers: ModifiersState, key: &WinitKey) -> bool {
-    if !(modifiers.control_key() || modifiers.super_key()) {
+impl AppLogic for ImageEditorLogic {
+    fn init(&mut self, ctx: &InitContext<'_>) {
+        // `TextMeasurePlugin` 的替代品已经在 `resumed` 时把度量放进服务。
+        self.measurer = ctx.service::<Rc<dyn TextMeasurer>>().cloned();
+        if let Some(measurer) = self.measurer.clone() {
+            match &mut self.screen {
+                Screen::Home(home) => home.set_text_measurer(measurer),
+                Screen::Editor(editor) => editor.set_text_measurer(measurer),
+            }
+        }
+    }
+
+    fn event(&mut self, _ctx: &EventContext<'_>, event: &InputEvent) -> EventResult {
+        if let InputEvent::ModifiersChanged(modifiers) = event {
+            self.modifiers = *modifiers;
+        }
+
+        // 模态优先：Esc 取消；其余事件平移到面板坐标后交给浮层，并全部吞掉，
+        // 底层 UI 收不到任何输入。
+        if self.modal.is_some() {
+            if let InputEvent::KeyDown { key: Key::Escape } = event {
+                self.modal = None;
+                return EventResult::Handled;
+            }
+            let origin = self
+                .modal
+                .as_ref()
+                .map(|modal| modal.origin)
+                .unwrap_or(Vec2::ZERO);
+            if let Some(local) = translated_input(event, -origin) {
+                if let Some(modal) = self.modal.as_mut() {
+                    let _ = modal.view.event(&local);
+                }
+            }
+            return EventResult::Handled;
+        }
+
+        if self.shortcut_modifier() && matches!(event, InputEvent::TextInput { .. }) {
+            return EventResult::Handled;
+        }
+
+        let command = self.shortcut_modifier();
+        let shift = self.modifiers.shift;
+        match &mut self.screen {
+            Screen::Home(home) => home.event(event),
+            Screen::Editor(editor) => {
+                if history_shortcut(editor, command, shift, event) {
+                    return EventResult::Handled;
+                }
+                editor.event(event)
+            }
+        }
+    }
+
+    fn update(&mut self, ctx: &FrameContext<'_>) {
+        if let Screen::Editor(editor) = &mut self.screen {
+            editor.update();
+            if let Some(pixels) = editor.take_texture_upload() {
+                if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
+                    upload_texture(&backend, &pixels);
+                }
+            }
+        }
+        if let Some(modal) = self.modal.as_mut() {
+            modal.view.update();
+        }
+
+        self.open_modal_if_requested();
+        self.finish_modal(ctx);
+
+        if self.title_dirty {
+            self.title_dirty = false;
+            self.apply_title(ctx);
+        }
+    }
+
+    fn layout(&mut self, ctx: &FrameContext<'_>) {
+        let viewport = ctx.viewport();
+        match &mut self.screen {
+            Screen::Home(home) => home.layout(viewport),
+            Screen::Editor(editor) => editor.layout(viewport),
+        }
+        if let Some(modal) = self.modal.as_mut() {
+            let panel = Size::new(MODAL_WIDTH, MODAL_HEIGHT);
+            modal.origin = centered_origin(viewport, panel);
+            modal.view.layout(ViewportSize::new(panel));
+        }
+    }
+
+    fn paint(&mut self, ctx: &FrameContext<'_>, paint: &mut PaintContext) {
+        match &self.screen {
+            Screen::Home(home) => home.paint(paint),
+            Screen::Editor(editor) => editor.paint(paint),
+        }
+        if let Some(modal) = self.modal.as_ref() {
+            let viewport = ctx.viewport().logical_size();
+            paint.fill_rect(Rect::from_min_size(Vec2::ZERO, viewport), SCRIM);
+            paint.save();
+            paint.transform(Transform2D::from_translation(modal.origin));
+            modal.view.paint(paint);
+            paint.restore();
+        }
+    }
+}
+
+/// Ctrl/Cmd+Z 撤销、Shift+Ctrl/Cmd+Z（或 Ctrl+Y）重做；命中返回 `true`。
+fn history_shortcut(
+    editor: &mut EditorView,
+    command: bool,
+    shift: bool,
+    event: &InputEvent,
+) -> bool {
+    if !command {
         return false;
     }
-    let WinitKey::Character(text) = key else {
+    let InputEvent::KeyDown {
+        key: Key::Character(ch),
+    } = event
+    else {
         return false;
     };
-    match text.to_lowercase().as_str() {
-        "z" if modifiers.shift_key() => {
+    match ch.to_ascii_lowercase() {
+        'z' if shift => {
             editor.redo();
             true
         }
-        "z" => {
+        'z' => {
             editor.undo();
             true
         }
-        "y" => {
+        'y' => {
             editor.redo();
             true
         }
@@ -675,40 +368,111 @@ fn history_shortcut(editor: &mut EditorView, modifiers: ModifiersState, key: &Wi
     }
 }
 
-/// 一个滚轮刻度折算的逻辑像素（画布只用符号决定缩放方向；数值留给以后的
-/// 内嵌滚动列表）。
-const WHEEL_LINE_HEIGHT: f32 = 48.0;
-
-/// 平台滚轮 -> 逻辑像素（`y > 0` 表示向下滚，跟 `InputEvent::Wheel` 一致）。
-fn wheel_pixels(delta: MouseScrollDelta, scale: f32) -> f32 {
-    match delta {
-        MouseScrollDelta::LineDelta(_, lines) => -lines * WHEEL_LINE_HEIGHT,
-        MouseScrollDelta::PixelDelta(position) => {
-            -(position.y as f32) / if scale > 0.0 { scale } else { 1.0 }
-        }
+/// 把后端文档纹理上传到 GPU（数据来自 `EditorView` 的合成结果）。
+fn upload_texture(backend: &SharedBackend, pixels: &PixelBuffer) {
+    if let Err(error) = backend.borrow_mut().update_texture(
+        crate::canvas::DOCUMENT_TEXTURE,
+        pixels.width,
+        pixels.height,
+        &pixels.data,
+    ) {
+        eprintln!("document texture upload failed: {error}");
     }
 }
 
+/// 面板在窗口里居中；窗口比面板小时贴左上（不裁到负坐标）。
+fn centered_origin(viewport: ViewportSize, panel: Size) -> Vec2 {
+    let size = viewport.logical_size();
+    Vec2::new(
+        ((size.width - panel.width) / 2.0).max(0.0),
+        ((size.height - panel.height) / 2.0).max(0.0),
+    )
+}
+
+/// 把窗口坐标的指针事件平移成模态面板的局部坐标；其它事件原样返回。
+fn translated_input(event: &InputEvent, offset: Vec2) -> Option<InputEvent> {
+    let at = |position: Vec2| position + offset;
+    Some(match event {
+        InputEvent::PointerDown { position, button } => InputEvent::PointerDown {
+            position: at(*position),
+            button: *button,
+        },
+        InputEvent::PointerUp { position, button } => InputEvent::PointerUp {
+            position: at(*position),
+            button: *button,
+        },
+        InputEvent::PointerMove { position } => InputEvent::PointerMove {
+            position: at(*position),
+        },
+        InputEvent::DoubleClick { position } => InputEvent::DoubleClick {
+            position: at(*position),
+        },
+        InputEvent::Wheel { position, delta } => InputEvent::Wheel {
+            position: at(*position),
+            delta: *delta,
+        },
+        other => other.clone(),
+    })
+}
+
 /// 窗口清屏色 = 主题的底层背景（`igui_ui` 之外的地方由后端填）。
-fn theme_background(theme: &'static dyn Theme) -> igui_core::Color {
+fn theme_background(theme: &'static dyn Theme) -> Color {
     theme.surface(SurfaceLevel::Base)
 }
 
-/// 后端字体度量 -> 布局引擎的 `TextMeasurer`（`wgpu_demo` 里同一个适配器）。
-struct BackendTextMeasurer {
+/// 注册后端真实字体度量，但用 [`EditorTextMeasurer`] 校正 `ascent`。
+///
+/// 这是 `igui_winit::TextMeasurePlugin` 的替代品：同样的服务键
+///（`Rc<dyn TextMeasurer>`），只是度量实现换成了会做视觉居中的一个。
+struct EditorTextMeasurePlugin;
+
+impl Plugin for EditorTextMeasurePlugin {
+    fn name(&self) -> &'static str {
+        "image-editor-text-measure"
+    }
+
+    fn build(&self, app: &mut AppBuilder) {
+        app.add_lifecycle_observer(EditorTextMeasureLifecycle);
+    }
+}
+
+struct EditorTextMeasureLifecycle;
+
+impl LifecycleObserver for EditorTextMeasureLifecycle {
+    fn resumed(&mut self, app: &mut App) {
+        if app.services().get::<Rc<dyn TextMeasurer>>().is_some() {
+            return;
+        }
+        let Some(backend) = app.services().get::<SharedBackend>().cloned() else {
+            return;
+        };
+        let metrics = backend.borrow().text_metrics();
+        let measurer: Rc<dyn TextMeasurer> = Rc::new(EditorTextMeasurer::new(metrics));
+        app.services_mut().insert(measurer);
+    }
+}
+
+/// 后端字体度量 -> 布局引擎的 `TextMeasurer`。
+///
+/// 布局的居中公式用的是字体原生 `ascent`，而不同字体的
+/// `ascent / line_height` 分布差别很大；这里覆盖 `ascent` 为
+/// `line_height/2 + cap/2`，让**字形视觉中心**落在行框中心。对度量正常的字体
+/// 这个值和原生 `ascent` 基本一致，只有度量异常的字体（随包的中文老宋体）才会
+/// 被修正。
+struct EditorTextMeasurer {
     metrics: FontMetrics,
 }
 
+impl EditorTextMeasurer {
+    fn new(metrics: FontMetrics) -> Self {
+        Self { metrics }
+    }
+}
+
 /// 大写字高相对字号的比例（约 0.7 em），用来把字形视觉居中到行框。
-///
-/// 换字体后上下会偏，是因为 `igui_ui` 的居中公式用的是字体的原生 `ascent`：
-/// `baseline = 行框中心 - line_height/2 + ascent`，而不同字体的
-/// `ascent / line_height` 分布差别很大。这里覆盖 `ascent` 为
-/// `line_height/2 + cap/2`，让**字形视觉中心**落在行框中心；对度量正常的
-/// 字体这个值和原生 `ascent` 基本一致，只有度量异常的字体才会被修正。
 const CAP_HEIGHT_RATIO: f32 = 0.7;
 
-impl TextMeasurer for BackendTextMeasurer {
+impl TextMeasurer for EditorTextMeasurer {
     fn advance(&self, ch: char, font_size: f32) -> f32 {
         self.metrics.advance(ch, font_size)
     }
@@ -731,61 +495,63 @@ impl TextMeasurer for BackendTextMeasurer {
     }
 }
 
-fn pointer_button(button: MouseButton) -> PointerButton {
-    match button {
-        MouseButton::Right => PointerButton::Right,
-        MouseButton::Middle => PointerButton::Middle,
-        _ => PointerButton::Left,
+/// `--frames N`：跑够 N 帧就把进程结束掉（真实渲染管线自检用）。
+struct FrameLimitPlugin {
+    frames: u32,
+}
+
+impl Plugin for FrameLimitPlugin {
+    fn name(&self) -> &'static str {
+        "image-editor-frame-limit"
+    }
+
+    fn build(&self, app: &mut AppBuilder) {
+        app.add_frame_observer(FrameLimiter {
+            remaining: self.frames,
+        });
     }
 }
 
-fn map_key(key: &WinitKey) -> Option<Key> {
-    match key {
-        WinitKey::Named(NamedKey::Enter) => Some(Key::Enter),
-        WinitKey::Named(NamedKey::Escape) => Some(Key::Escape),
-        WinitKey::Named(NamedKey::Backspace) => Some(Key::Backspace),
-        WinitKey::Named(NamedKey::Delete) => Some(Key::Delete),
-        WinitKey::Named(NamedKey::Tab) => Some(Key::Tab),
-        WinitKey::Named(NamedKey::Space) => Some(Key::Space),
-        WinitKey::Character(text) => text.chars().next().map(Key::Character),
-        _ => None,
+struct FrameLimiter {
+    remaining: u32,
+}
+
+impl FrameObserver for FrameLimiter {
+    fn after_frame(&mut self, _app: &App, _list: &DrawList) {
+        self.remaining = self.remaining.saturating_sub(1);
+        if self.remaining == 0 {
+            eprintln!("--frames 跑完了，退出");
+            // 运行时没有退出钩子；这个标志只用于验证，直接结束进程即可。
+            std::process::exit(0);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use igui_core::PointerButton;
 
     #[test]
-    fn tool_shortcuts_are_lowercase_and_uppercase() {
-        assert_eq!(
-            map_key(&WinitKey::Character("b".into())),
-            Some(Key::Character('b'))
+    fn the_modal_is_centered_and_clamps_to_the_viewport() {
+        let viewport = ViewportSize::new(Size::new(800.0, 600.0));
+        let origin = centered_origin(viewport, Size::new(360.0, 480.0));
+        assert_eq!(origin, Vec2::new(220.0, 60.0));
+
+        let small = centered_origin(
+            ViewportSize::new(Size::new(200.0, 100.0)),
+            Size::new(360.0, 480.0),
         );
-        assert_eq!(map_key(&WinitKey::Named(NamedKey::Space)), Some(Key::Space));
-        assert_eq!(map_key(&WinitKey::Named(NamedKey::Shift)), None);
+        assert_eq!(small, Vec2::ZERO);
     }
 
     #[test]
-    fn pointer_buttons_map() {
-        assert_eq!(pointer_button(MouseButton::Right), PointerButton::Right);
-        assert_eq!(pointer_button(MouseButton::Middle), PointerButton::Middle);
-        assert_eq!(pointer_button(MouseButton::Left), PointerButton::Left);
-    }
-
-    #[test]
-    fn a_wheel_up_zooms_in_after_the_sign_convention() {
-        // 滚轮向上（远离自己）-> delta.y < 0 -> 视图放大。
-        assert!(wheel_pixels(MouseScrollDelta::LineDelta(0.0, 1.0), 1.0) < 0.0);
-        assert!(wheel_pixels(MouseScrollDelta::LineDelta(0.0, -1.0), 1.0) > 0.0);
-    }
-
-    #[test]
-    fn pixel_wheel_deltas_are_converted_to_logical() {
-        let pixels = wheel_pixels(
-            MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition::new(0.0, -40.0)),
-            2.0,
-        );
-        assert_eq!(pixels, 20.0);
+    fn modal_pointer_events_are_translated_into_panel_space() {
+        let event = InputEvent::PointerDown {
+            position: Vec2::new(100.0, 100.0),
+            button: PointerButton::Left,
+        };
+        let local = translated_input(&event, Vec2::new(-20.0, -30.0)).expect("pointer event");
+        assert_eq!(local.position(), Some(Vec2::new(80.0, 70.0)));
     }
 }

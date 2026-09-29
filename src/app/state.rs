@@ -113,7 +113,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// 用「新建窗口」选出来的尺寸 / 背景色开一个全新的编辑会话（空历史）。
+    /// 用「新建项目」浮层选出来的尺寸 / 背景色开一个全新的编辑会话（空历史）。
     pub fn with_document(width: u32, height: u32, background: Color) -> Self {
         Self {
             active_tool: ActiveTool::default(),

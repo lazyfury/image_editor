@@ -1,8 +1,9 @@
-//! 「新建文档」窗口：选画布尺寸 / 背景色。
+//! 「新建文档」模态浮层：选画布尺寸 / 背景色。
 //!
-//! 由首页的「新建窗口」在**原生**窗口里打开（不是模态框）。点「创建」把选择
-//! 通过共享格交回宿主（[`crate::app::application`]），宿主把它变成**主窗口**里的
-//! 一个新 [`EditorView`](crate::ui::EditorView)；点「取消」或关窗就放弃。
+//! 由首页的「新建项目」在**主窗口内**打开（见 [`crate::app::application`]）：
+//! 宿主画 scrim + 居中面板，输入先给浮层。点「创建」把选择通过共享格交回宿主，
+//! 宿主把它变成同一个窗口里的一个新 [`EditorView`](crate::ui::EditorView)；点
+//! 「取消」或 Esc 就关掉浮层。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -19,7 +20,7 @@ use igui_ui::{Align, MouseFilter, SurfaceStyle, TextMeasurer};
 use crate::canvas::{CHECKER_DARK, CHECKER_LIGHT};
 use crate::document::Color;
 
-/// 「新建窗口」选出来的默认值。
+/// 「新建项目」选出来的默认值。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NewDocumentSpec {
     pub width: u32,
@@ -61,14 +62,14 @@ const BACKGROUNDS: [(&str, Color); 4] = [
     ("红色", Color::RED),
 ];
 
-/// 「新建文档」窗口给出的结果。
+/// 「新建文档」浮层给出的结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NewDocumentResult {
     Create(NewDocumentSpec),
     Cancel,
 }
 
-/// 「新建文档」视图。
+/// 「新建文档」浮层视图。
 pub struct NewDocumentView {
     tree: SceneTree,
     /// 当前选择（共享格，回调只能往里写）。

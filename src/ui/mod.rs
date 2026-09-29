@@ -1718,11 +1718,6 @@ impl EditorView {
         self.icon_count
     }
 
-    /// 主题（宿主用它取清屏色）。
-    pub fn theme(&self) -> &'static dyn Theme {
-        self.theme
-    }
-
     /// 工具按钮的中心点（逻辑坐标）。测试与自检用它模拟一次真实点击。
     pub fn tool_center(&self, tool: ActiveTool) -> Option<Vec2> {
         let id = self.tool_node(tool)?;
@@ -2384,9 +2379,10 @@ mod tests {
 
     #[test]
     fn the_active_tool_button_paints_the_selection_color() {
-        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        let theme = crate::theme::editor_theme(false);
+        let mut view = EditorView::new(theme, AppState::default());
         view.layout(viewport());
-        let selection = view.theme().palette().selection;
+        let selection = theme.palette().selection;
         assert!(
             paint_commands(&view).iter().any(|command| matches!(
                 command,

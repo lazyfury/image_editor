@@ -32,11 +32,14 @@ igui_font = { git = "https://github.com/lazyfury/igui", tag = "v0.2.0" }
 # PNG 编解码（Phase 7 导入导出）。示例层可以引入依赖；核心 crate 仍保持无依赖。
 png = "0.17"
 igui_backend_wgpu = { git = "https://github.com/lazyfury/igui", tag = "v0.2.0" }
+# `igui_app` plugin runtime + the `igui_winit` platform plugins
+# (window / wgpu / input / IME / text measure / clipboard).
+igui_app = { git = "https://github.com/lazyfury/igui", tag = "v0.2.0" }
+igui_winit = { git = "https://github.com/lazyfury/igui", tag = "v0.2.0" }
 # Headless self-check (`--selfcheck`): record draw lists + inspect them,
 # so the UI can be verified without a window or a screenshot.
 igui_backend_recording = { git = "https://github.com/lazyfury/igui", tag = "v0.2.0" }
 igui_profile = { git = "https://github.com/lazyfury/igui", tag = "v0.2.0" }
-winit = "0.30"
 # Structured events for the important app actions (AGENTS.md §31).
 tracing = "0.1"
 

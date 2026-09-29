@@ -1,9 +1,9 @@
-//! 首页（落地页）：启动时先看到的这一屏 —— 「新建窗口」和「画廊（占位）」。
+//! 首页（落地页）：启动时先看到的这一屏 —— 「新建项目」和「画廊（占位）」。
 //!
-//! 点「新建窗口」只往共享格里写一个请求，宿主
-//! （[`crate::app::application`]）取走后开一个**原生**的「新建文档」窗口
-//! （[`crate::ui::NewDocumentView`]）—— 挑选尺寸 / 背景色，**不是**模态框；
-//! 创建之后编辑器仍然在**主窗口**里。画廊是占位：一张 `EmptyState`。
+//! 点「新建项目」只往共享格里写一个请求，宿主
+//! （[`crate::app::application`]）取走后打开**模态浮层**
+//! （[`crate::ui::NewDocumentView`]）—— 挑选尺寸 / 背景色；创建之后编辑器仍在
+//! **同一个窗口**里。画廊是占位：一张 `EmptyState`。
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -20,19 +20,19 @@ use igui_ui::{MouseFilter, TextMeasurer};
 /// 一样只负责排布 / 绘制 / 输入，不碰平台。
 pub struct HomeView {
     tree: SceneTree,
-    /// 「新建窗口」请求；宿主取走（[`take_new_window_request`]）后开新窗口。
-    new_window: Rc<Cell<bool>>,
-    /// 「新建窗口」按钮节点，测试靠它真的点一下。
+    /// 「新建项目」请求；宿主取走（[`take_new_document_request`]）后打开模态浮层。
+    new_document: Rc<Cell<bool>>,
+    /// 「新建项目」按钮节点，测试靠它真的点一下。
     #[allow(dead_code)]
-    new_window_button: NodeId,
+    new_document_button: NodeId,
 }
 
 impl HomeView {
     pub fn new(theme: &'static dyn Theme) -> Self {
-        let new_window: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        let new_document: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let button_ref = NodeRef::new();
 
-        let request = new_window.clone();
+        let request = new_document.clone();
         let new_window_card = Flex::column().padding(Edges::ZERO).child(
             UICard::new(theme)
                 .background(Color::TRANSPARENT)
@@ -40,11 +40,8 @@ impl HomeView {
                 .gap(space::SM)
                 .child(Text::subheading("新建项目", theme))
                 .child(
-                    Text::small(
-                        "在弹出的原生窗口里选画布尺寸和背景色，然后在主窗口里编辑。",
-                        theme,
-                    )
-                    .tone(Tone::Muted),
+                    Text::small("在弹出的浮层里选画布尺寸和背景色，然后开始编辑。", theme)
+                        .tone(Tone::Muted),
                 )
                 .child(
                     Flex::row().padding(Edges::ZERO).child(
@@ -82,7 +79,7 @@ impl HomeView {
                             .padding(Edges::ZERO)
                             .justify(igui_ui::Justify::SpaceBetween)
                             .mouse_filter(MouseFilter::Ignore)
-                            .child(Text::title("Quill 图像编辑器", theme))
+                            .child(Text::title("igui 图像编辑器", theme))
                             .child(
                                 Text::small("用 igui 的 2D / UI 栈画的桌面图像编辑器。", theme)
                                     .tone(Tone::Muted),
@@ -109,11 +106,11 @@ impl HomeView {
             .child(page)
             .into_tree();
 
-        let new_window_button = button_ref.get().expect("新建窗口按钮已挂载");
+        let new_document_button = button_ref.get().expect("新建项目按钮已挂载");
         Self {
             tree,
-            new_window,
-            new_window_button,
+            new_document,
+            new_document_button,
         }
     }
 
@@ -122,9 +119,9 @@ impl HomeView {
         igui_ui::set_text_measurer(&mut self.tree, measurer);
     }
 
-    /// 这一帧有没有点过「新建窗口」；取走后清掉，宿主据此开原生窗口。
-    pub fn take_new_window_request(&self) -> bool {
-        self.new_window.replace(false)
+    /// 这一帧有没有点过「新建项目」；取走后清掉，宿主据此打开模态浮层。
+    pub fn take_new_document_request(&self) -> bool {
+        self.new_document.replace(false)
     }
 
     pub fn event(&mut self, event: &InputEvent) -> EventResult {
@@ -142,10 +139,10 @@ impl HomeView {
         igui_ui::paint(&self.tree, ctx);
     }
 
-    /// 「新建窗口」按钮的心点（逻辑坐标）；测试模拟点击用。
+    /// 「新建项目」按钮的心点（逻辑坐标）；测试模拟点击用。
     #[allow(dead_code)]
-    pub fn new_window_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.new_window_button).map(|control| control.rect.center())
+    pub fn new_document_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.new_document_button).map(|control| control.rect.center())
     }
 }
 
@@ -170,13 +167,13 @@ mod tests {
     }
 
     #[test]
-    fn the_new_window_button_raises_one_request() {
+    fn the_new_project_button_raises_one_request() {
         let mut view = HomeView::new(crate::theme::editor_theme(false));
         view.layout(viewport());
-        let center = view.new_window_center().expect("新建窗口按钮");
+        let center = view.new_document_center().expect("新建项目按钮");
         click(&mut view, center);
-        assert!(view.take_new_window_request(), "点按钮应留下一个请求");
-        assert!(!view.take_new_window_request(), "请求只能被取走一次");
+        assert!(view.take_new_document_request(), "点按钮应留下一个请求");
+        assert!(!view.take_new_document_request(), "请求只能被取走一次");
     }
 
     #[test]

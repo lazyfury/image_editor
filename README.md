@@ -21,19 +21,21 @@ cargo run -- --light
 cargo run -- --pixel-font
 ```
 
-## 主页与多窗口
+## 主页与单窗口模态框
 
 启动先进**主页**（`src/ui/home.rs` 的 `HomeView`）：
 
-- 「新建窗口」：由宿主 `application.rs` 调 `event_loop.create_window` 开一个
-  **原生**的「新建文档」窗口（`src/ui/new_document.rs` 的 `NewDocumentView`），
-  里面选画布尺寸和背景色 —— 是操作系统级的窗口，不是应用内模态框。
-  点「创建」后，编辑器出现在**主窗口**里（主窗口从主页切到 `EditorView`），
-  新建窗口自动关闭；点「取消」或关窗就放弃。
+- 「新建项目」：在主窗口里弹出**应用内模态浮层**
+  （`src/ui/new_document.rs` 的 `NewDocumentView`）选画布尺寸和背景色 —— 不再开
+  第二个原生窗口（macOS 15 上多 surface 会崩）。宿主画 scrim + 居中面板，输入
+  先给浮层并全部吞掉。点「创建」后，编辑器出现在**同一个窗口**里（从主页切到
+  `EditorView`），浮层关闭；点「取消」或 Esc 就放弃。
 - 「画廊」：占位（一张 `EmptyState`），以后放最近打开的文档。
 
-宿主用 `Vec<WindowState>` 管多个窗口，每个窗口一套 surface / `WgpuBackend`
-（纹理命名空间隔离）。
+宿主（`src/app/application.rs`）不再是手写的 winit `ApplicationHandler`，而是用
+`igui_app` 运行时把平台插件组装起来：`igui_winit` 的 `WinitPlugin` / `WgpuPlugin` /
+`PointerPlugin` / `KeyboardPlugin` / `ImePlugin` / 文本度量 / `ClipboardPlugin`，
+业务逻辑只实现一个 `AppLogic`（主页 / 编辑器 / 模态框都在这一个逻辑里）。
 
 ## 阶段
 
