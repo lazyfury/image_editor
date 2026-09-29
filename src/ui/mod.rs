@@ -31,7 +31,7 @@ mod toolbar;
 
 pub use file_panel::IoAction;
 pub use home::HomeView;
-pub use new_document::{NewDocumentResult, NewDocumentSpec, NewDocumentView};
+pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
 pub use tabs::SidebarTab;
@@ -593,6 +593,11 @@ impl EditorView {
     pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
         igui_ui::set_text_measurer(&mut self.tree, measurer.clone());
         self.overlays.set_text_measurer(measurer);
+    }
+
+    /// 宿主 `Overlays` 解析锚点用的底层树。
+    pub fn tree(&self) -> &SceneTree {
+        &self.tree
     }
 
     /// 宿主每帧调用：同步状态栏、在文档改动后刷新图层列表并标记重合成。

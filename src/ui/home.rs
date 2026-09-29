@@ -1,8 +1,8 @@
 //! 首页（落地页）：启动时先看到的这一屏 —— 「新建项目」和「画廊（占位）」。
 //!
 //! 点「新建项目」只往共享格里写一个请求，宿主
-//! （[`crate::app::application`]）取走后打开**模态浮层**
-//! （[`crate::ui::NewDocumentView`]）—— 挑选尺寸 / 背景色；创建之后编辑器仍在
+//! （[`crate::app::application`]）取走后用 `Overlays` 打开**模态框**
+//! （[`crate::ui::NewDocumentModal`]）—— 挑选尺寸 / 背景色；创建之后编辑器仍在
 //! **同一个窗口**里。画廊是占位：一张 `EmptyState`。
 
 use std::cell::Cell;
@@ -117,6 +117,11 @@ impl HomeView {
     /// 用后端真实字体度量排版。
     pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
         igui_ui::set_text_measurer(&mut self.tree, measurer);
+    }
+
+    /// 宿主 `Overlays` 解析锚点用的底层树。
+    pub fn tree(&self) -> &SceneTree {
+        &self.tree
     }
 
     /// 这一帧有没有点过「新建项目」；取走后清掉，宿主据此打开模态浮层。

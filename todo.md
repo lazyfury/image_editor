@@ -8,10 +8,11 @@
 
 最近落地：单窗口 + `igui_app` 运行时（`src/app/application.rs` 用
 `WinitPlugin`/`WgpuPlugin`/输入插件组装，业务逻辑是一个 `AppLogic`）；「新建
-项目」现在是主窗口内的**应用内模态浮层**（`ui/new_document.rs` 的
-`NewDocumentView`，scrim + 居中面板 + 输入吞掉），不再开第二个原生窗口；侧栏
-「文件 / 历史 / 属性」标签页；透明棋盘格背景；默认 128×128 像素画布 + 1px 硬边笔
-+ 最近邻采样；移动图层后画笔对准光标、画布外像素不裁。
+项目」现在是主窗口内的**应用内模态框**（`ui/new_document.rs` 的
+`NewDocumentModal` 构建进 `igui_components::Overlays`：scrim / 居中 / 边框 / 输入
+吞掉都交给它），不再开第二个原生窗口；侧栏「文件 / 历史 / 属性」标签页；透明
+棋盘格背景；默认 128×128 像素画布 + 1px 硬边笔 + 最近邻采样；移动图层后画笔对准
+光标、画布外像素不裁。
 
 ---
 

@@ -8,8 +8,9 @@
 //! ```
 //!
 //! **单窗口 + 应用内模态框**：首屏是主页；点「新建项目」不再开第二个原生窗口
-//! （macOS 15 上多 surface 会崩），而是在主窗口里打开「新建文档」**模态浮层** ——
-//! 宿主画 scrim + 居中面板，输入先给浮层并全部吞掉。创建之后编辑器仍在同一个窗口。
+//! （macOS 15 上多 surface 会崩），而是用 `igui_components::Overlays` 在主窗口里
+//! 弹出「新建文档」模态框 —— scrim、居中、边框、Esc / 点外关闭以及输入吞掉都由
+//! `Overlays` 负责。
 //!
 //! `--frames N` 由 [`FrameLimitPlugin`] 在 N 帧后结束进程，让真实渲染管线能在
 //! 无头环境里被验证。
@@ -21,9 +22,8 @@ use igui_app::{
     LifecycleObserver, Plugin,
 };
 use igui_backend_wgpu::{FontConfig, FontMetrics, FontMode, TextureFilter};
-use igui_core::{
-    Color, EventResult, InputEvent, Key, Modifiers, Rect, Size, Transform2D, Vec2, ViewportSize,
-};
+use igui_components::{OverlayId, Overlays};
+use igui_core::{Color, EventResult, InputEvent, Key, Modifiers};
 use igui_render::{DrawList, PaintContext};
 use igui_theme::{SurfaceLevel, Theme};
 use igui_ui::TextMeasurer;
@@ -34,18 +34,11 @@ use igui_winit::{
 
 use crate::app::state::AppState;
 use crate::document::PixelBuffer;
-use crate::ui::{EditorView, HomeView, NewDocumentResult, NewDocumentSpec, NewDocumentView};
+use crate::ui::{EditorView, HomeView, NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 
 /// 主窗口（也是唯一的窗口）的初始大小。
 const WINDOW_WIDTH: f64 = 1280.0;
 const WINDOW_HEIGHT: f64 = 800.0;
-
-/// 「新建文档」模态面板的逻辑尺寸。
-const MODAL_WIDTH: f32 = 360.0;
-const MODAL_HEIGHT: f32 = 480.0;
-
-/// 模态后面的遮罩：压暗底层，也表明它不可点。
-const SCRIM: Color = Color::new(0.0, 0.0, 0.0, 0.45);
 
 /// 命令行选项（由 [`crate::main`] 解析）。
 #[derive(Clone, Debug, Default)]
@@ -114,7 +107,9 @@ struct ImageEditorLogic {
     /// 后端真实字体度量（`init` 时从服务里取；模态 / 新编辑器共享）。
     measurer: Option<Rc<dyn TextMeasurer>>,
     screen: Screen,
-    modal: Option<Modal>,
+    /// 覆盖层：承载「新建文档」模态框（编辑器自己的菜单是它内部的另一套）。
+    overlays: Overlays,
+    modal: Option<ActiveModal>,
     modifiers: Modifiers,
     /// 文档换了标题，下一帧写回原生窗口。
     title_dirty: bool,
@@ -126,11 +121,10 @@ enum Screen {
     Editor(EditorView),
 }
 
-/// 「新建文档」模态浮层：一棵独立的视图树 + 它在窗口里的位置。
-struct Modal {
-    view: NewDocumentView,
-    /// 面板左上角在窗口逻辑坐标里的位置（每帧 `layout` 更新）。
-    origin: Vec2,
+/// 一个打开中的「新建文档」模态框：`Overlays` 里的条目 + 它的内容 / 结果句柄。
+struct ActiveModal {
+    id: OverlayId,
+    modal: NewDocumentModal,
 }
 
 impl ImageEditorLogic {
@@ -139,6 +133,7 @@ impl ImageEditorLogic {
             theme,
             measurer: None,
             screen: Screen::Home(HomeView::new(theme)),
+            overlays: Overlays::new(theme),
             modal: None,
             modifiers: Modifiers::NONE,
             title_dirty: false,
@@ -150,7 +145,7 @@ impl ImageEditorLogic {
         self.modifiers.ctrl || self.modifiers.meta
     }
 
-    /// 主页点过「新建项目」就打开模态浮层（同时只允许一个）。
+    /// 主页点过「新建项目」就打开模态框（同时只允许一个）。
     fn open_modal_if_requested(&mut self) {
         if self.modal.is_some() {
             return;
@@ -160,28 +155,32 @@ impl ImageEditorLogic {
         if !requested {
             return;
         }
-        let mut view = NewDocumentView::new(self.theme);
-        if let Some(measurer) = self.measurer.clone() {
-            view.set_text_measurer(measurer);
-        }
-        self.modal = Some(Modal {
-            view,
-            origin: Vec2::ZERO,
-        });
+        let modal = NewDocumentModal::new(self.theme);
+        let id = modal.open(&mut self.overlays);
+        self.modal = Some(ActiveModal { id, modal });
         tracing::info!(target: "image_editor", "new_document_modal_opened");
     }
 
-    /// 模态浮层的创建 / 取消出结果：创建 -> 换成编辑器；取消 -> 只关掉浮层。
+    /// 把模态里的选择变化同步到它的标签。
+    fn sync_modal(&mut self) {
+        if let Some(active) = self.modal.as_ref() {
+            active.modal.sync(&mut self.overlays);
+        }
+    }
+
+    /// 模态出结果（创建）或被动关闭（Esc / 点外）后收尾。
     fn finish_modal(&mut self, ctx: &FrameContext<'_>) {
-        let result = self
-            .modal
-            .as_ref()
-            .and_then(|modal| modal.view.take_result());
-        let Some(result) = result else {
+        let Some(active) = self.modal.as_ref() else {
             return;
         };
+        let id = active.id;
+        let result = active.modal.take_result();
+        if result.is_none() && self.overlays.is_open(id) {
+            return;
+        }
         self.modal = None;
-        if let NewDocumentResult::Create(spec) = result {
+        self.overlays.close(id);
+        if let Some(NewDocumentResult::Create(spec)) = result {
             self.open_editor(ctx, spec);
         }
     }
@@ -232,9 +231,10 @@ impl ImageEditorLogic {
 
 impl AppLogic for ImageEditorLogic {
     fn init(&mut self, ctx: &InitContext<'_>) {
-        // `TextMeasurePlugin` 的替代品已经在 `resumed` 时把度量放进服务。
+        // 度量插件已经在 `resumed` 时把度量放进服务。
         self.measurer = ctx.service::<Rc<dyn TextMeasurer>>().cloned();
         if let Some(measurer) = self.measurer.clone() {
+            self.overlays.set_text_measurer(measurer.clone());
             match &mut self.screen {
                 Screen::Home(home) => home.set_text_measurer(measurer),
                 Screen::Editor(editor) => editor.set_text_measurer(measurer),
@@ -247,23 +247,8 @@ impl AppLogic for ImageEditorLogic {
             self.modifiers = *modifiers;
         }
 
-        // 模态优先：Esc 取消；其余事件平移到面板坐标后交给浮层，并全部吞掉，
-        // 底层 UI 收不到任何输入。
-        if self.modal.is_some() {
-            if let InputEvent::KeyDown { key: Key::Escape } = event {
-                self.modal = None;
-                return EventResult::Handled;
-            }
-            let origin = self
-                .modal
-                .as_ref()
-                .map(|modal| modal.origin)
-                .unwrap_or(Vec2::ZERO);
-            if let Some(local) = translated_input(event, -origin) {
-                if let Some(modal) = self.modal.as_mut() {
-                    let _ = modal.view.event(&local);
-                }
-            }
+        // 覆盖层优先：模态在时它吞掉全部输入，底层 UI 收不到。
+        if self.overlays.handle_input(event).is_handled() {
             return EventResult::Handled;
         }
 
@@ -293,11 +278,9 @@ impl AppLogic for ImageEditorLogic {
                 }
             }
         }
-        if let Some(modal) = self.modal.as_mut() {
-            modal.view.update();
-        }
 
         self.open_modal_if_requested();
+        self.sync_modal();
         self.finish_modal(ctx);
 
         if self.title_dirty {
@@ -312,26 +295,19 @@ impl AppLogic for ImageEditorLogic {
             Screen::Home(home) => home.layout(viewport),
             Screen::Editor(editor) => editor.layout(viewport),
         }
-        if let Some(modal) = self.modal.as_mut() {
-            let panel = Size::new(MODAL_WIDTH, MODAL_HEIGHT);
-            modal.origin = centered_origin(viewport, panel);
-            modal.view.layout(ViewportSize::new(panel));
-        }
+        let host = match &self.screen {
+            Screen::Home(home) => home.tree(),
+            Screen::Editor(editor) => editor.tree(),
+        };
+        self.overlays.layout(host, viewport);
     }
 
-    fn paint(&mut self, ctx: &FrameContext<'_>, paint: &mut PaintContext) {
+    fn paint(&mut self, _ctx: &FrameContext<'_>, paint: &mut PaintContext) {
         match &self.screen {
             Screen::Home(home) => home.paint(paint),
             Screen::Editor(editor) => editor.paint(paint),
         }
-        if let Some(modal) = self.modal.as_ref() {
-            let viewport = ctx.viewport().logical_size();
-            paint.fill_rect(Rect::from_min_size(Vec2::ZERO, viewport), SCRIM);
-            paint.save();
-            paint.transform(Transform2D::from_translation(modal.origin));
-            modal.view.paint(paint);
-            paint.restore();
-        }
+        self.overlays.paint(paint);
     }
 }
 
@@ -378,41 +354,6 @@ fn upload_texture(backend: &SharedBackend, pixels: &PixelBuffer) {
     ) {
         eprintln!("document texture upload failed: {error}");
     }
-}
-
-/// 面板在窗口里居中；窗口比面板小时贴左上（不裁到负坐标）。
-fn centered_origin(viewport: ViewportSize, panel: Size) -> Vec2 {
-    let size = viewport.logical_size();
-    Vec2::new(
-        ((size.width - panel.width) / 2.0).max(0.0),
-        ((size.height - panel.height) / 2.0).max(0.0),
-    )
-}
-
-/// 把窗口坐标的指针事件平移成模态面板的局部坐标；其它事件原样返回。
-fn translated_input(event: &InputEvent, offset: Vec2) -> Option<InputEvent> {
-    let at = |position: Vec2| position + offset;
-    Some(match event {
-        InputEvent::PointerDown { position, button } => InputEvent::PointerDown {
-            position: at(*position),
-            button: *button,
-        },
-        InputEvent::PointerUp { position, button } => InputEvent::PointerUp {
-            position: at(*position),
-            button: *button,
-        },
-        InputEvent::PointerMove { position } => InputEvent::PointerMove {
-            position: at(*position),
-        },
-        InputEvent::DoubleClick { position } => InputEvent::DoubleClick {
-            position: at(*position),
-        },
-        InputEvent::Wheel { position, delta } => InputEvent::Wheel {
-            position: at(*position),
-            delta: *delta,
-        },
-        other => other.clone(),
-    })
 }
 
 /// 窗口清屏色 = 主题的底层背景（`igui_ui` 之外的地方由后端填）。
@@ -530,28 +471,20 @@ impl FrameObserver for FrameLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use igui_core::PointerButton;
 
     #[test]
-    fn the_modal_is_centered_and_clamps_to_the_viewport() {
-        let viewport = ViewportSize::new(Size::new(800.0, 600.0));
-        let origin = centered_origin(viewport, Size::new(360.0, 480.0));
-        assert_eq!(origin, Vec2::new(220.0, 60.0));
-
-        let small = centered_origin(
-            ViewportSize::new(Size::new(200.0, 100.0)),
-            Size::new(360.0, 480.0),
-        );
-        assert_eq!(small, Vec2::ZERO);
-    }
-
-    #[test]
-    fn modal_pointer_events_are_translated_into_panel_space() {
-        let event = InputEvent::PointerDown {
-            position: Vec2::new(100.0, 100.0),
-            button: PointerButton::Left,
+    fn history_shortcut_requires_a_command_modifier() {
+        let mut editor = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        let z = InputEvent::KeyDown {
+            key: Key::Character('z'),
         };
-        let local = translated_input(&event, Vec2::new(-20.0, -30.0)).expect("pointer event");
-        assert_eq!(local.position(), Some(Vec2::new(80.0, 70.0)));
+        assert!(
+            !history_shortcut(&mut editor, false, false, &z),
+            "没有 Ctrl/Cmd 时不该当快捷键"
+        );
+        assert!(
+            history_shortcut(&mut editor, true, false, &z),
+            "Ctrl/Cmd+Z 应命中撤销"
+        );
     }
 }
