@@ -83,9 +83,10 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
   `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
   不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。
-- [ ] **`docs/upstream.md`**：集中记「需要改 igui 才能做」的事（目前只剩退出守卫：
-  `igui_winit` 的 `CloseRequested` 直接 `event_loop.exit()`，没有宿主钩子）与
-  tag 升级步骤。
+- [ ] **`docs/upstream.md`**：集中记「需要改 igui 才能做」的事（目前两件：
+  `igui_winit` 的 `CloseRequested` 直接 `event_loop.exit()`，没有宿主钩子；
+  `Overlays::confirm` / `modal` 固定两个页脚按钮，三选一（保存 / 不保存 /
+  取消）的未保存确认框套不上，要一个自定义页脚的 modal）与 tag 升级步骤。
 
 ### 可扩展
 
