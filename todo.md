@@ -63,6 +63,35 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - **`--selfcheck` 覆盖**：棋盘格 / 移动映射目前只有单元测试。
 - [x] **UI 暴露**：属性面板显示图层 `position` / 缓冲尺寸；视图菜单可开关棋盘格。
 
+## 结构改进（持续）
+
+`src/ui/mod.rs` 从 4245 行拆到 945 行（纯移动，门禁全程保持绿）：
+
+- [x] **拆 `ui/mod.rs`**：`tests` / `paint` / `accessors` / `tools` / `sync` /
+  `menus` / `input` / `layout` / `io` 各成 `src/ui/*.rs`；跨模块方法 `pub(super)`。
+- [ ] **拆 `EditorView::new`（418 行）**：把「共享状态槽 / 各面板 / 最终组装」拆成
+  `build_*` 辅助函数。**不是纯移动**（要传 `Refs` + 子节点），单独一阶段做，
+  每步跑 `--selfcheck` 与 `cargo test`。
+- [x] **自动化门禁**：`.github/workflows/ci.yml`（fmt / `clippy -D warnings` /
+  test / `--selfcheck`）；`cargo clippy` 已归零。
+- [x] **修正 MSRV / 打包**：`rust-version` 1.76 -> 1.80（`LazyLock`）；
+  加 `[profile.release]`（thin LTO / 单 codegen unit / strip）。
+- [ ] **测试辅助去重**：`viewport()` / `click()` 在 6~7 个文件里各写一份；
+  收敛到 `#[cfg(test)]` 的 `test_support`。
+- [ ] **拆 `selfcheck::check()`（约 500 行）**：拆成 `check_*() -> Vec<String>`
+  （已有 `check_pixel_mode_edges` / `check_bucket` / `check_gradient` 先例）。
+- [ ] **`docs/upstream.md`**：集中记「需要改 igui 才能做」的两件事（图层右键菜单
+  要 `igui_ui` 右键回调 + `Overlays` 指针锚点；退出守卫要 `igui_winit` 的
+  `CloseRequested` 钩子）与 tag 升级步骤。
+
+### 可扩展（新功能候选）
+
+- [ ] **魔棒**：`Selection` 已是 `Vec<bool>` 掩码，魔棒直接复用。
+- [ ] **图层混合模式**：`BlendMode` 目前只有 `Normal`（`document/layer.rs` TODO v1.1）。
+- [ ] **`History` 上限**：目前无步数 / 字节上限，大文档多步编辑会一直涨。
+- [ ] **工具元数据表**：新增一个工具要改 7+ 处（枚举 / `ALL` / 标签 / 图标 /
+  `tool_groups` / `begin..end` 的 match / 快捷键）；可收成一张 `ToolSpec` 表。
+
 ## 3. 计划阶段（Phase 10+）
 
 复用 `igui_components::Overlays` 与 `examples/file_browser` 的工作线程 /

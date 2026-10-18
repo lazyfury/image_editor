@@ -245,7 +245,16 @@ src/
 │   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）
 ├── ui/
-│   ├── mod.rs           # EditorView：页面 + 裁剪画布绘制 + undo/redo
+│   ├── mod.rs           # EditorView：状态字段 + new()（建树）+ update()
+│   ├── accessors.rs     # EditorView 的查询 / 点击目标访问器（宿主 / 测试 / 自检）
+│   ├── paint.rs         # 文档 / 像素网格 / 选区 / 预览的绘制
+│   ├── tools.rs         # 工具运行时（begin/continue/end_tool + 选区 / 吸管 / 选项调整）
+│   ├── sync.rs          # 状态 -> 控件同步（面板 / 选项栏）
+│   ├── menus.rs         # 菜单下拉 / 长按浮层 / 渐变编辑器开关与动作
+│   ├── input.rs         # 事件分发 + 画布缩放 / 平移 / 复位
+│   ├── layout.rs        # 布局 / 分隔条夹取 / 画布区域几何
+│   ├── io.rs            # PNG 导入 / 导出（路径由宿主给）
+│   ├── tests.rs         # #[cfg(test)] 视图级测试
 │   ├── card.rs          # 项目内简单卡片（侧栏统一外观：surface + 内边距）
 │   ├── menu.rs          # 菜单栏
 │   ├── toolbar.rs       # 分组工具栏（长按展开切换）+ 撤销/重做
