@@ -1,0 +1,443 @@
+//! [`EditorView`] 的访问器：宿主 / 测试 / `--selfcheck` 读状态、点控件用。
+//!
+//! 全是 `&self` / `&mut self` 的薄查询，不含业务逻辑；放在这里让 `mod.rs`
+//! 只留构造 / 更新 / 事件分发。
+
+use std::path::Path;
+use std::rc::Rc;
+
+use igui_core::Vec2;
+
+use crate::app::state::{ActiveTool, HistoryAction};
+use crate::canvas::{CanvasCamera, Selection};
+use crate::document::{Color, PixelBuffer, Point};
+use crate::tools::{BrushShape, GradientKind};
+
+use super::*;
+
+impl EditorView {
+    // -- 访问器（宿主 / 测试 / 自检） -----------------------------------
+
+    /// 当前激活的工具。
+    pub fn active_tool(&self) -> ActiveTool {
+        self.state.borrow().active_tool
+    }
+
+    /// 当前文档名字（宿主用它更新窗口标题）。
+    pub fn document_name(&self) -> String {
+        self.state.borrow().document.name.clone()
+    }
+
+    /// 当前文档像素尺寸。
+    pub fn document_size(&self) -> (u32, u32) {
+        let state = self.state.borrow();
+        (state.document.width, state.document.height)
+    }
+
+    /// 当前画布相机。
+    pub fn canvas_camera(&self) -> CanvasCamera {
+        self.state.borrow().canvas
+    }
+
+    /// 取走待上传的文档合成结果；宿主把它注册成纹理。没有变化时返回 `None`。
+    pub fn take_texture_upload(&mut self) -> Option<PixelBuffer> {
+        if !self.texture_dirty {
+            return None;
+        }
+        self.texture_dirty = false;
+        let state = self.state.borrow();
+        self.renderer
+            .render(&state.document, &mut self.render_target);
+        // 显示用：透明区域补上棋盘格（可关）。导出走 `export_png_to`，仍是纯合成。
+        if self.show_checkerboard {
+            paint_backdrop(&mut self.render_target.pixels);
+        }
+        Some(self.render_target.pixels.clone())
+    }
+
+    /// 文档像素变了，需要重新合成 / 上传（Phase 4/5 的编辑会调用）。
+    pub fn mark_texture_dirty(&mut self) {
+        self.texture_dirty = true;
+    }
+
+    // -- 撤销 / 重做（Phase 6） -------------------------------------------
+
+    /// 撤销一步，返回是否真的撤销了。
+    pub fn undo(&mut self) -> bool {
+        self.run_history(HistoryAction::Undo)
+    }
+
+    /// 重做一步，返回是否真的重做了。
+    pub fn redo(&mut self) -> bool {
+        self.run_history(HistoryAction::Redo)
+    }
+
+    fn run_history(&mut self, action: HistoryAction) -> bool {
+        let result = {
+            let mut state = self.state.borrow_mut();
+            match action {
+                HistoryAction::Undo => state.undo(),
+                HistoryAction::Redo => state.redo(),
+            }
+        };
+        let message = match result {
+            Some(label) => {
+                self.texture_dirty = true;
+                format!("{}：{label}", action.label())
+            }
+            None => format!("没有可{}的操作", action.label()),
+        };
+        *self.message.borrow_mut() = Some(message);
+        result.is_some()
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.state.borrow().can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.state.borrow().can_redo()
+    }
+
+    /// 撤销 / 重做栈的长度，测试与自检用。
+    pub fn history_len(&self) -> (usize, usize) {
+        let state = self.state.borrow();
+        (state.history.undo_len(), state.history.redo_len())
+    }
+
+    /// 图标包里索引到的图标数量（vendor 子集为 20，完整包为 2000+）。
+    pub fn icon_count(&self) -> usize {
+        self.icon_count
+    }
+
+    /// 工具所在**组按钮**的中心点（逻辑坐标）。测试与自检用它模拟一次真实点击；
+    /// 短按组按钮激活的是该组当前的「脸」。
+    pub fn tool_center(&self, tool: ActiveTool) -> Option<Vec2> {
+        let id = self.tool_node(tool)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 工具所在组按钮的节点 id。
+    pub fn tool_node(&self, tool: ActiveTool) -> Option<NodeId> {
+        let group = group_index(tool)?;
+        self.tool_group_nodes.get(group).copied()
+    }
+
+    /// 某个组按钮的中心点（下标对应 `TOOL_GROUPS`）。
+    #[cfg(test)]
+    pub fn tool_group_center(&self, group: usize) -> Option<Vec2> {
+        let id = *self.tool_group_nodes.get(group)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 某个组当前的「脸」工具（测试 / 自检）。
+    #[cfg(test)]
+    pub fn tool_face(&self, group: usize) -> Option<ActiveTool> {
+        self.tool_faces.get(group).map(|face| face.get())
+    }
+
+    /// 当前展开的工具浮层属于哪个组。
+    #[cfg(test)]
+    pub fn tool_flyout_open(&self) -> Option<usize> {
+        self.open_tool_group.get()
+    }
+
+    /// 编辑器是否在等长按阈值（宿主据此持续出帧）。
+    pub fn needs_frame(&self) -> bool {
+        matches!(
+            &*self.long_press.borrow(),
+            toolbar::LongPress::Pending { .. }
+        )
+    }
+
+    /// 测试：把长按阈值改成 `ms`（0 = 下一帧就展开，大值 = 当作短按）。
+    #[cfg(test)]
+    pub fn set_long_press_ms(&mut self, ms: u64) {
+        self.long_press_threshold = Duration::from_millis(ms);
+    }
+
+    /// 撤销 / 重做按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
+    pub fn history_center(&self, action: HistoryAction) -> Option<Vec2> {
+        let id = self.history_node(action)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 撤销 / 重做按钮的节点 id。
+    pub fn history_node(&self, action: HistoryAction) -> Option<NodeId> {
+        self.history_nodes
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .map(|(_, id)| *id)
+    }
+
+    /// 调色盘色块数量。
+    pub fn palette_swatch_count(&self) -> usize {
+        self.palette_nodes.len()
+    }
+
+    /// 调色盘第 `index` 个色块的中心点；测试与自检模拟点击用。
+    pub fn palette_swatch_center(&self, index: usize) -> Option<Vec2> {
+        let id = *self.palette_nodes.get(index)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 取色器饱和 / 明度方块的中心点；测试与自检模拟拖动用。
+    pub fn palette_picker_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.palette_picker_node).map(|control| control.rect.center())
+    }
+
+    /// 文件面板按钮的节点 id。
+    pub fn file_node(&self, action: FileRequest) -> Option<NodeId> {
+        self.file_nodes
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .map(|(_, id)| *id)
+    }
+
+    /// 文件面板按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
+    pub fn file_center(&self, action: FileRequest) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.file_node(action)?).map(|control| control.rect.center())
+    }
+
+    /// 选项栏 `−` / `+` 按钮的节点。
+    pub fn brush_adjust_node(&self, adjust: BrushAdjust) -> Option<NodeId> {
+        self.brush_buttons
+            .iter()
+            .find(|(candidate, _)| *candidate == adjust)
+            .map(|(_, id)| *id)
+    }
+
+    /// 选项栏 `−` / `+` 按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
+    pub fn brush_adjust_center(&self, adjust: BrushAdjust) -> Option<Vec2> {
+        let id = self.brush_adjust_node(adjust)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 当前笔刷大小（逻辑像素）。
+    pub fn brush_size(&self) -> f32 {
+        self.brush.size
+    }
+
+    /// 画笔当前的硬边状态（像素模式同步后的结果）。
+    pub fn brush_hard(&self) -> bool {
+        self.brush.hard
+    }
+
+    /// 画笔当前的形状。
+    pub fn brush_shape(&self) -> BrushShape {
+        self.brush.shape
+    }
+
+    /// 像素模式开关是否打开（硬边）。
+    pub fn pixel_mode(&self) -> bool {
+        self.pixel_mode.get()
+    }
+
+    /// 方形笔开关是否打开。
+    pub fn square_mode(&self) -> bool {
+        self.square_mode.get()
+    }
+
+    /// 选项栏开关按钮的节点。
+    pub fn brush_toggle_node(&self, toggle: BrushToggle) -> Option<NodeId> {
+        self.brush_toggles
+            .iter()
+            .find(|(candidate, _)| *candidate == toggle)
+            .map(|(_, id)| *id)
+    }
+
+    /// 选项栏开关按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
+    pub fn brush_toggle_center(&self, toggle: BrushToggle) -> Option<Vec2> {
+        let id = self.brush_toggle_node(toggle)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 油漆桶选项栏按钮 / 开关的节点与中心点（测试 / 自检点击用）。
+    pub fn bucket_button_node(&self, adjust: BucketAdjust) -> Option<NodeId> {
+        self.bucket_buttons
+            .iter()
+            .find(|(candidate, _)| *candidate == adjust)
+            .map(|(_, id)| *id)
+    }
+
+    pub fn bucket_button_center(&self, adjust: BucketAdjust) -> Option<Vec2> {
+        let id = self.bucket_button_node(adjust)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    pub fn bucket_toggle_node(&self, toggle: BucketToggle) -> Option<NodeId> {
+        self.bucket_toggles
+            .iter()
+            .find(|(candidate, _)| *candidate == toggle)
+            .map(|(_, id)| *id)
+    }
+
+    pub fn bucket_toggle_center(&self, toggle: BucketToggle) -> Option<Vec2> {
+        let id = self.bucket_toggle_node(toggle)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 渐变类型切换按钮 / 「编辑…」按钮的中心点（测试 / 自检点击用）。
+    pub fn gradient_button_center(&self, adjust: GradientAdjust) -> Option<Vec2> {
+        let id = self
+            .gradient_buttons
+            .iter()
+            .find(|(candidate, _)| *candidate == adjust)
+            .map(|(_, id)| *id)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    pub fn gradient_edit_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.gradient_edit_node).map(|control| control.rect.center())
+    }
+
+    /// 当前渐变类型 / ramp 色标 / 是否自定义 / 编辑器是否开着（测试 / 自检）。
+    pub fn gradient_kind(&self) -> GradientKind {
+        self.gradient_kind
+    }
+
+    pub fn gradient_stops(&self) -> Vec<(f32, Color)> {
+        self.gradient
+            .borrow()
+            .stops()
+            .iter()
+            .map(|stop| (stop.position, stop.color))
+            .collect()
+    }
+
+    pub fn gradient_editor_open(&self) -> bool {
+        self.gradient_editor_open.get()
+    }
+
+    /// 油漆桶当前容差 / 是否连续（测试 / 自检）。
+    pub fn bucket_tolerance(&self) -> u8 {
+        self.paint_bucket.tolerance
+    }
+
+    pub fn bucket_contiguous(&self) -> bool {
+        self.paint_bucket.contiguous
+    }
+
+    /// 右栏当前宽度（逻辑像素）。
+    pub fn sidebar_width(&self) -> f32 {
+        self.sidebar_width.get()
+    }
+
+    /// 右栏分隔条的中心点（逻辑坐标）；测试与自检模拟拖动用。
+    pub fn sidebar_handle_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.sidebar_handle_node).map(|control| control.rect.center())
+    }
+
+    /// 左侧调色盘面板的宽度 / 分隔条中心。
+    pub fn palette_width(&self) -> f32 {
+        self.palette_width.get()
+    }
+
+    pub fn palette_handle_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.palette_handle_node).map(|control| control.rect.center())
+    }
+
+    /// 右侧栏标签页面板的当前高度（逻辑像素）。
+    pub fn tabs_height(&self) -> f32 {
+        self.tabs_height.get()
+    }
+
+    /// 标签页面板与「图层」面板之间分隔条的中心点（逻辑坐标）。
+    pub fn tabs_handle_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.tabs_handle_node).map(|control| control.rect.center())
+    }
+
+    /// 当前标签页。
+    pub fn active_tab(&self) -> SidebarTab {
+        self.active_tab.get()
+    }
+
+    /// 某个标签按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
+    pub fn tab_center(&self, tab: SidebarTab) -> Option<Vec2> {
+        let id = self
+            .tab_buttons
+            .iter()
+            .find(|(candidate, _)| *candidate == tab)
+            .map(|(_, id)| *id)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 某个标签页内容当前是否可见。
+    pub fn tab_content_visible(&self, tab: SidebarTab) -> bool {
+        self.tab_contents
+            .iter()
+            .find(|(candidate, _)| *candidate == tab)
+            .and_then(|(_, id)| self.tree.is_visible(*id))
+            .unwrap_or(false)
+    }
+
+    /// 历史面板的行数（撤销栈 + 「当前」+ 重做栈）。
+    pub fn history_rows(&self) -> usize {
+        self.history_count.get()
+    }
+
+    /// 菜单标题按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
+    pub fn menu_center(&self, index: usize) -> Option<Vec2> {
+        let id = *self.menu_nodes.get(index)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 当前是否有下拉菜单打开。
+    pub fn menu_open(&self) -> bool {
+        !self.overlays.is_empty()
+    }
+
+    /// 当前打开菜单的下标（没有打开则为 `None`）。
+    pub fn open_menu_index(&self) -> Option<usize> {
+        self.open_menu.get()
+    }
+
+    /// 当前文档的图层数（自检核对导入结果用）。
+    pub fn layer_count(&self) -> usize {
+        self.state.borrow().document.layers.len()
+    }
+
+    /// 当前前景色（吸管取色后测试 / 自检用）。
+    pub fn foreground(&self) -> Color {
+        self.state.borrow().foreground
+    }
+
+    /// 当前选区（框选后测试 / 自检用）。
+    pub fn selection(&self) -> Option<Rc<Selection>> {
+        self.state.borrow().selection.clone()
+    }
+
+    /// 当前图层的像素偏移（移动工具的效果，测试 / 自检用）。
+    pub fn active_layer_position(&self) -> Option<Point> {
+        self.state
+            .borrow()
+            .document
+            .active_layer()
+            .map(|layer| layer.position)
+    }
+
+    /// 设置当前工作区文件路径（只读展示；宿主每帧调用）。
+    pub fn set_workspace_path(&mut self, path: Option<&Path>) {
+        *self.workspace_path.borrow_mut() = path.map(Path::to_path_buf);
+    }
+
+    /// 请求一个文件动作（快捷键用）。
+    pub fn request_file(&self, request: FileRequest) {
+        self.file_request.set(Some(request));
+    }
+
+    /// 文件面板 / 快捷键留下的意图；取走一次。
+    pub fn take_file_request(&self) -> Option<FileRequest> {
+        self.file_request.take()
+    }
+
+    /// 写一条状态栏提示（宿主保存 / 打开工作区后回报结果）。
+    pub fn set_message(&self, text: impl Into<String>) {
+        *self.message.borrow_mut() = Some(text.into());
+    }
+
+    /// 控件数（自检的预算检查用）。
+    pub fn control_count(&self) -> usize {
+        igui_ui::control_count(&self.tree)
+    }
+}
