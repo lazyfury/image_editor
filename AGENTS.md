@@ -13,7 +13,11 @@ This file is the short source of truth for rules. Details live in `README.md`
 ```
 src/app/        state (AppState/document session) + workspaces (multi-workspace) +
                 single-window host on the igui_app runtime + igui_winit plugins +
-                drop_files (drag-and-drop -> new layer)
+                drop_files (drag-and-drop -> new layer).
+                `application/` holds the host: mod.rs (Options / run / build_app
+                + ImageEditorLogic + AppLogic), files.rs (save/open/import/
+                export/close/drop), shortcuts.rs, plugins.rs (text measure /
+                frame limit).
 src/ui/         views + project-local components: home (recent gallery),
                 new_document, workspace_tabs, menu, toolbar, options_bar, canvas,
                 layer/file/properties/tabs/palette panels, window (floating
@@ -21,6 +25,8 @@ src/ui/         views + project-local components: home (recent gallery),
                 `ui/mod.rs` is `EditorView` (fields + `new` + `update`); the rest
                 of it is split by concern: accessors / paint / tools / sync /
                 menus / input / layout / io / tests (each a sibling `ui/*.rs`).
+                `ui/build/` is the constructor: mod.rs (Wiring + `editor`),
+                tree.rs (panels + scene tree), assemble.rs (NodeRef -> EditorView).
 src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + commands
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser, Move, Paint-bucket flood fill, Gradient (multi-stop

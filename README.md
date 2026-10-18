@@ -208,7 +208,11 @@ src/
 │   ├── state.rs         # ActiveTool / CanvasCamera / AppState（纯数据）
 │   ├── tool_groups.rs   # 工具栏分组（组内工具 + 默认脸）
 │   ├── workspaces.rs    # 多工作区（EditorView + 路径 + 脏标记）
-│   └── application.rs   # winit + wgpu 宿主（滚轮 -> Wheel、纹理上传）
+│   └── application/     # winit + wgpu 宿主
+│       ├── mod.rs       # Options / run / build_app + ImageEditorLogic 核心 + AppLogic
+│       ├── files.rs     # 保存 / 打开 / 导入导出 / 关闭确认 / 拖放
+│       ├── shortcuts.rs # 确认解析 + ⌘ 快捷键
+│       └── plugins.rs   # 字体度量 / 帧数上限插件
 ├── icons.rs             # Lucide 图标包加载 + `Icon` 组件（igui_svg）
 ├── document/            # Phase 2：后端无关的数据模型
 │   ├── mod.rs
@@ -245,7 +249,8 @@ src/
 │   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）
 ├── ui/
-│   ├── mod.rs           # EditorView：状态字段 + new()（建树）+ update()
+│   ├── mod.rs           # EditorView：状态字段 + new()（转交 build）+ update()
+│   ├── build/           # EditorView 构造：mod（Wiring / editor）+ tree + assemble
 │   ├── accessors.rs     # EditorView 的查询 / 点击目标访问器（宿主 / 测试 / 自检）
 │   ├── paint.rs         # 文档 / 像素网格 / 选区 / 预览的绘制
 │   ├── tools.rs         # 工具运行时（begin/continue/end_tool + 选区 / 吸管 / 选项调整）

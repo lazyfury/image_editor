@@ -65,21 +65,23 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 
 ## 结构改进（持续）
 
-`src/ui/mod.rs` 从 4245 行拆到 945 行（纯移动，门禁全程保持绿）：
+`src/ui/mod.rs` 从 4245 行拆到 530 行（纯移动 / 低风险重构，门禁全程保持绿）：
 
 - [x] **拆 `ui/mod.rs`**：`tests` / `paint` / `accessors` / `tools` / `sync` /
-  `menus` / `input` / `layout` / `io` 各成 `src/ui/*.rs`；跨模块方法 `pub(super)`。
-- [ ] **拆 `EditorView::new`（418 行）**：把「共享状态槽 / 各面板 / 最终组装」拆成
-  `build_*` 辅助函数。**不是纯移动**（要传 `Refs` + 子节点），单独一阶段做，
-  每步跑 `--selfcheck` 与 `cargo test`。
+  `menus` / `input` / `layout` / `io` 各成 `src/ui/*.rs`。
+- [x] **拆 `EditorView::new`**：构造拆到 `ui/build/{mod,tree,assemble}.rs`，
+  `Wiring` 串起共享状态槽与 NodeRef 收集器。
+- [x] **拆 `app/application.rs`**：1020 -> 522 行代码，拆到
+  `app/application/{mod,files,shortcuts,plugins}.rs`。
 - [x] **自动化门禁**：`.github/workflows/ci.yml`（fmt / `clippy -D warnings` /
   test / `--selfcheck`）；`cargo clippy` 已归零。
 - [x] **修正 MSRV / 打包**：`rust-version` 1.76 -> 1.80（`LazyLock`）；
   加 `[profile.release]`（thin LTO / 单 codegen unit / strip）。
+- [ ] **拆 `selfcheck::check()`（约 500 行）**：各段串行共享 `view` 状态，
+  拆成吃 `&mut EditorView` 的 `check_*` 时要注意顺序依赖。
+- [ ] **拆 `ui/new_document.rs`（508 行代码）/ `document/history.rs`（485）**。
 - [ ] **测试辅助去重**：`viewport()` / `click()` 在 6~7 个文件里各写一份；
   收敛到 `#[cfg(test)]` 的 `test_support`。
-- [ ] **拆 `selfcheck::check()`（约 500 行）**：拆成 `check_*() -> Vec<String>`
-  （已有 `check_pixel_mode_edges` / `check_bucket` / `check_gradient` 先例）。
 - [ ] **`docs/upstream.md`**：集中记「需要改 igui 才能做」的两件事（图层右键菜单
   要 `igui_ui` 右键回调 + `Overlays` 指针锚点；退出守卫要 `igui_winit` 的
   `CloseRequested` 钩子）与 tag 升级步骤。
