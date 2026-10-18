@@ -28,6 +28,20 @@ pub fn default_export_path(document_name: &str) -> PathBuf {
         .join(format!("{}.png", sanitize_stem(document_name)))
 }
 
+/// 从当前路径推出工作区文件路径：保留目录与主干，扩展名换成 `.igui`。
+///
+/// 文件面板只有一个路径格，导入 / 导出 PNG 与保存工作区共用它；保存工作区时
+/// 用这个把 `.png` 换成 `.igui`，不干扰 PNG 路径。
+pub fn workspace_path_from(path: &str) -> PathBuf {
+    let path = Path::new(path);
+    let stem = path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or("untitled");
+    path.with_file_name(format!("{stem}.{}", super::WORKSPACE_EXTENSION))
+}
+
 /// 导入图层的名字：用文件名（去掉扩展名）；没有名字就用 `导入`。
 pub fn file_label(path: &Path) -> String {
     path.file_stem()
@@ -101,5 +115,17 @@ mod tests {
     fn the_layer_label_comes_from_the_file_stem() {
         assert_eq!(file_label(Path::new("/tmp/photo.png")), "photo");
         assert_eq!(file_label(Path::new("/")), "导入");
+    }
+
+    #[test]
+    fn the_workspace_path_swaps_the_extension() {
+        assert_eq!(
+            workspace_path_from("/tmp/photo.png"),
+            PathBuf::from("/tmp/photo.igui")
+        );
+        assert_eq!(
+            workspace_path_from("/tmp/photo"),
+            PathBuf::from("/tmp/photo.igui")
+        );
     }
 }

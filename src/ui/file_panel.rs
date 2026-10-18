@@ -22,6 +22,10 @@ pub enum IoAction {
     Import,
     /// 把当前文档合成后导出到路径。
     Export,
+    /// 把当前文档保存成工作区文件（`.igui`）。
+    SaveWorkspace,
+    /// 从路径打开一个工作区。
+    OpenWorkspace,
 }
 
 impl IoAction {
@@ -31,6 +35,8 @@ impl IoAction {
             Self::EditPath => "改路径",
             Self::Import => "导入 PNG",
             Self::Export => "导出 PNG",
+            Self::SaveWorkspace => "保存工作区",
+            Self::OpenWorkspace => "打开工作区",
         }
     }
 }
@@ -49,7 +55,13 @@ pub fn file_panel(
         .gap(space::XXS)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore);
-    for action in [IoAction::EditPath, IoAction::Import, IoAction::Export] {
+    for action in [
+        IoAction::EditPath,
+        IoAction::Import,
+        IoAction::Export,
+        IoAction::SaveWorkspace,
+        IoAction::OpenWorkspace,
+    ] {
         let slot = NodeRef::new();
         buttons.push((action, slot.clone()));
         row = row.child(action_button(theme, action, request.clone(), &slot));

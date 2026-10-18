@@ -32,15 +32,24 @@ mod status_bar;
 mod tabs;
 mod toolbar;
 mod window;
+mod workspace_tabs;
 
 pub use file_panel::IoAction;
-pub use home::HomeView;
+pub use home::{HomeEntry, HomeOpenRequest, HomeView};
 pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
 pub use options_bar::GradientAdjust;
 pub use options_bar::{BucketAdjust, BucketToggle};
 pub use tabs::SidebarTab;
+
+/// 文件面板留下的工作区保存 / 打开请求；宿主取走后做文件 IO 与工作区切换。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspaceRequest {
+    Save,
+    Open,
+}
+pub use workspace_tabs::{WorkspaceTab, WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT};
 
 use std::cell::{Cell, RefCell};
 use std::path::Path;
@@ -55,7 +64,7 @@ use igui_core::{
     Edges, EventResult, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize,
 };
 use igui_render::{Paint, PaintContext};
-use igui_scene::{SceneChild, SceneTree};
+use igui_scene::SceneTree;
 use igui_theme::{space, Theme};
 use igui_ui::{MouseFilter, SizeBasis, TextMeasurer};
 
@@ -162,6 +171,10 @@ pub struct EditorView {
     open_tool_group: Cell<Option<usize>>,
     /// 长按阈值（测试可调，默认 [`LONG_PRESS_MS`]）。
     long_press_threshold: Duration,
+    /// 视图的根 Flex 节点（顶部预留靠它的 `offsets` 实现）。
+    root: NodeId,
+    /// 顶部预留高度（工作区标签条占的那一条）。
+    top_inset: f32,
     /// 图标包（长按浮层打开时还要用它画行图标）。
     icons: Rc<IconSet>,
     /// 撤销 / 重做按钮节点（Phase 6）。
@@ -173,6 +186,8 @@ pub struct EditorView {
     path: Rc<RefCell<String>>,
     /// 文件面板按钮留下的动作请求；`update` 取走执行。
     io_request: Rc<Cell<Option<IoAction>>>,
+    /// 工作区保存 / 打开请求；宿主取走执行。
+    workspace_request: Rc<Cell<Option<WorkspaceRequest>>>,
     /// 菜单标题留下的“打开第几个菜单”请求；`update` 取走打开下拉。
     menu_request: Rc<Cell<Option<usize>>>,
     /// 菜单项留下的动作请求；`update` 取走执行（并关闭菜单）。
@@ -318,6 +333,7 @@ impl EditorView {
                 .into_owned(),
         ));
         let io_request: Rc<Cell<Option<IoAction>>> = Rc::new(Cell::new(None));
+        let workspace_request: Rc<Cell<Option<WorkspaceRequest>>> = Rc::new(Cell::new(None));
         let menu_request: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
         let menu_action: Rc<Cell<Option<menu::MenuAction>>> = Rc::new(Cell::new(None));
         let mut menu_refs: Vec<NodeRef> = Vec::new();
@@ -548,12 +564,13 @@ impl EditorView {
                 &refs.zoom,
             ));
 
-        let tree = Flex::new()
+        let root_flex = Flex::new()
             .gap(0.0)
             .padding(Edges::ZERO)
             .mouse_filter(MouseFilter::Ignore)
-            .child(page)
-            .into_tree();
+            .child(page);
+        let mut tree = SceneTree::new();
+        let root = tree.add_child(tree.root(), root_flex);
 
         let tool_group_nodes: Vec<NodeId> = group_refs
             .iter()
@@ -614,6 +631,8 @@ impl EditorView {
 
         let mut view = Self {
             tree,
+            root,
+            top_inset: 0.0,
             theme,
             state,
             message,
@@ -633,6 +652,7 @@ impl EditorView {
             file_nodes,
             path,
             io_request,
+            workspace_request,
             menu_request,
             menu_action,
             menu_nodes,
@@ -732,6 +752,26 @@ impl EditorView {
     pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
         igui_ui::set_text_measurer(&mut self.tree, measurer.clone());
         self.overlays.set_text_measurer(measurer);
+    }
+
+    /// 顶部预留 `inset` 逻辑像素（工作区标签条占的那一条）。
+    pub fn set_top_inset(&mut self, inset: f32) {
+        self.top_inset = inset;
+        let root = self.root;
+        update_control(&mut self.tree, root, |data| {
+            data.anchors = Edges::new(0.0, 0.0, 1.0, 1.0);
+            data.offsets = Edges::new(0.0, inset, 0.0, 0.0);
+        });
+    }
+
+    /// 当前文档的 revision（工作区脏标记用）。
+    pub fn document_revision(&self) -> u64 {
+        self.state.borrow().document.revision()
+    }
+
+    /// 当前文档的快照（保存工作区用）。
+    pub fn document_snapshot(&self) -> crate::document::Document {
+        self.state.borrow().document.clone()
     }
 
     /// 宿主每帧调用：同步状态栏、在文档改动后刷新图层列表并标记重合成。
@@ -1028,6 +1068,12 @@ impl EditorView {
                 self.renaming = None;
                 self.path_edit = Some(self.path.borrow().clone());
                 *self.message.borrow_mut() = Some("编辑路径：Enter 确认 · Esc 取消".to_string());
+            }
+            IoAction::SaveWorkspace => {
+                self.workspace_request.set(Some(WorkspaceRequest::Save));
+            }
+            IoAction::OpenWorkspace => {
+                self.workspace_request.set(Some(WorkspaceRequest::Open));
             }
             IoAction::Export => {
                 let path = self.io_path();
@@ -2541,6 +2587,16 @@ impl EditorView {
     /// 设置导入 / 导出路径（测试与自检把它指到临时文件）。
     pub fn set_io_path(&mut self, path: impl Into<String>) {
         *self.path.borrow_mut() = path.into();
+    }
+
+    /// 文件面板留下的工作区保存 / 打开请求；取走一次。
+    pub fn take_workspace_request(&self) -> Option<WorkspaceRequest> {
+        self.workspace_request.take()
+    }
+
+    /// 写一条状态栏提示（宿主保存 / 打开工作区后回报结果）。
+    pub fn set_message(&self, text: impl Into<String>) {
+        *self.message.borrow_mut() = Some(text.into());
     }
 
     /// 控件数（自检的预算检查用）。

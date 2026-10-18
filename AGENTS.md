@@ -11,17 +11,18 @@ This file is the short source of truth for rules. Details live in `README.md`
 ## Where things are
 
 ```
-src/app/        state (AppState/document session) + single-window host on the
-                igui_app runtime + igui_winit plugins (new-document modal)
-src/ui/         views + project-local components: home, new_document, editor (mod.rs),
-                menu, toolbar, options_bar, canvas, layer/file/properties/tabs/palette panels
-src/document/   Document / Layer / PixelBuffer / Color / History + commands
+src/app/        state (AppState/document session) + workspaces (multi-workspace) +
+                single-window host on the igui_app runtime + igui_winit plugins
+src/ui/         views + project-local components: home (recent gallery),
+                new_document, editor (mod.rs), workspace_tabs, menu, toolbar,
+                options_bar, canvas, layer/file/properties/tabs/palette panels
+src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + commands
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser, Move, Paint-bucket flood fill, Gradient (multi-stop
                 ramp), Rectangle/Free fill
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
                 Selection (pixel mask + outline: rect / lasso)
-src/io/         PNG encode/decode + path helpers
+src/io/         PNG encode/decode + `.igui` workspace files + recent list + paths
 src/fonts.rs    bundled-font discovery (assets/fonts/)
 src/icons.rs    vendored Lucide SVG subset, drawn via igui_svg (no textures)
 src/theme.rs    editor theme (compact density)

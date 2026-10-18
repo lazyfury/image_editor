@@ -110,6 +110,11 @@
 
 ## Done（近期）
 
+- **多工作区 + `.igui` 工作区文件 + 主页画廊**（Phase 18–22）：`io/workspace.rs`
+  自包含二进制容器（多图层 + PNG 像素，零新依赖）；`io/recent.rs` 配置目录下的
+  最近列表；`app/workspaces.rs` 的 `Workspaces` + `ui/workspace_tabs.rs` 顶部标签条
+  （切换 / 关闭 / 新建 / 主页，脏标记 `●`）；「文件」面板加「保存工作区」/
+  「打开工作区」；主页画廊列出打开中 / 最近工作区（名字 / 尺寸 / 图层数）。
 - **渐变工具（多节点 ramp）**（`document/gradient.rs` + `tools/gradient.rs` +
   `ui/gradient_editor.rs`）：`Gradient` 是一串色标（position + Color，≥2，按位置
   排序），采样定位区间 + RGBA 插值；默认端点来自前景/背景，未自定义时每帧跟随，

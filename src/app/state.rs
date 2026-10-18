@@ -152,6 +152,19 @@ impl AppState {
         }
     }
 
+    /// 从一个已存在的文档开一个编辑会话（打开工作区用）。
+    pub fn from_document(document: Document) -> Self {
+        Self {
+            active_tool: ActiveTool::default(),
+            canvas: CanvasCamera::default(),
+            document,
+            history: History::new(),
+            foreground: Color::BLACK,
+            background: Color::WHITE,
+            selection: None,
+        }
+    }
+
     /// 撤销一步，返回命令名字；没有可撤销的返回 `None`。
     pub fn undo(&mut self) -> Option<&'static str> {
         let Self {

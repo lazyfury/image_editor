@@ -145,6 +145,11 @@ cargo run -- --pixel-font
   增删移 / 端点跟随前景背景）；拖一条轴定义方向，实时改图层预览、松手一条
   undo；`ui/gradient_editor` 的色带 + 可拖动节点编辑器。
 
+- [x] **Phase 18–22 — 多工作区 / 工作区文件 / 画廊**：`io/workspace.rs` 的
+  `.igui` 二进制容器（多图层 + PNG 像素）、`io/recent.rs` 的最近列表、
+  `app/workspaces.rs` 的多工作区 + `ui/workspace_tabs.rs` 顶部标签条，以及主页
+  画廊列出打开中 / 最近工作区。
+
 ### 计划（Phase 10+）
 
 本示例的待办已经整理到同目录的 [`todo.md`](todo.md)（含像素模式主线、
@@ -199,6 +204,7 @@ src/
 ├── app/
 │   ├── state.rs         # ActiveTool / CanvasCamera / AppState（纯数据）
 │   ├── tool_groups.rs   # 工具栏分组（组内工具 + 默认脸）
+│   ├── workspaces.rs    # 多工作区（EditorView + 路径 + 脏标记）
 │   └── application.rs   # winit + wgpu 宿主（滚轮 -> Wheel、纹理上传）
 ├── icons.rs             # Lucide 图标包加载 + `Icon` 组件（igui_svg）
 ├── document/            # Phase 2：后端无关的数据模型
@@ -221,10 +227,12 @@ src/
 │   ├── mod.rs           # Renderer trait
 │   ├── target.rs        # RenderTarget
 │   └── cpu.rs           # CpuRenderer（Normal + opacity + position）+ sample_pixel
-├── io/                  # Phase 7：导入导出
+├── io/                  # Phase 7 / 18–19：导入导出 + 工作区文件
 │   ├── mod.rs           # IoError
 │   ├── codec.rs         # PixelBuffer <-> PNG 字节（png crate）
-│   └── file.rs          # 路径 <-> PNG 字节 + 默认命名 / 图层名
+│   ├── file.rs          # 路径 <-> PNG 字节 + 默认命名 / 工作区路径
+│   ├── workspace.rs     # .igui 二进制容器（多图层 + PNG 编码像素）
+│   └── recent.rs        # 最近工作区列表（配置目录下的文本文件）
 ├── tools/               # Phase 5/8：工具系统
 │   ├── mod.rs
 │   ├── tool.rs          # Tool trait + PointerEvent + ToolContext（含 History）
@@ -238,6 +246,7 @@ src/
 │   ├── card.rs          # 项目内简单卡片（侧栏统一外观：surface + 内边距）
 │   ├── menu.rs          # 菜单栏
 │   ├── toolbar.rs       # 分组工具栏（长按展开切换）+ 撤销/重做
+│   ├── workspace_tabs.rs # 工作区标签条（切换 / 关闭 / 新建 / 主页）
 │   ├── palette.rs       # 左侧调色盘面板（HSV 取色器 + 前景/背景 + 预设色块）
 │   ├── options_bar.rs   # 工具选项栏（笔刷大小 / 不透明度 / 提示）
 │   ├── canvas.rs        # 透明画布区域（命中 / 定位用）
@@ -321,6 +330,31 @@ color ramp。默认两端是当前前景 / 背景，**未自定义时**端点每
 拖动时渐变直接改当前图层做实时预览（落笔存快照，每次 move 从快照恢复再重画），
 松手 `PixelRegion::diff` 提交一条 undo；用 `blend_pixel`（source-over）合成，所以
 透明端会保留底下像素。
+
+## 多工作区与工作区文件
+
+**多工作区**：`app/workspaces.rs` 的 `Workspaces` 持有一串 `Workspace`（每个是一个
+`EditorView` + 落盘路径 + 上次保存的 revision），宿主只把 `event/layout/paint` 发给
+当前激活的那个。编辑器顶部一条 `ui/workspace_tabs.rs` 的标签条（`EditorView` 用
+`set_top_inset` 预留 32px）：点标签切换、× 关闭、`+ 新建`、`主页` 回画廊；脏工作区
+的标签带一个 `●`。
+
+**自定义格式 `.igui`**（`io/workspace.rs`）：自包含二进制（小端，version 1）：
+magic + 文档尺寸 / 背景 / 名字 / 激活图层 + 每个图层的名字 / 可见性 / 不透明度 /
+混合模式 / 位置 / 像素尺寸，像素用 **PNG 编码**（复用现有编解码，零新依赖）。
+解码对坏 magic / 截断 / 非法字段返回 `IoError::Invalid`。
+
+**保存 / 打开**：右侧「文件」面板的路径格是共用的——「保存工作区」把当前文档写成
+`.igui`（路径扩展名换成 `.igui`），「打开工作区」从路径读成一个新工作区。宿主
+（`app/application.rs`）执行 IO、更新 `Workspace.path` / 脏标记、并把路径记入最近
+列表。
+
+**最近工作区**（`io/recent.rs`）：配置目录（macOS `Application Support` / Windows
+`%APPDATA%` / 其余 `XDG_CONFIG_HOME`）下的 `recent` 文本文件，每行一个路径、最新
+在前、上限 20；读取时滤掉已不存在的文件。
+
+**主页画廊**（`ui/home.rs`）：列出打开中的工作区（点击切回去）和磁盘上的最近
+工作区（点击打开），读文件头拿到名字 / 尺寸 / 图层数；没有就显示空状态。
 
 ## 验证（无截图）
 
