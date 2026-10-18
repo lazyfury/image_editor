@@ -90,7 +90,8 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 ### 可扩展
 
 - [x] **魔棒**（`W`）：`tools::fill::magic_wand_region` 复用洪水填充的容差扫描，
-  返回文档掩码 → `Selection::from_mask`；容差 / 「连续」与油漆桶共用，`Esc` 清空。
+  返回文档掩码 → `Selection::from_mask`；与框选 / 套索同一组（选区组），
+  容差 / 「连续」与油漆桶共用，`Esc` 清空。
   `Selection` 的轮廓改成**线段列表**（矩形 4 段 / 套索 N 段 / 魔棒是掩码边界边），
   描边仍由 `ui/selection.rs` 画马赛克。
 - [ ] **图层混合模式**：`BlendMode` 目前只有 `Normal`（`document/layer.rs` TODO v1.1）。

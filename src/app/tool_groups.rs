@@ -43,14 +43,14 @@ pub const TOOL_GROUPS: [ToolGroup; 7] = [
         tools: &[ActiveTool::Eraser],
     },
     ToolGroup {
-        tools: &[ActiveTool::RectangleSelect, ActiveTool::LassoSelect],
+        tools: &[
+            ActiveTool::RectangleSelect,
+            ActiveTool::LassoSelect,
+            ActiveTool::MagicWand,
+        ],
     },
     ToolGroup {
-        tools: &[
-            ActiveTool::PaintBucket,
-            ActiveTool::MagicWand,
-            ActiveTool::Gradient,
-        ],
+        tools: &[ActiveTool::PaintBucket, ActiveTool::Gradient],
     },
     ToolGroup {
         tools: &[ActiveTool::RectangleFill, ActiveTool::FreeFill],
@@ -78,6 +78,7 @@ mod tests {
         }
         assert_eq!(group_index(ActiveTool::Eraser), Some(2));
         assert_eq!(group_index(ActiveTool::LassoSelect), Some(3));
+        assert_eq!(group_index(ActiveTool::MagicWand), Some(3));
         assert_eq!(group_index(ActiveTool::Gradient), Some(4));
         assert_eq!(group_index(ActiveTool::FreeFill), Some(5));
     }
@@ -89,8 +90,7 @@ mod tests {
         assert_eq!(TOOL_GROUPS[3].face(), ActiveTool::RectangleSelect);
         assert_eq!(TOOL_GROUPS[4].face(), ActiveTool::PaintBucket);
         assert_eq!(TOOL_GROUPS[5].face(), ActiveTool::RectangleFill);
-        // 画笔 / 橡皮 / 移动 / 吸管是单工具槽位；选区 / 油漆桶 / 填充形状可展开。
-        assert!(TOOL_GROUPS[0].is_single());
+        // 画笔 / 橡皮 / 移动 / 吸管是单工具槽位；选区 / 油漆桶 / 填充形状可展开。        assert!(TOOL_GROUPS[0].is_single());
         assert!(TOOL_GROUPS[1].is_single());
         assert!(TOOL_GROUPS[2].is_single());
         assert!(!TOOL_GROUPS[3].is_single());
