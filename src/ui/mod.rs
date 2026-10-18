@@ -2448,22 +2448,24 @@ mod tests {
     fn clicking_a_group_button_activates_its_face() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        // 默认脸是画笔：点组按钮激活画笔。
-        let center = view.tool_center(ActiveTool::Brush).expect("brush group");
+        // 默认脸是矩形选择：点选区组按钮激活它。
+        let center = view
+            .tool_center(ActiveTool::RectangleSelect)
+            .expect("selection group");
         click(&mut view, center);
         view.update();
-        assert_eq!(view.active_tool(), ActiveTool::Brush);
+        assert_eq!(view.active_tool(), ActiveTool::RectangleSelect);
 
-        // 按 E 选橡皮，脸跟着变；再点同一个组按钮就激活橡皮。
+        // 按 L 选套索，脸跟着变；再点同一个组按钮就激活套索。
         view.event(&InputEvent::KeyDown {
-            key: Key::Character('e'),
+            key: Key::Character('l'),
         });
         view.update();
-        assert_eq!(view.tool_face(1), Some(ActiveTool::Eraser));
+        assert_eq!(view.tool_face(3), Some(ActiveTool::LassoSelect));
         click(&mut view, center);
         view.update();
-        assert_eq!(view.active_tool(), ActiveTool::Eraser);
-        assert_eq!(label_text(&view, view.tool_label), "橡皮擦");
+        assert_eq!(view.active_tool(), ActiveTool::LassoSelect);
+        assert_eq!(label_text(&view, view.tool_label), "自由选区");
     }
 
     fn menu_index(name: &str) -> usize {
@@ -3157,7 +3159,7 @@ mod tests {
     fn the_eraser_clears_instead_of_painting() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        // 走真实路径：先按 E 选橡皮（脸跟着变），再点工具栏的画笔组按钮。
+        // 走真实路径：先按 E 选橡皮，再点工具栏的橡皮组按钮。
         view.event(&InputEvent::KeyDown {
             key: Key::Character('e'),
         });
@@ -3218,7 +3220,7 @@ mod tests {
             "画笔应在 (64,64) 留下黑色"
         );
 
-        // 先按 E 选橡皮（脸跟着变），再点工具栏的画笔组按钮。
+        // 先按 E 选橡皮，再点工具栏的橡皮组按钮。
         view.event(&InputEvent::KeyDown {
             key: Key::Character('e'),
         });
@@ -3380,13 +3382,20 @@ mod tests {
     fn a_shortcut_updates_the_group_face() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        assert_eq!(view.tool_face(1), Some(ActiveTool::Brush));
+        assert_eq!(view.tool_face(3), Some(ActiveTool::RectangleSelect));
+        assert_eq!(view.tool_face(5), Some(ActiveTool::RectangleFill));
+        // L 把选区组的脸换成套索；R 把填充形状组的脸换成矩形填充。
         view.event(&InputEvent::KeyDown {
-            key: Key::Character('e'),
+            key: Key::Character('l'),
         });
         view.update();
-        assert_eq!(view.tool_face(1), Some(ActiveTool::Eraser));
-        assert_eq!(view.tool_face(2), Some(ActiveTool::RectangleSelect));
+        assert_eq!(view.tool_face(3), Some(ActiveTool::LassoSelect));
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('r'),
+        });
+        view.update();
+        assert_eq!(view.tool_face(5), Some(ActiveTool::RectangleFill));
+        assert_eq!(view.tool_face(1), Some(ActiveTool::Brush));
     }
 
     /// 长按组按钮展开工具浮层；短按不展开。

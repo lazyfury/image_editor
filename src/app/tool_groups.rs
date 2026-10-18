@@ -30,22 +30,26 @@ impl ToolGroup {
 }
 
 /// 工具栏从上到下的分组。
-pub const TOOL_GROUPS: [ToolGroup; 5] = [
+///
+/// 画笔 / 橡皮各自单独一组；矩形填充和自由填充归一组；油漆桶单独一组。
+pub const TOOL_GROUPS: [ToolGroup; 7] = [
     ToolGroup {
         tools: &[ActiveTool::Move],
     },
     ToolGroup {
-        tools: &[ActiveTool::Brush, ActiveTool::Eraser],
+        tools: &[ActiveTool::Brush],
+    },
+    ToolGroup {
+        tools: &[ActiveTool::Eraser],
     },
     ToolGroup {
         tools: &[ActiveTool::RectangleSelect, ActiveTool::LassoSelect],
     },
     ToolGroup {
-        tools: &[
-            ActiveTool::PaintBucket,
-            ActiveTool::RectangleFill,
-            ActiveTool::FreeFill,
-        ],
+        tools: &[ActiveTool::PaintBucket],
+    },
+    ToolGroup {
+        tools: &[ActiveTool::RectangleFill, ActiveTool::FreeFill],
     },
     ToolGroup {
         tools: &[ActiveTool::Eyedropper],
@@ -68,17 +72,23 @@ mod tests {
             let matches = TOOL_GROUPS.iter().filter(|g| g.contains(tool)).count();
             assert_eq!(matches, 1, "{tool:?} 应恰好属于一个组");
         }
-        assert_eq!(group_index(ActiveTool::Eraser), Some(1));
-        assert_eq!(group_index(ActiveTool::LassoSelect), Some(2));
-        assert_eq!(group_index(ActiveTool::FreeFill), Some(3));
+        assert_eq!(group_index(ActiveTool::Eraser), Some(2));
+        assert_eq!(group_index(ActiveTool::LassoSelect), Some(3));
+        assert_eq!(group_index(ActiveTool::FreeFill), Some(5));
     }
 
     #[test]
     fn the_default_faces_are_the_first_tool_of_each_group() {
         assert_eq!(TOOL_GROUPS[1].face(), ActiveTool::Brush);
-        assert_eq!(TOOL_GROUPS[2].face(), ActiveTool::RectangleSelect);
-        assert_eq!(TOOL_GROUPS[3].face(), ActiveTool::PaintBucket);
+        assert_eq!(TOOL_GROUPS[2].face(), ActiveTool::Eraser);
+        assert_eq!(TOOL_GROUPS[3].face(), ActiveTool::RectangleSelect);
+        assert_eq!(TOOL_GROUPS[5].face(), ActiveTool::RectangleFill);
+        // 画笔 / 橡皮 / 油漆桶 / 吸管都是单工具槽位；选区 / 填充形状可展开。
         assert!(TOOL_GROUPS[0].is_single());
-        assert!(!TOOL_GROUPS[1].is_single());
+        assert!(TOOL_GROUPS[1].is_single());
+        assert!(TOOL_GROUPS[2].is_single());
+        assert!(!TOOL_GROUPS[3].is_single());
+        assert!(TOOL_GROUPS[4].is_single());
+        assert!(!TOOL_GROUPS[5].is_single());
     }
 }
