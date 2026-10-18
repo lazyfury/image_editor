@@ -1396,6 +1396,35 @@ fn a_selection_confines_the_brush_and_escape_clears_it() {
     assert!(view.selection().is_none());
 }
 
+/// 魔棒：点一下把容差连通区域变成选区（默认白底 -> 整张文档）。
+#[test]
+fn the_magic_wand_turns_a_click_into_a_selection() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    let camera = view.canvas_camera();
+
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('w'),
+    });
+    view.update();
+    assert_eq!(view.active_tool(), ActiveTool::MagicWand, "W 切到魔棒");
+
+    let point = camera.document_to_screen(Vec2::new(64.5, 64.5));
+    view.event(&InputEvent::PointerDown {
+        position: point,
+        button: PointerButton::Left,
+    });
+    view.event(&InputEvent::PointerUp {
+        position: point,
+        button: PointerButton::Left,
+    });
+
+    let selection = view.selection().expect("魔棒应产生选区");
+    assert!(selection.contains(0, 0), "白底连通 -> 左上角也选中");
+    assert!(selection.contains(127, 127), "右下角也选中");
+    assert_eq!(selection.area(), 128 * 128);
+}
+
 /// 选区边框是黑白相间的线段（马赛克 / marching ants），不是半透明单色线。
 #[test]
 fn the_selection_border_is_marching_ants() {

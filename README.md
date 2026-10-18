@@ -183,6 +183,12 @@ Phase 11），README 只留功能说明。要点：
 | `B` | 画笔 |
 | `E` | 橡皮 |
 | `M` | 矩形选择 |
+| `L` | 套索 |
+| `G` | 油漆桶 |
+| `W` | 魔棒 |
+| `N` | 渐变 |
+| `R` | 矩形填充 |
+| `U` | 自由填充 |
 | `I` | 吸管 |
 | `Esc` | 清空选区 |
 | `Ctrl/Cmd+Z` | 撤销 |
@@ -200,7 +206,7 @@ Phase 11），README 只留功能说明。要点：
 ## 结构
 
 ```text
-assets/icons/            # vendor 的 11 个 Lucide 图标（工具栏用）+ ISC LICENSE
+assets/icons/            # vendor 的 12 个 Lucide 图标（工具栏用）+ ISC LICENSE
 src/
 ├── main.rs              # 参数解析
 ├── fonts.rs             # 随包字体定位（assets/fonts/，见 AGENTS.md）
@@ -229,7 +235,7 @@ src/
 │   ├── mod.rs           # DOCUMENT_TEXTURE 约定
 │   ├── camera.rs        # CanvasCamera（zoom / offset / fit）
 │   ├── coordinate.rs    # screen -> document -> pixel + pixel_selection（框选）
-│   └── selection.rs     # Selection：像素掩码 + 描边轮廓（任意形状）
+│   └── selection.rs     # Selection：像素掩码 + 线段轮廓（矩形 / 套索 / 魔棒）
 ├── renderer/            # Phase 3：合成器
 │   ├── mod.rs           # Renderer trait
 │   ├── target.rs        # RenderTarget
@@ -244,7 +250,7 @@ src/
 │   ├── mod.rs
 │   ├── tool.rs          # Tool trait + PointerEvent + ToolContext（含 History）
 │   ├── brush.rs         # BrushTool + BrushMode（画笔 / 橡皮，抬笔提交一笔）
-│   ├── fill.rs          # 洪水填充 flood_fill + PaintBucketTool + fill_selection
+│   ├── fill.rs          # 洪水填充 flood_fill + PaintBucketTool + magic_wand_region
 │   ├── gradient.rs      # GradientKind / gradient_fill / GradientTool（多节点渐变）
 │   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）
@@ -327,6 +333,7 @@ Esc 取消）。列表第 0 行是最上面的图层。
 | 框选 | `M` | 拖动出矩形选区；画笔 / 填充 / 渐变只在选区内生效；选中有描边；`Esc` 清空 |
 | 套索 | `L` | 按住拖出自由折线，松手成任意形状选区；`Esc` 清空 |
 | 油漆桶 | `G` | 点画布洪水填充连通区域；选项栏调容差 / 「连续」 |
+| 魔棒 | `W` | 点画布把容差连通区域变成选区（不落笔）；容差 / 「连续」与油漆桶共用 |
 | 渐变 | `N` | 拖一条轴定义方向 / 长度，用**多节点 ramp** 填充选区；选项栏切类型（线性 / 对称 / 径向 / 角度 / 菱形）、「反向」、「编辑…」打开多节点编辑器 |
 | 矩形填充 | `R` | 拖出矩形，松手用前景色填充；拖动中有预览 |
 | 自由填充 | `U` | 按住拖出自由形状，松手填充内部 |
@@ -411,7 +418,7 @@ Phase 6 起还做一次**真实的撤销 / 重做往返**：画笔一笔 → 点
 ### 分组工具栏（长按展开）
 
 `ActiveTool` 的 10 个工具按 [`app::tool_groups`](src/app/tool_groups.rs) 收成 7 个
-组按钮：移动、画笔、橡皮、选区（框选/套索）、油漆桶（油漆桶/渐变）、填充形状
+组按钮：移动、画笔、橡皮、选区（框选/套索）、油漆桶（油漆桶/魔棒/渐变）、填充形状
 （矩形填充/自由填充）、吸管。组按钮画当前「脸」工具的图标 + 标签，右下角一个小
 三角表示可展开：
 

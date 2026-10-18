@@ -518,6 +518,7 @@ fn shortcut_tool(key: Key) -> Option<ActiveTool> {
         Key::Character('m') | Key::Character('M') => Some(ActiveTool::RectangleSelect),
         Key::Character('l') | Key::Character('L') => Some(ActiveTool::LassoSelect),
         Key::Character('g') | Key::Character('G') => Some(ActiveTool::PaintBucket),
+        Key::Character('w') | Key::Character('W') => Some(ActiveTool::MagicWand),
         Key::Character('n') | Key::Character('N') => Some(ActiveTool::Gradient),
         Key::Character('r') | Key::Character('R') => Some(ActiveTool::RectangleFill),
         Key::Character('u') | Key::Character('U') => Some(ActiveTool::FreeFill),

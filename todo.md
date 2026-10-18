@@ -87,9 +87,12 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   要 `igui_ui` 右键回调 + `Overlays` 指针锚点；退出守卫要 `igui_winit` 的
   `CloseRequested` 钩子）与 tag 升级步骤。
 
-### 可扩展（新功能候选）
+### 可扩展
 
-- [ ] **魔棒**：`Selection` 已是 `Vec<bool>` 掩码，魔棒直接复用。
+- [x] **魔棒**（`W`）：`tools::fill::magic_wand_region` 复用洪水填充的容差扫描，
+  返回文档掩码 → `Selection::from_mask`；容差 / 「连续」与油漆桶共用，`Esc` 清空。
+  `Selection` 的轮廓改成**线段列表**（矩形 4 段 / 套索 N 段 / 魔棒是掩码边界边），
+  描边仍由 `ui/selection.rs` 画马赛克。
 - [ ] **图层混合模式**：`BlendMode` 目前只有 `Normal`（`document/layer.rs` TODO v1.1）。
 - [ ] **`History` 上限**：目前无步数 / 字节上限，大文档多步编辑会一直涨。
 - [ ] **工具元数据表**：新增一个工具要改 7+ 处（枚举 / `ALL` / 标签 / 图标 /

@@ -104,14 +104,19 @@ impl EditorView {
             };
             (state.canvas, selection.outline().to_vec())
         };
-        let points: Vec<Vec2> = outline
+        let edges: Vec<(Vec2, Vec2)> = outline
             .iter()
-            .map(|point| camera.document_to_screen(*point))
+            .map(|(from, to)| {
+                (
+                    camera.document_to_screen(*from),
+                    camera.document_to_screen(*to),
+                )
+            })
             .collect();
-        selection::paint(ctx, &points);
+        selection::paint(ctx, &edges);
     }
 
-    /// 套索拖动中的实时折线（复用 marching ants；`paint` 会自动闭合到起点）。
+    /// 套索拖动中的实时折线（复用 marching ants；`paint_polyline` 会自动闭合）。
     fn paint_lasso(&self, ctx: &mut PaintContext) {
         if self.lasso_points.len() < 2 {
             return;
@@ -122,7 +127,7 @@ impl EditorView {
             .iter()
             .map(|point| camera.document_to_screen(*point))
             .collect();
-        selection::paint(ctx, &points);
+        selection::paint_polyline(ctx, &points);
     }
 
     /// 矩形填充拖动中的预览：把两个角点裁成像素矩形，画一圈 marching ants。
@@ -145,7 +150,7 @@ impl EditorView {
             .iter()
             .map(|point| camera.document_to_screen(*point))
             .collect();
-        selection::paint(ctx, &points);
+        selection::paint_polyline(ctx, &points);
     }
 
     /// 渐变拖动中的轴预览：起点→终点细线 + 两端小圆点。

@@ -256,6 +256,7 @@ pub const fn options_hint(tool: ActiveTool) -> &'static str {
         ActiveTool::RectangleSelect => "拖动框选 · Esc 清空",
         ActiveTool::LassoSelect => "按住拖动套索 · 松手成选区 · Esc 清空",
         ActiveTool::PaintBucket => "点击填充连通区域 · 容差可选",
+        ActiveTool::MagicWand => "点击选中容差连通区域 · 容差可选",
         ActiveTool::Gradient => "拖一条轴定义方向 · 编辑… 调多节点颜色",
         ActiveTool::RectangleFill => "拖动矩形 · 松手用前景色填充",
         ActiveTool::FreeFill => "按住拖出自由形状 · 松手填充内部",

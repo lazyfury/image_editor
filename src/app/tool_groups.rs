@@ -46,7 +46,11 @@ pub const TOOL_GROUPS: [ToolGroup; 7] = [
         tools: &[ActiveTool::RectangleSelect, ActiveTool::LassoSelect],
     },
     ToolGroup {
-        tools: &[ActiveTool::PaintBucket, ActiveTool::Gradient],
+        tools: &[
+            ActiveTool::PaintBucket,
+            ActiveTool::MagicWand,
+            ActiveTool::Gradient,
+        ],
     },
     ToolGroup {
         tools: &[ActiveTool::RectangleFill, ActiveTool::FreeFill],

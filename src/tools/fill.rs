@@ -36,85 +36,119 @@ pub fn flood_fill(
     contiguous: bool,
     clip: Option<&Selection>,
 ) -> bool {
-    let width = buffer.width;
-    let height = buffer.height;
-    // 缓冲区像素是否可填：落在文档内、选区（若有）内、缓冲区覆盖范围内。
-    let fillable = |bx: u32, by: u32| -> bool {
-        let dx = bx as i64 + offset.x as i64;
-        let dy = by as i64 + offset.y as i64;
-        if dx < 0 || dy < 0 || dx >= document.0 as i64 || dy >= document.1 as i64 {
-            return false;
-        }
-        clip.map_or(true, |selection| selection.contains(dx as u32, dy as u32))
-    };
-    let Some((sx, sy)) = buffer_seed(seed, offset, width, height) else {
+    let Some(mask) = region(buffer, offset, document, seed, tolerance, contiguous, clip) else {
         return false;
     };
-    if !fillable(sx, sy) {
+    // 种子本来就是填充色 -> 没有变化。
+    if document_pixel(buffer, offset, seed.0, seed.1) == color {
         return false;
     }
-    let target = buffer.get_pixel(sx, sy);
-    if target == color {
-        return false;
-    }
-
-    if !contiguous {
-        let mut changed = false;
-        for by in 0..height {
-            for bx in 0..width {
-                if !fillable(bx, by) {
-                    continue;
-                }
-                let pixel = buffer.get_pixel(bx, by);
-                if within_tolerance(pixel, target, tolerance) && pixel != color {
-                    buffer.set_pixel(bx, by, color);
-                    changed = true;
-                }
-            }
-        }
-        return changed;
-    }
-
-    // 连续：栈 + `visited`，四连通。`visited` 而不是“填完再比色”，所以
-    // 即使填充色仍在容差内也不会反复入栈。
-    let mut visited = vec![false; width as usize * height as usize];
-    let mut stack = vec![(sx, sy)];
+    let (width, height) = document;
     let mut changed = false;
-    while let Some((bx, by)) = stack.pop() {
-        let index = by as usize * width as usize + bx as usize;
-        if visited[index] || !fillable(bx, by) {
-            continue;
-        }
-        if !within_tolerance(buffer.get_pixel(bx, by), target, tolerance) {
-            continue;
-        }
-        visited[index] = true;
-        buffer.set_pixel(bx, by, color);
-        changed = true;
-        if bx > 0 {
-            stack.push((bx - 1, by));
-        }
-        if bx + 1 < width {
-            stack.push((bx + 1, by));
-        }
-        if by > 0 {
-            stack.push((bx, by - 1));
-        }
-        if by + 1 < height {
-            stack.push((bx, by + 1));
+    for y in 0..height {
+        for x in 0..width {
+            if !mask[y as usize * width as usize + x as usize] {
+                continue;
+            }
+            let bx = x as i64 - offset.x as i64;
+            let by = y as i64 - offset.y as i64;
+            if bx < 0 || by < 0 || bx >= buffer.width as i64 || by >= buffer.height as i64 {
+                continue;
+            }
+            buffer.set_pixel(bx as u32, by as u32, color);
+            changed = true;
         }
     }
     changed
 }
 
-/// 文档像素 -> 图层缓冲区像素；不在缓冲区里返回 `None`。
-fn buffer_seed(seed: (u32, u32), offset: Point, width: u32, height: u32) -> Option<(u32, u32)> {
-    let bx = seed.0 as i64 - offset.x as i64;
-    let by = seed.1 as i64 - offset.y as i64;
-    if bx < 0 || by < 0 || bx >= width as i64 || by >= height as i64 {
+/// 魔棒：从文档坐标 `seed` 选出一片容差区域，返回**文档坐标**的掩码。
+///
+/// 和 [`flood_fill`] 共用 [`region`]，但不落笔 —— 交给
+/// [`Selection::from_mask`](crate::canvas::Selection::from_mask) 变成选区。
+/// `None` = 种子不在文档里。
+pub fn magic_wand_region(
+    buffer: &PixelBuffer,
+    offset: Point,
+    document: (u32, u32),
+    seed: (u32, u32),
+    tolerance: u8,
+    contiguous: bool,
+) -> Option<Vec<bool>> {
+    region(buffer, offset, document, seed, tolerance, contiguous, None)
+}
+
+/// 从文档坐标 `seed` 算出容差区域（**文档坐标**的掩码）。
+///
+/// 落笔的 [`flood_fill`] 和魔棒共用它。`None` = 种子不在文档 / 不可选。
+/// 图层没覆盖到的文档像素当透明（[`document_pixel`]）。
+fn region(
+    buffer: &PixelBuffer,
+    offset: Point,
+    document: (u32, u32),
+    seed: (u32, u32),
+    tolerance: u8,
+    contiguous: bool,
+    clip: Option<&Selection>,
+) -> Option<Vec<bool>> {
+    let (width, height) = document;
+    if seed.0 >= width || seed.1 >= height {
         return None;
     }
-    Some((bx as u32, by as u32))
+    let selectable = |x: u32, y: u32| clip.map_or(true, |selection| selection.contains(x, y));
+    if !selectable(seed.0, seed.1) {
+        return None;
+    }
+    let target = document_pixel(buffer, offset, seed.0, seed.1);
+    let mut mask = vec![false; width as usize * height as usize];
+
+    if !contiguous {
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = document_pixel(buffer, offset, x, y);
+                if selectable(x, y) && within_tolerance(pixel, target, tolerance) {
+                    mask[y as usize * width as usize + x as usize] = true;
+                }
+            }
+        }
+        return Some(mask);
+    }
+
+    // 连续：栈 + `mask` 兼作 `visited`，四连通。
+    let mut stack = vec![seed];
+    while let Some((x, y)) = stack.pop() {
+        let index = y as usize * width as usize + x as usize;
+        if mask[index] || !selectable(x, y) {
+            continue;
+        }
+        if !within_tolerance(document_pixel(buffer, offset, x, y), target, tolerance) {
+            continue;
+        }
+        mask[index] = true;
+        if x > 0 {
+            stack.push((x - 1, y));
+        }
+        if x + 1 < width {
+            stack.push((x + 1, y));
+        }
+        if y > 0 {
+            stack.push((x, y - 1));
+        }
+        if y + 1 < height {
+            stack.push((x, y + 1));
+        }
+    }
+    Some(mask)
+}
+
+/// 读文档坐标的像素；图层没覆盖到的地方当透明。
+fn document_pixel(buffer: &PixelBuffer, offset: Point, x: u32, y: u32) -> Color {
+    let bx = x as i64 - offset.x as i64;
+    let by = y as i64 - offset.y as i64;
+    if bx < 0 || by < 0 || bx >= buffer.width as i64 || by >= buffer.height as i64 {
+        return Color::TRANSPARENT;
+    }
+    buffer.get_pixel(bx as u32, by as u32)
 }
 
 /// 把 `region`（∩ `clip`，若有）内的像素全部填成 `color`，提交一条 undo。
@@ -460,5 +494,50 @@ mod tests {
         assert_eq!(history.undo_len(), 1, "一次填充 = 一步 undo");
         history.undo(&mut document);
         assert_eq!(at(&document, 0, 0), Color::RED, "撤销还原");
+    }
+
+    #[test]
+    fn a_magic_wand_selects_the_connected_region_and_stops_at_the_border() {
+        let mut document = blank();
+        for y in 0..16 {
+            for x in 0..6 {
+                paint(&mut document, x, y, Color::RED);
+            }
+            paint(&mut document, 6, y, Color::BLACK);
+        }
+        let layer = document.active_layer().unwrap();
+        let mask = magic_wand_region(&layer.pixels, Point::new(0, 0), (16, 16), (0, 0), 0, true)
+            .expect("种子在图层里");
+        assert!(mask[0], "种子被选");
+        assert!(mask[5 * 16 + 5], "同侧连通区域被选");
+        assert!(!mask[6], "边界线不选");
+        assert!(!mask[7], "另一侧不选");
+        assert_eq!(mask.iter().filter(|selected| **selected).count(), 6 * 16);
+    }
+
+    /// 容差放宽后，颜色略有差异的像素也会被选进来。
+    #[test]
+    fn a_magic_wand_tolerance_widens_the_region() {
+        let mut document = blank();
+        paint(&mut document, 0, 0, Color::RED);
+        paint(&mut document, 1, 0, Color::rgb(250, 0, 0));
+        let layer = document.active_layer().unwrap();
+        let strict =
+            magic_wand_region(&layer.pixels, Point::new(0, 0), (16, 16), (0, 0), 0, true).unwrap();
+        assert!(!strict[1], "容差 0：邻近色不选");
+        let loose =
+            magic_wand_region(&layer.pixels, Point::new(0, 0), (16, 16), (0, 0), 5, true).unwrap();
+        assert!(loose[1], "容差 5：邻近色选进来");
+    }
+
+    /// 种子落在文档外：没有区域（调用方据此不动选区）。
+    #[test]
+    fn a_magic_wand_seed_outside_the_document_has_no_region() {
+        let document = blank();
+        let layer = document.active_layer().unwrap();
+        assert!(
+            magic_wand_region(&layer.pixels, Point::new(0, 0), (16, 16), (99, 99), 0, true)
+                .is_none()
+        );
     }
 }

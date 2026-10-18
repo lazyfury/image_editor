@@ -10,7 +10,9 @@ use igui_core::Vec2;
 use crate::app::state::{ActiveTool, AppState};
 use crate::canvas::{document_to_pixel, pixel_selection, Selection};
 use crate::renderer::sample_pixel;
-use crate::tools::{fill_selection, BrushMode, BrushTool, PaintBucketTool, Tool, ToolContext};
+use crate::tools::{
+    fill_selection, magic_wand_region, BrushMode, BrushTool, PaintBucketTool, Tool, ToolContext,
+};
 
 use super::{left_pointer, BrushAdjust, BucketAdjust, EditorView};
 
@@ -83,6 +85,41 @@ impl EditorView {
                 self.paint_bucket
                     .on_pointer_down(&mut ctx, left_pointer(position));
                 self.texture_dirty = true;
+            }
+            // 魔棒：点一下把容差连通区域变成选区（不落笔）。容差 / 连续复用油漆桶。
+            ActiveTool::MagicWand => {
+                let (tolerance, contiguous) =
+                    (self.paint_bucket.tolerance, self.paint_bucket.contiguous);
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document,
+                    selection,
+                    ..
+                } = &mut *state;
+                let (width, height) = (document.width, document.height);
+                let Some(seed) = document_to_pixel(position, width, height) else {
+                    return;
+                };
+                let Some(layer) = document.active_layer() else {
+                    return;
+                };
+                let offset = layer.position;
+                let Some(mask) = magic_wand_region(
+                    &layer.pixels,
+                    offset,
+                    (width, height),
+                    seed,
+                    tolerance,
+                    contiguous,
+                ) else {
+                    return;
+                };
+                let next = Selection::from_mask((width, height), mask);
+                *selection = if next.is_empty() {
+                    None
+                } else {
+                    Some(Rc::new(next))
+                };
             }
             ActiveTool::RectangleFill => {
                 let (foreground, selection) = {

@@ -22,6 +22,7 @@ pub enum ActiveTool {
     RectangleSelect,
     LassoSelect,
     PaintBucket,
+    MagicWand,
     Gradient,
     RectangleFill,
     FreeFill,
@@ -30,13 +31,14 @@ pub enum ActiveTool {
 
 impl ActiveTool {
     /// 工具栏从上到下的顺序。
-    pub const ALL: [ActiveTool; 10] = [
+    pub const ALL: [ActiveTool; 11] = [
         ActiveTool::Move,
         ActiveTool::Brush,
         ActiveTool::Eraser,
         ActiveTool::RectangleSelect,
         ActiveTool::LassoSelect,
         ActiveTool::PaintBucket,
+        ActiveTool::MagicWand,
         ActiveTool::Gradient,
         ActiveTool::RectangleFill,
         ActiveTool::FreeFill,
@@ -52,6 +54,7 @@ impl ActiveTool {
             Self::RectangleSelect => "框选",
             Self::LassoSelect => "套索",
             Self::PaintBucket => "油漆桶",
+            Self::MagicWand => "魔棒",
             Self::Gradient => "渐变",
             Self::RectangleFill => "矩形填充",
             Self::FreeFill => "自由填充",
@@ -68,6 +71,7 @@ impl ActiveTool {
             Self::RectangleSelect => "square-dashed",
             Self::LassoSelect => "lasso-select",
             Self::PaintBucket => "paint-bucket",
+            Self::MagicWand => "wand-sparkles",
             Self::Gradient => "gradient",
             Self::RectangleFill => "square",
             Self::FreeFill => "paintbrush",
@@ -84,6 +88,7 @@ impl ActiveTool {
             Self::RectangleSelect => "矩形选择",
             Self::LassoSelect => "自由选区",
             Self::PaintBucket => "油漆桶",
+            Self::MagicWand => "魔棒工具",
             Self::Gradient => "渐变工具",
             Self::RectangleFill => "矩形填充",
             Self::FreeFill => "自由填充",

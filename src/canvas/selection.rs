@@ -1,13 +1,16 @@
 //! 任意形状的选区：与文档同尺寸的像素掩码 + 描边轮廓。
 //!
-//! 框选是矩形、套索是自由折线，统一成一张 `Vec<bool>` 掩码：`contains` 是
-//! O(1)，画笔 / 填充裁剪直接查它，以后加魔棒 / 加选减选也只改这一处。
-//! 另外保留一条文档坐标的 `outline` 折线给「马赛克线段」描边用（矩形 4 点 /
-//! 套索原折线），所以边框始终跟着用户画出来的路径。
+//! 框选是矩形、套索是自由折线、魔棒是容差连通区域，统一成一张 `Vec<bool>`
+//! 掩码：`contains` 是 O(1)，画笔 / 填充裁剪直接查它，以后加选 / 减选也只改
+//! 这一处。轮廓是一条条**线段**（文档坐标）—— 矩形 4 段、套索 N 段、魔棒是
+//! 掩码的边界边，给「马赛克线段」描边用，所以边框始终贴着真实选区。
 
 use igui_core::Vec2;
 
 use crate::document::PixelRegion;
+
+/// 一条轮廓线段（文档坐标）。
+pub type Edge = (Vec2, Vec2);
 
 /// 与文档同尺寸的像素掩码 + 描边轮廓。
 #[derive(Debug, Clone, PartialEq)]
@@ -15,7 +18,7 @@ pub struct Selection {
     width: u32,
     height: u32,
     mask: Vec<bool>,
-    outline: Vec<Vec2>,
+    outline: Vec<Edge>,
 }
 
 impl Selection {
@@ -32,7 +35,7 @@ impl Selection {
                 mask[y as usize * width as usize + x as usize] = true;
             }
         }
-        let outline = vec![
+        let corners = [
             Vec2::new(x0 as f32, y0 as f32),
             Vec2::new(x1 as f32, y0 as f32),
             Vec2::new(x1 as f32, y1 as f32),
@@ -42,7 +45,7 @@ impl Selection {
             width,
             height,
             mask,
-            outline,
+            outline: closed_edges(&corners),
         }
     }
 
@@ -79,7 +82,22 @@ impl Selection {
             width,
             height,
             mask,
-            outline: points.to_vec(),
+            outline: closed_edges(points),
+        }
+    }
+
+    /// 从一个与文档同尺寸的像素掩码构造（魔棒的容差区域）。
+    ///
+    /// 轮廓取掩码的边界边：每个被选中像素朝向未选中 / 越界的边。
+    pub fn from_mask(document: (u32, u32), mask: Vec<bool>) -> Self {
+        let (width, height) = document;
+        debug_assert_eq!(mask.len(), width as usize * height as usize);
+        let outline = mask_edges(width, height, &mask);
+        Self {
+            width,
+            height,
+            mask,
+            outline,
         }
     }
 
@@ -119,10 +137,53 @@ impl Selection {
             .then(|| PixelRegion::new(min_x, min_y, max_x - min_x + 1, max_y - min_y + 1))
     }
 
-    /// 描边用的轮廓（文档坐标）：矩形 4 点、套索原折线。
-    pub fn outline(&self) -> &[Vec2] {
+    /// 描边用的轮廓线段（文档坐标）。
+    pub fn outline(&self) -> &[Edge] {
         &self.outline
     }
+}
+
+/// 把一串点收成闭合的线段（最后一段回到起点）。
+fn closed_edges(points: &[Vec2]) -> Vec<Edge> {
+    if points.len() < 2 {
+        return Vec::new();
+    }
+    (0..points.len())
+        .map(|index| (points[index], points[(index + 1) % points.len()]))
+        .collect()
+}
+
+/// 掩码的边界边：每个选中像素朝向未选中 / 越界的四条边。
+fn mask_edges(width: u32, height: u32, mask: &[bool]) -> Vec<Edge> {
+    let selected = |x: i64, y: i64| -> bool {
+        x >= 0
+            && y >= 0
+            && x < width as i64
+            && y < height as i64
+            && mask[y as usize * width as usize + x as usize]
+    };
+    let mut edges = Vec::new();
+    for y in 0..height as i64 {
+        for x in 0..width as i64 {
+            if !selected(x, y) {
+                continue;
+            }
+            let (fx, fy) = (x as f32, y as f32);
+            if !selected(x, y - 1) {
+                edges.push((Vec2::new(fx, fy), Vec2::new(fx + 1.0, fy)));
+            }
+            if !selected(x, y + 1) {
+                edges.push((Vec2::new(fx, fy + 1.0), Vec2::new(fx + 1.0, fy + 1.0)));
+            }
+            if !selected(x - 1, y) {
+                edges.push((Vec2::new(fx, fy), Vec2::new(fx, fy + 1.0)));
+            }
+            if !selected(x + 1, y) {
+                edges.push((Vec2::new(fx + 1.0, fy), Vec2::new(fx + 1.0, fy + 1.0)));
+            }
+        }
+    }
+    edges
 }
 
 #[cfg(test)]
@@ -147,15 +208,15 @@ mod tests {
     }
 
     #[test]
-    fn a_rect_outline_is_four_corners() {
+    fn a_rect_outline_is_the_four_sides() {
         let selection = Selection::rect(PixelRegion::new(2, 3, 4, 5), (10, 10));
         assert_eq!(
             selection.outline(),
             &[
-                Vec2::new(2.0, 3.0),
-                Vec2::new(6.0, 3.0),
-                Vec2::new(6.0, 8.0),
-                Vec2::new(2.0, 8.0),
+                (Vec2::new(2.0, 3.0), Vec2::new(6.0, 3.0)),
+                (Vec2::new(6.0, 3.0), Vec2::new(6.0, 8.0)),
+                (Vec2::new(6.0, 8.0), Vec2::new(2.0, 8.0)),
+                (Vec2::new(2.0, 8.0), Vec2::new(2.0, 3.0)),
             ]
         );
     }
@@ -200,5 +261,27 @@ mod tests {
         let selection = Selection::polygon(&[Vec2::new(1.0, 1.0), Vec2::new(2.0, 2.0)], (8, 8));
         assert!(selection.is_empty());
         assert_eq!(selection.bounds(), None);
+    }
+
+    /// 掩码构造：包含关系照搬掩码，轮廓是「选中像素朝向未选中邻居」的边。
+    #[test]
+    fn a_mask_selection_traces_its_boundary() {
+        // 3×3 里只有中心一个像素被选中。
+        let mut mask = vec![false; 9];
+        mask[4] = true;
+        let selection = Selection::from_mask((3, 3), mask);
+        assert!(selection.contains(1, 1));
+        assert!(!selection.contains(0, 0));
+        assert_eq!(selection.area(), 1);
+        assert_eq!(selection.bounds(), Some(PixelRegion::new(1, 1, 1, 1)));
+        assert_eq!(
+            selection.outline(),
+            &[
+                (Vec2::new(1.0, 1.0), Vec2::new(2.0, 1.0)),
+                (Vec2::new(1.0, 2.0), Vec2::new(2.0, 2.0)),
+                (Vec2::new(1.0, 1.0), Vec2::new(1.0, 2.0)),
+                (Vec2::new(2.0, 1.0), Vec2::new(2.0, 2.0)),
+            ]
+        );
     }
 }

@@ -243,6 +243,33 @@ fn check_gradient(failures: &mut Vec<String>) {
     view.update();
 }
 
+/// 魔棒：`W` 切换；点白底把整张文档选成选区（不落笔）。
+fn check_magic_wand(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('w'),
+    });
+    view.update();
+    if view.active_tool() != ActiveTool::MagicWand {
+        failures.push("W 应切到魔棒".to_string());
+    }
+    let point = view
+        .canvas_camera()
+        .document_to_screen(Vec2::new(64.5, 64.5));
+    click_at(&mut view, point);
+    view.update();
+    match view.selection() {
+        Some(selection) if selection.area() == 128 * 128 => {}
+        Some(selection) => failures.push(format!(
+            "魔棒选区面积应为 {}，实为 {}",
+            128 * 128,
+            selection.area()
+        )),
+        None => failures.push("魔棒点击应产生选区".to_string()),
+    }
+}
+
 fn gray_pixels(pixels: &PixelBuffer, cx: u32, cy: u32, radius: u32) -> usize {
     let mut count = 0;
     let y_end = (cy + radius).min(pixels.height.saturating_sub(1));
@@ -561,6 +588,7 @@ pub fn check() -> (usize, String) {
     check_pixel_mode_edges(&mut failures);
     check_bucket(&mut failures);
     check_gradient(&mut failures);
+    check_magic_wand(&mut failures);
 
     // 调色盘：色块齐全，点一个预设色块应把前景色改掉。
     if view.palette_swatch_count() < 16 {

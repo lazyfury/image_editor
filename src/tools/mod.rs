@@ -13,7 +13,7 @@ mod shape_fill;
 mod tool;
 
 pub use brush::{BrushMode, BrushShape, BrushTool};
-pub use fill::{fill_selection, PaintBucketTool};
+pub use fill::{fill_selection, magic_wand_region, PaintBucketTool};
 pub use gradient::{GradientKind, GradientTool};
 pub use move_tool::MoveTool;
 pub use shape_fill::RectangleFillTool;
