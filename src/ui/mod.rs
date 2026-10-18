@@ -37,6 +37,7 @@ pub use home::HomeView;
 pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
+pub use options_bar::{BucketAdjust, BucketToggle};
 pub use tabs::SidebarTab;
 
 use std::cell::{Cell, RefCell};
@@ -57,14 +58,17 @@ use igui_ui::{MouseFilter, SizeBasis, TextMeasurer};
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::canvas::{
     document_to_pixel, paint_backdrop, pixel_selection, screen_to_document, CanvasCamera,
-    DOCUMENT_TEXTURE,
+    Selection, DOCUMENT_TEXTURE,
 };
 use crate::document::{
     AddLayerCommand, CropLayerCommand, Layer, LayerId, LayerMetaCommand, PixelBuffer,
 };
 use crate::icons::IconSet;
 use crate::renderer::{sample_pixel, CpuRenderer, RenderTarget, Renderer};
-use crate::tools::{BrushMode, BrushShape, BrushTool, MoveTool, PointerEvent, Tool, ToolContext};
+use crate::tools::{
+    fill_selection, BrushMode, BrushShape, BrushTool, MoveTool, PaintBucketTool, PointerEvent,
+    RectangleFillTool, Tool, ToolContext,
+};
 use crate::ui::options_bar::{options_bar, options_hint, tool_has_brush, OptionsRefs};
 use crate::ui::tabs::TabsView;
 
@@ -160,6 +164,8 @@ pub struct EditorView {
     options_brush: NodeId,
     options_size: NodeId,
     options_opacity: NodeId,
+    options_bucket: NodeId,
+    options_tolerance: NodeId,
     options_hint: NodeId,
     /// 选项栏 `−` / `+` 留下的请求；`update` 取走执行。
     brush_request: Rc<Cell<Option<BrushAdjust>>>,
@@ -171,6 +177,15 @@ pub struct EditorView {
     square_mode: Rc<Cell<bool>>,
     /// 开关按钮节点（测试 / 自检点击用）。
     brush_toggles: Vec<(BrushToggle, NodeId)>,
+    /// 油漆桶选项栏的请求 / 开关 / 按钮节点。
+    bucket_request: Rc<Cell<Option<BucketAdjust>>>,
+    bucket_buttons: Vec<(BucketAdjust, NodeId)>,
+    bucket_toggles: Vec<(BucketToggle, NodeId)>,
+    bucket_contiguous: Rc<Cell<bool>>,
+    /// 油漆桶工具（颜色 / 容差 / 连续 / 选区在落笔前同步）。
+    paint_bucket: PaintBucketTool,
+    /// 矩形填充工具（拖动中暴露预览角点）。
+    rect_fill: RectangleFillTool,
     /// 右侧栏共享宽度（分隔条写、`clamp_sidebar_width` 也写）。
     sidebar_width: Rc<Cell<f32>>,
     /// 右侧栏节点（分隔条的目标）。
@@ -222,6 +237,8 @@ pub struct EditorView {
     move_tool: MoveTool,
     /// 框选拖拽起点（文档坐标）；`Some` = 正在框选。
     select_anchor: Option<Vec2>,
+    /// 套索拖动中收集的折线（文档坐标）；非空 = 正在套索。
+    lasso_points: Vec<Vec2>,
     /// 图层列表的共享行数 / 选中行 / 状态。
     layer_count: Rc<Cell<usize>>,
     layer_selected: Rc<Cell<Option<usize>>>,
@@ -311,6 +328,10 @@ impl EditorView {
         let pixel_mode = Rc::new(Cell::new(true));
         let square_mode = Rc::new(Cell::new(true));
         let mut toggle_refs: Vec<(BrushToggle, NodeRef)> = Vec::new();
+        let bucket_request: Rc<Cell<Option<BucketAdjust>>> = Rc::new(Cell::new(None));
+        let mut bucket_refs: Vec<(BucketAdjust, NodeRef)> = Vec::new();
+        let bucket_contiguous = Rc::new(Cell::new(true));
+        let mut bucket_toggle_refs: Vec<(BucketToggle, NodeRef)> = Vec::new();
         let sidebar_width = Rc::new(Cell::new(SIDEBAR_WIDTH));
         let palette_width = Rc::new(Cell::new(PALETTE_WIDTH));
         let active_tab: Rc<Cell<SidebarTab>> = Rc::new(Cell::new(SidebarTab::default()));
@@ -361,9 +382,13 @@ impl EditorView {
                 brush_request.clone(),
                 pixel_mode.clone(),
                 square_mode.clone(),
+                bucket_request.clone(),
+                bucket_contiguous.clone(),
                 &options,
                 &mut brush_refs,
                 &mut toggle_refs,
+                &mut bucket_refs,
+                &mut bucket_toggle_refs,
             ))
             .child(
                 Flex::row()
@@ -485,6 +510,14 @@ impl EditorView {
             .into_iter()
             .map(|(toggle, slot)| (toggle, slot.get().expect("brush toggle mounted")))
             .collect();
+        let bucket_buttons: Vec<(BucketAdjust, NodeId)> = bucket_refs
+            .into_iter()
+            .map(|(adjust, slot)| (adjust, slot.get().expect("bucket button mounted")))
+            .collect();
+        let bucket_toggles: Vec<(BucketToggle, NodeId)> = bucket_toggle_refs
+            .into_iter()
+            .map(|(toggle, slot)| (toggle, slot.get().expect("bucket toggle mounted")))
+            .collect();
         let tab_buttons: Vec<(SidebarTab, NodeId)> = tab_refs
             .iter()
             .map(|(tab, button, _)| (*tab, button.get().expect("tab button mounted")))
@@ -521,12 +554,20 @@ impl EditorView {
             options_brush: options.brush.get().expect("options brush mounted"),
             options_size: options.size.get().expect("options size mounted"),
             options_opacity: options.opacity.get().expect("options opacity mounted"),
+            options_bucket: options.bucket.get().expect("options bucket mounted"),
+            options_tolerance: options.tolerance.get().expect("options tolerance mounted"),
             options_hint: options.hint.get().expect("options hint mounted"),
             brush_request,
             brush_buttons,
             pixel_mode,
             square_mode,
             brush_toggles,
+            bucket_request,
+            bucket_buttons,
+            bucket_toggles,
+            bucket_contiguous,
+            paint_bucket: PaintBucketTool::new(),
+            rect_fill: RectangleFillTool::new(),
             sidebar_width,
             sidebar_node: refs.sidebar.get().expect("sidebar mounted"),
             sidebar_handle_node: refs.sidebar_handle.get().expect("sidebar handle mounted"),
@@ -558,6 +599,7 @@ impl EditorView {
             brush: BrushTool::paint(),
             move_tool: MoveTool::new(),
             select_anchor: None,
+            lasso_points: Vec::new(),
             layer_count,
             layer_selected,
             layer_state,
@@ -596,13 +638,17 @@ impl EditorView {
         if let Some(adjust) = self.brush_request.take() {
             self.apply_brush_adjust(adjust);
         }
-        // 选项栏开关是显示源，`brush` 是绘制源，这里每帧对齐。
+        if let Some(adjust) = self.bucket_request.take() {
+            self.apply_bucket_adjust(adjust);
+        }
+        // 选项栏开关是显示源，`brush` / `paint_bucket` 是绘制源，这里每帧对齐。
         self.brush.hard = self.pixel_mode.get();
         self.brush.shape = if self.square_mode.get() {
             BrushShape::Square
         } else {
             BrushShape::Round
         };
+        self.paint_bucket.contiguous = self.bucket_contiguous.get();
         self.sync_options();
 
         let (revision, active) = {
@@ -1091,6 +1137,8 @@ impl EditorView {
         self.paint_document(ctx);
         self.paint_pixel_grid(ctx);
         self.paint_selection(ctx);
+        self.paint_lasso(ctx);
+        self.paint_rect_fill_preview(ctx);
         ctx.restore();
         igui_ui::paint(&self.tree, ctx);
         self.overlays.paint(ctx);
@@ -1159,21 +1207,55 @@ impl EditorView {
     /// 框选选区的描边：把文档像素矩形换算成屏幕坐标，画一圈黑白相间的
     /// 「马赛克线段」（[`selection`]）。画在文档图像之上、UI 之下。
     fn paint_selection(&self, ctx: &mut PaintContext) {
-        let state = self.state.borrow();
-        let Some(selection) = state.selection else {
+        let (camera, outline) = {
+            let state = self.state.borrow();
+            let Some(selection) = state.selection.as_deref() else {
+                return;
+            };
+            (state.canvas, selection.outline().to_vec())
+        };
+        let points: Vec<Vec2> = outline
+            .iter()
+            .map(|point| camera.document_to_screen(*point))
+            .collect();
+        selection::paint(ctx, &points);
+    }
+
+    /// 套索拖动中的实时折线（复用 marching ants；`paint` 会自动闭合到起点）。
+    fn paint_lasso(&self, ctx: &mut PaintContext) {
+        if self.lasso_points.len() < 2 {
+            return;
+        }
+        let camera = self.state.borrow().canvas;
+        let points: Vec<Vec2> = self
+            .lasso_points
+            .iter()
+            .map(|point| camera.document_to_screen(*point))
+            .collect();
+        selection::paint(ctx, &points);
+    }
+
+    /// 矩形填充拖动中的预览：把两个角点裁成像素矩形，画一圈 marching ants。
+    fn paint_rect_fill_preview(&self, ctx: &mut PaintContext) {
+        let Some((anchor, current)) = self.rect_fill.preview() else {
             return;
         };
-        let camera = state.canvas;
-        let min = camera.document_to_screen(Vec2::new(selection.x as f32, selection.y as f32));
-        let max = camera.document_to_screen(Vec2::new(
-            selection.right() as f32,
-            selection.bottom() as f32,
-        ));
-        let rect = Rect::from_min_max(
-            Vec2::new(min.x.min(max.x), min.y.min(max.y)),
-            Vec2::new(min.x.max(max.x), min.y.max(max.y)),
-        );
-        selection::paint(ctx, rect);
+        let (width, height) = self.document_size();
+        let Some(region) = pixel_selection(anchor, current, width, height) else {
+            return;
+        };
+        let camera = self.state.borrow().canvas;
+        let corners = [
+            Vec2::new(region.x as f32, region.y as f32),
+            Vec2::new(region.right() as f32, region.y as f32),
+            Vec2::new(region.right() as f32, region.bottom() as f32),
+            Vec2::new(region.x as f32, region.bottom() as f32),
+        ];
+        let points: Vec<Vec2> = corners
+            .iter()
+            .map(|point| camera.document_to_screen(*point))
+            .collect();
+        selection::paint(ctx, &points);
     }
 
     /// 路由一个后端无关的输入事件。
@@ -1415,7 +1497,11 @@ impl EditorView {
 
     /// 是否有工具正处在一次拖拽 / 笔画中。
     fn is_dragging(&self) -> bool {
-        self.brush.is_drawing() || self.move_tool.is_moving() || self.select_anchor.is_some()
+        self.brush.is_drawing()
+            || self.move_tool.is_moving()
+            || self.select_anchor.is_some()
+            || !self.lasso_points.is_empty()
+            || self.rect_fill.is_filling()
     }
 
     /// 左键落下：把屏幕点换算成文档坐标，交给当前工具。
@@ -1431,7 +1517,7 @@ impl EditorView {
                 };
                 let (foreground, selection) = {
                     let state = self.state.borrow();
-                    (state.foreground, state.selection)
+                    (state.foreground, state.selection.clone())
                 };
                 self.brush.color = foreground;
                 self.brush.clip = selection;
@@ -1457,6 +1543,41 @@ impl EditorView {
             ActiveTool::RectangleSelect => {
                 self.select_anchor = Some(position);
                 self.update_selection(position);
+            }
+            ActiveTool::LassoSelect | ActiveTool::FreeFill => {
+                self.lasso_points.clear();
+                self.lasso_points.push(position);
+            }
+            ActiveTool::PaintBucket => {
+                let (foreground, selection) = {
+                    let state = self.state.borrow();
+                    (state.foreground, state.selection.clone())
+                };
+                self.paint_bucket.color = foreground;
+                self.paint_bucket.clip = selection;
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.paint_bucket
+                    .on_pointer_down(&mut ctx, left_pointer(position));
+                self.texture_dirty = true;
+            }
+            ActiveTool::RectangleFill => {
+                let (foreground, selection) = {
+                    let state = self.state.borrow();
+                    (state.foreground, state.selection.clone())
+                };
+                self.rect_fill.color = foreground;
+                self.rect_fill.clip = selection;
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.rect_fill
+                    .on_pointer_down(&mut ctx, left_pointer(position));
             }
             ActiveTool::Eyedropper => self.pick_color(position),
         }
@@ -1486,6 +1607,24 @@ impl EditorView {
                 self.texture_dirty = true;
             }
             ActiveTool::RectangleSelect => self.update_selection(position),
+            ActiveTool::LassoSelect | ActiveTool::FreeFill if !self.lasso_points.is_empty() => {
+                if self
+                    .lasso_points
+                    .last()
+                    .map_or(true, |last| (position - *last).length() >= 1.0)
+                {
+                    self.lasso_points.push(position);
+                }
+            }
+            ActiveTool::RectangleFill if self.rect_fill.is_filling() => {
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.rect_fill
+                    .on_pointer_move(&mut ctx, left_pointer(position));
+            }
             _ => {}
         }
     }
@@ -1514,14 +1653,64 @@ impl EditorView {
             }
             ActiveTool::RectangleSelect if self.select_anchor.take().is_some() => {
                 self.update_selection(position);
-                let message = match self.state.borrow().selection {
-                    Some(region) => format!(
-                        "选区 {} × {} @ ({}, {})",
-                        region.width, region.height, region.x, region.y
-                    ),
+                let message = match self.state.borrow().selection.as_deref() {
+                    Some(selection) => match selection.bounds() {
+                        Some(region) => format!(
+                            "选区 {} × {} @ ({}, {})",
+                            region.width, region.height, region.x, region.y
+                        ),
+                        None => "选区已清空".to_string(),
+                    },
                     None => "选区已清空".to_string(),
                 };
                 *self.message.borrow_mut() = Some(message);
+            }
+            ActiveTool::LassoSelect if !self.lasso_points.is_empty() => {
+                self.lasso_points.push(position);
+                let points = std::mem::take(&mut self.lasso_points);
+                let (width, height) = self.document_size();
+                let selection = Selection::polygon(&points, (width, height));
+                let message = if selection.is_empty() {
+                    "套索：没有围出区域".to_string()
+                } else {
+                    format!("自由选区 {} 像素", selection.area())
+                };
+                self.state.borrow_mut().selection =
+                    (!selection.is_empty()).then(|| Rc::new(selection));
+                *self.message.borrow_mut() = Some(message);
+            }
+            ActiveTool::FreeFill if !self.lasso_points.is_empty() => {
+                self.lasso_points.push(position);
+                let points = std::mem::take(&mut self.lasso_points);
+                let (width, height) = self.document_size();
+                let region = Selection::polygon(&points, (width, height));
+                if region.is_empty() {
+                    *self.message.borrow_mut() = Some("自由填充：没有围出区域".to_string());
+                } else {
+                    let (foreground, clip) = {
+                        let state = self.state.borrow();
+                        (state.foreground, state.selection.clone())
+                    };
+                    let mut state = self.state.borrow_mut();
+                    let AppState {
+                        document, history, ..
+                    } = &mut *state;
+                    let mut ctx = ToolContext { document, history };
+                    fill_selection(&mut ctx, &region, clip.as_deref(), foreground);
+                    self.texture_dirty = true;
+                    *self.message.borrow_mut() = Some("自由填充：已填充".to_string());
+                }
+            }
+            ActiveTool::RectangleFill if self.rect_fill.is_filling() => {
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.rect_fill
+                    .on_pointer_up(&mut ctx, left_pointer(position));
+                self.texture_dirty = true;
+                *self.message.borrow_mut() = Some("矩形填充".to_string());
             }
             _ => {}
         }
@@ -1533,7 +1722,8 @@ impl EditorView {
             return;
         };
         let (width, height) = self.document_size();
-        let selection = pixel_selection(anchor, position, width, height);
+        let selection = pixel_selection(anchor, position, width, height)
+            .map(|region| Rc::new(Selection::rect(region, (width, height))));
         self.state.borrow_mut().selection = selection;
     }
 
@@ -1593,6 +1783,21 @@ impl EditorView {
         }
     }
 
+    /// 油漆桶选项栏的「容差 −/+」。
+    fn apply_bucket_adjust(&mut self, adjust: BucketAdjust) {
+        let tolerance = &mut self.paint_bucket.tolerance;
+        match adjust {
+            BucketAdjust::ToleranceDown => {
+                *tolerance = tolerance.saturating_sub(PaintBucketTool::TOLERANCE_STEP);
+            }
+            BucketAdjust::ToleranceUp => {
+                *tolerance = tolerance
+                    .saturating_add(PaintBucketTool::TOLERANCE_STEP)
+                    .min(PaintBucketTool::MAX_TOLERANCE);
+            }
+        }
+    }
+
     /// 工具选项栏：工具名 / 提示 / 笔刷配置，按当前工具显示。
     fn sync_options(&mut self) {
         let tool = self.state.borrow().active_tool;
@@ -1608,11 +1813,21 @@ impl EditorView {
             format!("{:.0}%", self.brush.opacity * 100.0),
         );
         set_text(&mut self.tree, self.options_hint, options_hint(tool));
+        set_text(
+            &mut self.tree,
+            self.options_tolerance,
+            format!("{}", self.paint_bucket.tolerance),
+        );
 
         let show_brush = tool_has_brush(tool);
         if self.tree.is_visible(self.options_brush) != Some(show_brush) {
             self.tree.set_visible(self.options_brush, show_brush);
             igui_ui::mark_dirty(&mut self.tree, self.options_brush);
+        }
+        let show_bucket = tool == ActiveTool::PaintBucket;
+        if self.tree.is_visible(self.options_bucket) != Some(show_bucket) {
+            self.tree.set_visible(self.options_bucket, show_bucket);
+            igui_ui::mark_dirty(&mut self.tree, self.options_bucket);
         }
     }
 
@@ -1820,6 +2035,40 @@ impl EditorView {
         igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
+    /// 油漆桶选项栏按钮 / 开关的节点与中心点（测试 / 自检点击用）。
+    pub fn bucket_button_node(&self, adjust: BucketAdjust) -> Option<NodeId> {
+        self.bucket_buttons
+            .iter()
+            .find(|(candidate, _)| *candidate == adjust)
+            .map(|(_, id)| *id)
+    }
+
+    pub fn bucket_button_center(&self, adjust: BucketAdjust) -> Option<Vec2> {
+        let id = self.bucket_button_node(adjust)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    pub fn bucket_toggle_node(&self, toggle: BucketToggle) -> Option<NodeId> {
+        self.bucket_toggles
+            .iter()
+            .find(|(candidate, _)| *candidate == toggle)
+            .map(|(_, id)| *id)
+    }
+
+    pub fn bucket_toggle_center(&self, toggle: BucketToggle) -> Option<Vec2> {
+        let id = self.bucket_toggle_node(toggle)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 油漆桶当前容差 / 是否连续（测试 / 自检）。
+    pub fn bucket_tolerance(&self) -> u8 {
+        self.paint_bucket.tolerance
+    }
+
+    pub fn bucket_contiguous(&self) -> bool {
+        self.paint_bucket.contiguous
+    }
+
     /// 右栏当前宽度（逻辑像素）。
     pub fn sidebar_width(&self) -> f32 {
         self.sidebar_width.get()
@@ -1905,8 +2154,8 @@ impl EditorView {
     }
 
     /// 当前选区（框选后测试 / 自检用）。
-    pub fn selection(&self) -> Option<crate::document::PixelRegion> {
-        self.state.borrow().selection
+    pub fn selection(&self) -> Option<Rc<Selection>> {
+        self.state.borrow().selection.clone()
     }
 
     /// 当前图层的像素偏移（移动工具的效果，测试 / 自检用）。
@@ -1942,13 +2191,17 @@ fn left_pointer(position: Vec2) -> PointerEvent {
     }
 }
 
-/// 工具快捷键：`V` 移动、`B` 画笔、`E` 橡皮、`M` 框选、`I` 吸管。
+/// 工具快捷键：`V` 移动、`B` 画笔、`E` 橡皮、`M` 框选、`L` 套索、`I` 吸管。
 fn shortcut_tool(key: Key) -> Option<ActiveTool> {
     match key {
         Key::Character('v') | Key::Character('V') => Some(ActiveTool::Move),
         Key::Character('b') | Key::Character('B') => Some(ActiveTool::Brush),
         Key::Character('e') | Key::Character('E') => Some(ActiveTool::Eraser),
         Key::Character('m') | Key::Character('M') => Some(ActiveTool::RectangleSelect),
+        Key::Character('l') | Key::Character('L') => Some(ActiveTool::LassoSelect),
+        Key::Character('g') | Key::Character('G') => Some(ActiveTool::PaintBucket),
+        Key::Character('r') | Key::Character('R') => Some(ActiveTool::RectangleFill),
+        Key::Character('u') | Key::Character('U') => Some(ActiveTool::FreeFill),
         Key::Character('i') | Key::Character('I') => Some(ActiveTool::Eyedropper),
         _ => None,
     }
@@ -3248,5 +3501,172 @@ mod tests {
         };
         assert!(has_line(igui_core::Color::BLACK), "选区边框应有黑段");
         assert!(has_line(igui_core::Color::WHITE), "选区边框应有白段");
+    }
+
+    /// 套索：沿自由折线围出的区域被选中，区域外不选。
+    #[test]
+    fn a_lasso_selects_only_the_enclosed_region() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        let camera = view.canvas_camera();
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('l'),
+        });
+        view.update();
+
+        let path = [
+            Vec2::new(20.0, 20.0),
+            Vec2::new(60.0, 20.0),
+            Vec2::new(60.0, 60.0),
+            Vec2::new(20.0, 60.0),
+            Vec2::new(20.0, 20.0),
+        ];
+        let screen = |point: Vec2| camera.document_to_screen(point);
+        view.event(&InputEvent::PointerDown {
+            position: screen(path[0]),
+            button: PointerButton::Left,
+        });
+        for point in &path[1..] {
+            view.event(&InputEvent::PointerMove {
+                position: screen(*point),
+            });
+        }
+        view.event(&InputEvent::PointerUp {
+            position: screen(path[4]),
+            button: PointerButton::Left,
+        });
+
+        let selection = view.selection().expect("套索应产生选区");
+        assert!(selection.contains(40, 40), "围出的区域应被选中");
+        assert!(!selection.contains(80, 80), "区域外不该选中");
+    }
+
+    /// 套索拖动中会实时画折线预览（黑白马赛克线段）。
+    #[test]
+    fn the_lasso_preview_is_drawn_while_dragging() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        let camera = view.canvas_camera();
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('l'),
+        });
+        view.update();
+
+        let screen = |point: Vec2| camera.document_to_screen(point);
+        view.event(&InputEvent::PointerDown {
+            position: screen(Vec2::new(20.0, 20.0)),
+            button: PointerButton::Left,
+        });
+        view.event(&InputEvent::PointerMove {
+            position: screen(Vec2::new(60.0, 20.0)),
+        });
+        view.event(&InputEvent::PointerMove {
+            position: screen(Vec2::new(60.0, 60.0)),
+        });
+
+        let commands = paint_commands(&view);
+        let has_line = |color: igui_core::Color| {
+            commands.iter().any(|command| {
+                matches!(command, DrawCommand::Line { paint, .. } if paint.color == color)
+            })
+        };
+        assert!(has_line(igui_core::Color::BLACK), "套索预览应有黑段");
+        assert!(has_line(igui_core::Color::WHITE), "套索预览应有白段");
+    }
+
+    /// 矩形填充：拖出的矩形被前景色填充，且能撤销。
+    #[test]
+    fn a_rectangle_fill_drag_fills_the_rect() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        let camera = view.canvas_camera();
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('r'),
+        });
+        view.update();
+
+        let from = camera.document_to_screen(Vec2::new(20.0, 20.0));
+        let to = camera.document_to_screen(Vec2::new(60.0, 60.0));
+        view.event(&InputEvent::PointerDown {
+            position: from,
+            button: PointerButton::Left,
+        });
+        view.event(&InputEvent::PointerMove { position: to });
+        view.event(&InputEvent::PointerUp {
+            position: to,
+            button: PointerButton::Left,
+        });
+        view.update();
+        view.mark_texture_dirty();
+        let frame = view.take_texture_upload().expect("填充后应重合成");
+        assert_eq!(frame.get_pixel(40, 40), Color::BLACK, "矩形内被填充");
+        assert_eq!(frame.get_pixel(10, 10), Color::WHITE, "矩形外不变");
+        assert!(view.can_undo(), "填充应入历史");
+    }
+
+    /// 矩形填充拖动中会画矩形预览。
+    #[test]
+    fn the_rectangle_fill_preview_is_drawn_while_dragging() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        let camera = view.canvas_camera();
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('r'),
+        });
+        view.update();
+        view.event(&InputEvent::PointerDown {
+            position: camera.document_to_screen(Vec2::new(20.0, 20.0)),
+            button: PointerButton::Left,
+        });
+        view.event(&InputEvent::PointerMove {
+            position: camera.document_to_screen(Vec2::new(60.0, 60.0)),
+        });
+
+        let commands = paint_commands(&view);
+        assert!(
+            commands
+                .iter()
+                .any(|command| matches!(command, DrawCommand::Line { .. })),
+            "拖动中应有矩形预览"
+        );
+    }
+
+    /// 自由填充：拖出的自由形状内部被前景色填充。
+    #[test]
+    fn a_free_fill_traces_and_fills_the_enclosed_area() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        let camera = view.canvas_camera();
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('u'),
+        });
+        view.update();
+
+        let path = [
+            Vec2::new(20.0, 20.0),
+            Vec2::new(60.0, 20.0),
+            Vec2::new(60.0, 60.0),
+            Vec2::new(20.0, 60.0),
+            Vec2::new(20.0, 20.0),
+        ];
+        let screen = |point: Vec2| camera.document_to_screen(point);
+        view.event(&InputEvent::PointerDown {
+            position: screen(path[0]),
+            button: PointerButton::Left,
+        });
+        for point in &path[1..] {
+            view.event(&InputEvent::PointerMove {
+                position: screen(*point),
+            });
+        }
+        view.event(&InputEvent::PointerUp {
+            position: screen(path[4]),
+            button: PointerButton::Left,
+        });
+        view.update();
+        view.mark_texture_dirty();
+        let frame = view.take_texture_upload().expect("填充后应重合成");
+        assert_eq!(frame.get_pixel(40, 40), Color::BLACK, "自由形状内部被填");
+        assert_eq!(frame.get_pixel(80, 80), Color::WHITE, "形状外不变");
     }
 }

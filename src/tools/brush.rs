@@ -7,10 +7,13 @@
 //!
 //! [`PixelRegion::diff`]: crate::document::PixelRegion::diff
 
+use std::rc::Rc;
+
 use igui_core::Vec2;
 
 use super::tool::{PointerEvent, Tool, ToolContext};
-use crate::document::{Color, Document, LayerId, PaintCommand, PixelBuffer, PixelRegion, Point};
+use crate::canvas::Selection;
+use crate::document::{Color, Document, LayerId, PaintCommand, PixelBuffer, Point};
 
 /// 画笔模式。擦除复用同一套 stamp / 插值逻辑。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,9 +46,9 @@ pub struct BrushTool {
     pub opacity: f32,
     pub color: Color,
     pub mode: BrushMode,
-    /// 可选选区：只有落在里面的像素会被写（Phase 8 的框选裁剪）。
-    /// 视图在落笔前从编辑器状态同步过来。
-    pub clip: Option<PixelRegion>,
+    /// 可选选区：只有落在里面的像素会被写（Phase 8 / 12 的选区裁剪）。
+    /// 视图在落笔前从编辑器状态同步过来；`Rc` 共享，克隆便宜。
+    pub clip: Option<Rc<Selection>>,
     /// 像素模式：边缘不做抗锯齿（`coverage` 只有 0 / 1）。
     pub hard: bool,
     /// 笔刷形状。
@@ -158,7 +161,7 @@ impl BrushTool {
 
     /// 往文档坐标 `(doc_x, doc_y)` 对应的图层像素压一个实心点（硬边 1px 线用）。
     fn stamp_doc_pixel(&self, buffer: &mut PixelBuffer, offset: Point, doc_x: i64, doc_y: i64) {
-        if let Some(clip) = self.clip {
+        if let Some(clip) = self.clip.as_ref() {
             if doc_x < 0 || doc_y < 0 || !clip.contains(doc_x as u32, doc_y as u32) {
                 return;
             }
@@ -198,7 +201,7 @@ impl BrushTool {
         for y in min_y..=max_y {
             for x in min_x..=max_x {
                 // 选区 / 距离都在文档坐标里算。
-                if let Some(clip) = self.clip {
+                if let Some(clip) = self.clip.as_ref() {
                     if x < 0 || y < 0 || !clip.contains(x as u32, y as u32) {
                         continue;
                     }
@@ -316,7 +319,7 @@ impl Tool for BrushTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::History;
+    use crate::document::{History, PixelRegion};
 
     fn document() -> Document {
         Document::new("d", 32, 32)
@@ -557,8 +560,12 @@ mod tests {
     #[test]
     fn a_clip_region_confines_the_stroke() {
         let mut document = document();
+        let size = (document.width, document.height);
         let mut brush = BrushTool::paint().with_color(Color::RED);
-        brush.clip = Some(PixelRegion::new(14, 14, 4, 4));
+        brush.clip = Some(Rc::new(Selection::rect(
+            PixelRegion::new(14, 14, 4, 4),
+            size,
+        )));
         brush.stroke_to(&mut document, Vec2::new(16.0, 16.0));
         assert_eq!(at(&document, 16, 16), Color::RED, "选区内落笔");
         assert_eq!(at(&document, 20, 16), Color::WHITE, "选区外不落笔");

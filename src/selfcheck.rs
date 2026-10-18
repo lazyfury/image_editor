@@ -145,6 +145,62 @@ fn check_pixel_mode_edges(failures: &mut Vec<String>) {
     }
 }
 
+/// 油漆桶：`G` 切换；选项栏容差 / 连续可用；点画布把连通区域填成前景色，且能撤销。
+fn check_bucket(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('g'),
+    });
+    view.update();
+    view.layout(viewport());
+    if view.active_tool() != ActiveTool::PaintBucket {
+        failures.push("G 没有切到油漆桶".to_string());
+    }
+
+    let before = view.bucket_tolerance();
+    match view.bucket_button_center(crate::ui::BucketAdjust::ToleranceUp) {
+        Some(center) => {
+            click_at(&mut view, center);
+            view.update();
+        }
+        None => failures.push("找不到油漆桶「容差 +」按钮".to_string()),
+    }
+    if view.bucket_tolerance() <= before {
+        failures.push("油漆桶容差 + 没生效".to_string());
+    }
+
+    let before = view.bucket_contiguous();
+    match view.bucket_toggle_center(crate::ui::BucketToggle::Contiguous) {
+        Some(center) => {
+            click_at(&mut view, center);
+            view.update();
+        }
+        None => failures.push("找不到油漆桶「连续」开关".to_string()),
+    }
+    if view.bucket_contiguous() == before {
+        failures.push("油漆桶连续开关没翻转".to_string());
+    }
+
+    let point = view
+        .canvas_camera()
+        .document_to_screen(Vec2::new(10.0, 10.0));
+    click_at(&mut view, point);
+    view.update();
+    view.mark_texture_dirty();
+    let frame = view.take_texture_upload().expect("填充后应重合成");
+    if frame.get_pixel(10, 10) != Color::BLACK {
+        failures.push("油漆桶没有把画布填成前景色".to_string());
+    }
+    view.undo();
+    view.update();
+    view.mark_texture_dirty();
+    let undone = view.take_texture_upload().expect("撤销后应重合成");
+    if undone.get_pixel(10, 10) != Color::WHITE {
+        failures.push("油漆桶撤销没有还原".to_string());
+    }
+}
+
 fn gray_pixels(pixels: &PixelBuffer, cx: u32, cy: u32, radius: u32) -> usize {
     let mut count = 0;
     let y_end = (cy + radius).min(pixels.height.saturating_sub(1));
@@ -446,6 +502,7 @@ pub fn check() -> (usize, String) {
         }
     }
     check_pixel_mode_edges(&mut failures);
+    check_bucket(&mut failures);
 
     // 调色盘：色块齐全，点一个预设色块应把前景色改掉。
     if view.palette_swatch_count() < 16 {

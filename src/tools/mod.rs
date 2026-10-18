@@ -6,9 +6,13 @@
 //! [`crate::renderer::sample_pixel`] 完成。
 
 mod brush;
+mod fill;
 mod move_tool;
+mod shape_fill;
 mod tool;
 
 pub use brush::{BrushMode, BrushShape, BrushTool};
+pub use fill::{fill_selection, PaintBucketTool};
 pub use move_tool::MoveTool;
+pub use shape_fill::RectangleFillTool;
 pub use tool::{PointerEvent, Tool, ToolContext};

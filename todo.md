@@ -72,6 +72,42 @@
   `Overlays` 支持**原始矩形 / 指针位置**锚点；`igui_ui` 增加右键回调
   （`PointerButton::Right` 已存在，但 `handle_input` 目前只处理左键）。
 
+### 选区与填充（Phase 12–16，已完成）
+
+前置：现在的选区是 `AppState.selection: Option<PixelRegion>`（只能是矩形），
+自由选区 / 按选区填充都需要**任意形状**的选区。
+
+- [x] **Phase 12 — 选区模型（任意区域）**：新增 `src/canvas/selection.rs` 的
+  `Selection`：`width/height` + `Vec<bool>` 像素掩码 + `outline: Vec<Vec2>`
+  （文档坐标，描边用）；构造 `Selection::rect(PixelRegion, size)` /
+  `Selection::polygon(points, size)`（扫描线光栅化，偶奇规则）；查询
+  `contains` / `bounds` / `outline` / `is_empty`。`AppState.selection` 改成
+  `Option<Rc<Selection>>`，画笔的 `clip` 也改成 `Option<Rc<Selection>>`
+  （共享，克隆便宜）。`ui/selection.rs` 的描边改成吃 `outline`（矩形 = 4 点，
+  套索 = 折线），边框跟着路径走。验收：矩形 `contains` 与
+  `PixelRegion::contains` 一致；三角 / 凹多边形掩码包含正确像素；矩形 outline
+  是 4 点；现有框选 / 画笔裁剪 / Esc 全部回归。
+- [x] **Phase 13 — 自由选区（套索）**：`ActiveTool::LassoSelect`，快捷键 `L`，
+  图标 `lasso-select`。`EditorView` 拖动时收集文档坐标折线，抬笔
+  `Selection::polygon`；拖动中实时画折线（复用 marching ants）。验收：套索三角
+  内部被选中、外部不选；画笔只在套索内落笔；Esc 清空；描边跟着折线。
+- [x] **Phase 14 — 填充引擎 + 油漆桶**：`src/tools/fill.rs` 的
+  `flood_fill(buffer, seed, tolerance, clip) -> Option<PixelRegion>`（连续扫描线；
+  可选全局填充）。`PaintBucketTool`：颜色 = 前景色、容差、连续 / 全局。落笔前
+  快照整层、抬笔 `PixelRegion::diff` → 一条 undo。选项栏加「容差 −/+」「连续」
+  开关；工具栏 `ActiveTool::PaintBucket`，快捷键 `G`，图标 `paint-bucket`。
+  验收：在封闭区域里填满、不越过边界；容差影响匹配范围；有选区时只填选区内；
+  连续 / 全局行为不同；一次填充 = 一步 undo。
+- [x] **Phase 15 — 矩形填充**：`src/tools/shape_fill.rs` 拖动矩形，抬笔用前景色
+  填充（按选区裁剪）；拖动中画预览（虚线框 + 半透明填充）。工具栏
+  `ActiveTool::RectangleFill`，快捷键 `R`，图标 `square`。验收：拖出的矩形正好
+  被填、选区外不填、预览在拖动中出现、一步 undo。
+- [x] **Phase 16 — 自由填充**（待确认语义）：自由套索填充 —— 拖动自由折线，
+  抬笔把它围成的区域立刻用前景色填充（不留下持久选区）。验收：凹多边形围成的
+  区域被填、一步 undo。
+- [ ] **图标**：往 `assets/icons/` 补 `lasso-select` / `paint-bucket` / `square`
+  （Lucide ISC），否则新工具没有图标（按钮仍在，只是空图标）。
+
 ## Done（近期）
 
 - **画布内容裁剪 + 去重复绘制**：v0.3.0 单树模型下 `igui_ui::paint` 会再画一遍世界

@@ -39,6 +39,10 @@ impl PixelRegion {
     }
 
     /// 像素是否落在区域内（框选裁剪切像素用）。
+    ///
+    /// 运行时裁剪现在走 [`Selection::contains`](crate::canvas::Selection::contains)
+    /// （支持任意形状），这里保留为矩形几何谓词 / 单测用。
+    #[allow(dead_code)]
     pub const fn contains(self, x: u32, y: u32) -> bool {
         x >= self.x && y >= self.y && x < self.right() && y < self.bottom()
     }

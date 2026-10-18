@@ -5,10 +5,10 @@
 //! 多文档（`documents: Vec<Document>` + `active_document`，见 §23）留到需要
 //! 打开多个文件的阶段；现在一个 `document` 就够表达"创建文档"。
 
-use crate::canvas::CanvasCamera;
-use crate::document::{
-    Color, Command, Document, History, PixelRegion, DEFAULT_HEIGHT, DEFAULT_WIDTH,
-};
+use std::rc::Rc;
+
+use crate::canvas::{CanvasCamera, Selection};
+use crate::document::{Color, Command, Document, History, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 
 /// 当前激活的工具，与 `AGENTS.md` 的 MVP 列表一致。
 ///
@@ -20,16 +20,24 @@ pub enum ActiveTool {
     Brush,
     Eraser,
     RectangleSelect,
+    LassoSelect,
+    PaintBucket,
+    RectangleFill,
+    FreeFill,
     Eyedropper,
 }
 
 impl ActiveTool {
     /// 工具栏从上到下的顺序。
-    pub const ALL: [ActiveTool; 5] = [
+    pub const ALL: [ActiveTool; 9] = [
         ActiveTool::Move,
         ActiveTool::Brush,
         ActiveTool::Eraser,
         ActiveTool::RectangleSelect,
+        ActiveTool::LassoSelect,
+        ActiveTool::PaintBucket,
+        ActiveTool::RectangleFill,
+        ActiveTool::FreeFill,
         ActiveTool::Eyedropper,
     ];
 
@@ -40,6 +48,10 @@ impl ActiveTool {
             Self::Brush => "画笔",
             Self::Eraser => "橡皮",
             Self::RectangleSelect => "框选",
+            Self::LassoSelect => "套索",
+            Self::PaintBucket => "油漆桶",
+            Self::RectangleFill => "矩形填充",
+            Self::FreeFill => "自由填充",
             Self::Eyedropper => "吸管",
         }
     }
@@ -51,6 +63,10 @@ impl ActiveTool {
             Self::Brush => "brush",
             Self::Eraser => "eraser",
             Self::RectangleSelect => "square-dashed",
+            Self::LassoSelect => "lasso-select",
+            Self::PaintBucket => "paint-bucket",
+            Self::RectangleFill => "square",
+            Self::FreeFill => "paintbrush",
             Self::Eyedropper => "pipette",
         }
     }
@@ -62,6 +78,10 @@ impl ActiveTool {
             Self::Brush => "画笔工具",
             Self::Eraser => "橡皮擦",
             Self::RectangleSelect => "矩形选择",
+            Self::LassoSelect => "自由选区",
+            Self::PaintBucket => "油漆桶",
+            Self::RectangleFill => "矩形填充",
+            Self::FreeFill => "自由填充",
             Self::Eyedropper => "吸管",
         }
     }
@@ -108,8 +128,9 @@ pub struct AppState {
     pub foreground: Color,
     /// 背景色（吸管/填充以后用）。
     pub background: Color,
-    /// 当前矩形选区（Phase 8）。`None` = 无选区；画笔会裁剪到选区里。
-    pub selection: Option<PixelRegion>,
+    /// 当前选区（Phase 8 / 12）。`None` = 无选区；画笔 / 填充会裁剪到选区里。
+    /// 用 `Rc` 共享，工具克隆一份很便宜。
+    pub selection: Option<Rc<Selection>>,
 }
 
 impl AppState {
@@ -183,7 +204,8 @@ mod tests {
         assert_eq!(state.active_tool, ActiveTool::Brush);
         assert_eq!(state.active_tool.label(), "画笔工具");
         assert_eq!(state.active_tool.short_label(), "画笔");
-        assert_eq!(ActiveTool::ALL.len(), 5);
+        assert_eq!(ActiveTool::ALL.first(), Some(&ActiveTool::Move));
+        assert_eq!(ActiveTool::ALL.last(), Some(&ActiveTool::Eyedropper));
     }
 
     #[test]

@@ -133,6 +133,14 @@ cargo run -- --pixel-font
   无边框 / 圆角），右栏的文件 / 图层 / 属性 / 历史和它用同一套，侧栏看起来是
   一组卡片。
 
+- [x] **Phase 12–16 — 选区与填充**：选区从「只能是矩形」升级成任意形状
+  （`canvas::Selection`：与文档同尺寸的像素掩码 + 描边轮廓），因此有了**自由
+  选区（套索）**（`L`：拖动折线，松手成选区，拖动中实时画 marching ants）；
+  填充工具共用 `tools::fill`：**油漆桶**（`G`：洪水填充，选项栏容差 `−/+`、
+  「连续」开关）、**矩形填充**（`R`：拖矩形，松手用前景色填充 + 拖动预览）、
+  **自由填充**（`U`：拖自由形状，松手填充内部）。都按当前选区裁剪，一次填充
+  = 一条 undo（快照 + `PixelRegion::diff`）。
+
 ### 计划（Phase 10+）
 
 本示例的待办已经整理到同目录的 [`todo.md`](todo.md)（含像素模式主线、
@@ -201,7 +209,8 @@ src/
 ├── canvas/              # Phase 3：画布相机与坐标转换
 │   ├── mod.rs           # DOCUMENT_TEXTURE 约定
 │   ├── camera.rs        # CanvasCamera（zoom / offset / fit）
-│   └── coordinate.rs    # screen -> document -> pixel + pixel_selection（框选）
+│   ├── coordinate.rs    # screen -> document -> pixel + pixel_selection（框选）
+│   └── selection.rs     # Selection：像素掩码 + 描边轮廓（任意形状）
 ├── renderer/            # Phase 3：合成器
 │   ├── mod.rs           # Renderer trait
 │   ├── target.rs        # RenderTarget
@@ -214,6 +223,8 @@ src/
 │   ├── mod.rs
 │   ├── tool.rs          # Tool trait + PointerEvent + ToolContext（含 History）
 │   ├── brush.rs         # BrushTool + BrushMode（画笔 / 橡皮，抬笔提交一笔）
+│   ├── fill.rs          # 洪水填充 flood_fill + PaintBucketTool + fill_selection
+│   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）
 ├── ui/
 │   ├── mod.rs           # EditorView：页面 + 裁剪画布绘制 + undo/redo
@@ -267,17 +278,23 @@ Esc 取消）。列表第 0 行是最上面的图层。
 没有原生文件对话框（winit 不带），所以用路径文本输入。路径打不开 / 不是 PNG
 只在状态栏报错，不会崩。
 
-## 工具（Phase 8）
+## 工具（Phase 8 / 12–16）
 
 | 工具 | 键 | 操作 |
 |---|---|---|
 | 移动 | `V` | 在画布上拖动 → 当前图层按指针位移改 `position`（不进撤销栈） |
-| 框选 | `M` | 拖动出矩形选区；画笔只在选区内落笔；选中有描边；`Esc` 清空 |
+| 框选 | `M` | 拖动出矩形选区；画笔 / 填充只在选区内生效；选中有描边；`Esc` 清空 |
+| 套索 | `L` | 按住拖出自由折线，松手成任意形状选区；`Esc` 清空 |
+| 油漆桶 | `G` | 点画布洪水填充连通区域；选项栏调容差 / 「连续」 |
+| 矩形填充 | `R` | 拖出矩形，松手用前景色填充；拖动中有预览 |
+| 自由填充 | `U` | 按住拖出自由形状，松手填充内部 |
 | 吸管 | `I` | 点画布 → 取**合成后**的颜色作为前景色（画笔颜色） |
 
-选区是编辑器状态（`AppState.selection`），不是文档数据；两个角点由
-`canvas::pixel_selection` 归一化并裁剪到画布内。移动只改 `Layer.position`，
-合成器会把偏移算进摆放；和图层增删 / 排序一样**不**占用撤销步数。
+选区是编辑器状态（`AppState.selection: Option<Rc<canvas::Selection>>`），不是
+文档数据；`Selection` 是「与文档同尺寸的像素掩码 + 描边轮廓」，所以矩形框选和
+自由套索是同一个类型，画笔 / 填充都直接查掩码（`contains` O(1)）。移动只改
+`Layer.position`，合成器会把偏移算进摆放；和图层增删 / 排序一样**不**占用撤销
+步数。
 
 ## 验证（无截图）
 

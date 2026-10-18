@@ -55,6 +55,28 @@ impl BrushToggle {
     }
 }
 
+/// 选项栏里的一次油漆桶调整。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BucketAdjust {
+    ToleranceDown,
+    ToleranceUp,
+}
+
+/// 油漆桶的布尔开关。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BucketToggle {
+    /// 连续：只填连通的同色区域（否则填全图所有匹配像素）。
+    Contiguous,
+}
+
+impl BucketToggle {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Contiguous => "连续",
+        }
+    }
+}
+
 /// 选项栏里需要回写的文本 / 容器槽位。
 #[derive(Default)]
 pub struct OptionsRefs {
@@ -62,19 +84,26 @@ pub struct OptionsRefs {
     pub brush: NodeRef,
     pub size: NodeRef,
     pub opacity: NodeRef,
+    pub bucket: NodeRef,
+    pub tolerance: NodeRef,
     pub hint: NodeRef,
 }
 
 /// 工具选项栏。`request` 收下 `−` / `+` 的调整请求；`buttons` 收集按钮节点，
 /// 测试与自检靠它们真的点一下。
+#[allow(clippy::too_many_arguments)]
 pub fn options_bar(
     theme: &'static dyn Theme,
     request: Rc<Cell<Option<BrushAdjust>>>,
     hard_state: Rc<Cell<bool>>,
     square_state: Rc<Cell<bool>>,
+    bucket_request: Rc<Cell<Option<BucketAdjust>>>,
+    contiguous_state: Rc<Cell<bool>>,
     refs: &OptionsRefs,
     buttons: &mut Vec<(BrushAdjust, NodeRef)>,
     toggles: &mut Vec<(BrushToggle, NodeRef)>,
+    bucket_buttons: &mut Vec<(BucketAdjust, NodeRef)>,
+    bucket_toggles: &mut Vec<(BucketToggle, NodeRef)>,
 ) -> impl Component {
     let brush = Flex::row()
         .align(Align::Center)
@@ -121,6 +150,34 @@ pub fn options_bar(
             toggles,
         ));
 
+    let bucket = Flex::row()
+        .align(Align::Center)
+        .gap(space::XS)
+        .padding(Edges::ZERO)
+        .mouse_filter(MouseFilter::Ignore)
+        .child(Text::caption("容差", theme).tone(Tone::Muted))
+        .child(bucket_step_button(
+            theme,
+            "−",
+            bucket_request.clone(),
+            BucketAdjust::ToleranceDown,
+            bucket_buttons,
+        ))
+        .child(Text::small("", theme).ref_(&refs.tolerance))
+        .child(bucket_step_button(
+            theme,
+            "+",
+            bucket_request,
+            BucketAdjust::ToleranceUp,
+            bucket_buttons,
+        ))
+        .child(bucket_toggle_button(
+            theme,
+            BucketToggle::Contiguous,
+            contiguous_state,
+            bucket_toggles,
+        ));
+
     Flex::row()
         .align(Align::Center)
         .gap(space::MD)
@@ -129,6 +186,7 @@ pub fn options_bar(
         .mouse_filter(MouseFilter::Ignore)
         .child(Text::small("", theme).ref_(&refs.tool))
         .child(brush.ref_(&refs.brush))
+        .child(bucket.ref_(&refs.bucket))
         .child(Text::caption("", theme).tone(Tone::Muted).ref_(&refs.hint))
 }
 
@@ -137,6 +195,10 @@ pub const fn options_hint(tool: ActiveTool) -> &'static str {
     match tool {
         ActiveTool::Move => "在画布上拖动移动当前图层",
         ActiveTool::RectangleSelect => "拖动框选 · Esc 清空",
+        ActiveTool::LassoSelect => "按住拖动套索 · 松手成选区 · Esc 清空",
+        ActiveTool::PaintBucket => "点击填充连通区域 · 容差可选",
+        ActiveTool::RectangleFill => "拖动矩形 · 松手用前景色填充",
+        ActiveTool::FreeFill => "按住拖出自由形状 · 松手填充内部",
         ActiveTool::Eyedropper => "点击画布取合成后的颜色",
         ActiveTool::Brush | ActiveTool::Eraser => "",
     }
@@ -173,16 +235,52 @@ fn toggle_button(
     let click_state = state.clone();
     Button::ghost(toggle.label(), theme)
         .on_click(move |_tree, _id| click_state.set(!click_state.get()))
-        .dynamic_background(move |interact| {
-            if state.get() {
-                SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
-            } else if interact.hovered || interact.pressed {
-                SurfaceStyle::new(theme.palette().surface_hover).radius(radius::SM)
-            } else {
-                SurfaceStyle::new(Color::TRANSPARENT)
-            }
-        })
+        .dynamic_background(move |interact| active_background(theme, state.get(), interact))
         .ref_(&slot)
+}
+
+fn bucket_step_button(
+    theme: &'static dyn Theme,
+    label: &str,
+    request: Rc<Cell<Option<BucketAdjust>>>,
+    adjust: BucketAdjust,
+    buttons: &mut Vec<(BucketAdjust, NodeRef)>,
+) -> impl Component {
+    let slot = NodeRef::new();
+    buttons.push((adjust, slot.clone()));
+    Button::ghost(label, theme)
+        .on_click(move |_tree, _id| request.set(Some(adjust)))
+        .ref_(&slot)
+}
+
+fn bucket_toggle_button(
+    theme: &'static dyn Theme,
+    toggle: BucketToggle,
+    state: Rc<Cell<bool>>,
+    toggles: &mut Vec<(BucketToggle, NodeRef)>,
+) -> impl Component {
+    let slot = NodeRef::new();
+    toggles.push((toggle, slot.clone()));
+    let click_state = state.clone();
+    Button::ghost(toggle.label(), theme)
+        .on_click(move |_tree, _id| click_state.set(!click_state.get()))
+        .dynamic_background(move |interact| active_background(theme, state.get(), interact))
+        .ref_(&slot)
+}
+
+/// 激活态底色 / 悬停态底色 / 透明。
+fn active_background(
+    theme: &'static dyn Theme,
+    active: bool,
+    interact: igui_ui::InteractState,
+) -> SurfaceStyle {
+    if active {
+        SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
+    } else if interact.hovered || interact.pressed {
+        SurfaceStyle::new(theme.palette().surface_hover).radius(radius::SM)
+    } else {
+        SurfaceStyle::new(Color::TRANSPARENT)
+    }
 }
 
 #[cfg(test)]
