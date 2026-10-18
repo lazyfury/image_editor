@@ -1,6 +1,6 @@
 //! 画布相机：文档像素 -> 屏幕逻辑坐标。
 
-use igui_core::{Rect, Size, Transform2D, Vec2};
+use igui_core::{Rect, Size, Vec2};
 
 /// 相机的放大上限 / 下限。太小的缩放会让图像退化成一个点，太大则失去意义。
 pub const MIN_ZOOM: f32 = 0.05;
@@ -41,14 +41,8 @@ impl CanvasCamera {
         }
     }
 
-    /// 画布变换（文档局部坐标 -> 屏幕坐标），就是这个 `Node2D` 的世界变换。
-    pub fn transform(self) -> Transform2D {
-        Transform2D::from_scale_rotation_origin(Vec2::splat(self.zoom), 0.0, self.offset)
-    }
-
-    /// 文档坐标 -> 屏幕坐标。渲染走 [`CanvasCamera::transform`]，这里是对外
-    /// 的坐标 API（命中测试 / 工具会用到）。
-    #[allow(dead_code)]
+    /// 文档坐标 -> 屏幕坐标。渲染与命中测试都走它，
+    /// **文档像素坐标 -> 屏幕逻辑坐标** 只有一个定义。
     pub fn document_to_screen(self, document: Vec2) -> Vec2 {
         self.offset + document * self.zoom
     }
@@ -106,7 +100,6 @@ mod tests {
     #[test]
     fn default_is_identity() {
         let camera = CanvasCamera::default();
-        assert_eq!(camera.transform(), Transform2D::IDENTITY);
         assert_eq!(
             camera.document_to_screen(Vec2::new(7.0, 9.0)),
             Vec2::new(7.0, 9.0)
@@ -120,16 +113,6 @@ mod tests {
         let screen = camera.document_to_screen(document);
         assert_eq!(screen, Vec2::new(40.0, 52.0));
         assert_eq!(camera.screen_to_document(screen), document);
-    }
-
-    #[test]
-    fn the_transform_matches_the_math() {
-        let camera = CanvasCamera::new(1.5, Vec2::new(10.0, -5.0));
-        let point = Vec2::new(20.0, 30.0);
-        assert_eq!(
-            camera.transform().transform_point(point),
-            camera.document_to_screen(point)
-        );
     }
 
     #[test]

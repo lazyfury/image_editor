@@ -184,7 +184,7 @@ impl ImageEditorLogic {
         }
 
         // 文档纹理放大时用最近邻：硬边像素而不是模糊插值。首帧之前上传，
-        // 否则视图画的 `Visual::Image(DOCUMENT_TEXTURE)` 会先退回白色兜底。
+        // 否则视图画的文档图像会先退回白色兜底。
         if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
             backend
                 .borrow_mut()

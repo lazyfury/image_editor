@@ -8,7 +8,7 @@
 
 最近落地：单窗口 + `igui_app` 运行时（`src/app/application.rs` 用
 `WinitPlugin`/`WgpuPlugin`/输入插件组装，业务逻辑是一个 `AppLogic`）；「新建
-项目」现在是主窗口内的**模拟桌面浮动窗口**（`ui/window.rs` 的 `Window` +
+项目」现在是主窗口内的**模拟桌面浮动窗口**（`ui/window/` 的 `Window` +
 `ui/new_document.rs` 的 `NewDocumentModal`：标题栏拖动移动、四条边 / 角拖动
 缩放、关闭按钮 / 遮罩，Esc / 点外取消，输入全吞掉），不再开第二个原生窗口；
 侧栏「文件 / 历史 / 属性」标签页；透明棋盘格背景；默认 128×128 像素画布 +
@@ -74,7 +74,17 @@
 
 ## Done（近期）
 
-- **「新建文档」改成模拟桌面的浮动窗口**（`src/ui/window.rs` 的 `Window`）：
+- **画布内容裁剪 + 去重复绘制**：v0.3.0 单树模型下 `igui_ui::paint` 会再画一遍世界
+  canvas item，文档原来挂成场景 `Node2D`，第二遍落在所有 UI 之上。改成
+  `EditorView::paint` 先 `clip_rect(canvas_area)`，手动按相机画文档图像 + 像素
+  网格 + 选区，再 `igui_ui::paint` 画 UI；删掉 `document_node`/
+  `sync_document_node`/`CanvasCamera::transform`。测试断言文档图像只画一次、
+  紧跟在画布区域裁剪之后。
+- **选区描边改成「马赛克线段」**（`ui/selection.rs`）：之前用半透明的
+  `palette.selection` 画 1px 线，浅色画布上几乎看不见；改成沿选区四条边铺
+  黑白相间的等长线段（5px 段 / 2px 宽），亮底 / 暗底都看得清。测试断言黑白段
+  都存在、线段总长等于周长。
+- **「新建文档」改成模拟桌面的浮动窗口**（`src/ui/window/` 的 `Window`）：
   自带 `SceneTree`，标题栏拖动移动、四条边 / 角拖动缩放（`RESIZE_BORDER` 命中带，
   钳到 `min_size` 与视口），右上关闭按钮悬停变红，遮罩 + Esc / 点窗口外取消，
   模态吞掉全部输入；`NewDocumentModal` 把尺寸 / 背景控件与「取消 / 创建」行

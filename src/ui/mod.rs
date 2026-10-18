@@ -1,13 +1,14 @@
 //! 编辑器视图：菜单栏 + 工具栏 + 画布 + 图层/属性栏 + 状态栏。
 //!
-//! 视图是一棵 `SceneTree`：**画布是树里的一个 `Node2D`**（`Visual::Image`），
-//! 相机变换就挂在它的 `Transform2D` 上，由 `igui_scene` 负责画；UI 仍由
-//! `igui_components` 搭、`igui_ui` 排。宿主（[`crate::app::application`]）
-//! 拥有窗口、wgpu 后端和纹理上传。
+//! 视图是一棵 `SceneTree`：UI 由 `igui_components` 搭、`igui_ui` 排 / 画；
+//! 画布（文档图像 + 像素网格 + 选区）由 [`EditorView::paint`] 在画布区域的裁剪
+//! 矩形里手动绘制。单树模型下 `igui_ui::paint` 也会画世界 canvas item，所以文档
+//! 不能再挂成场景 `Node2D`（那会被画到所有 UI 之上）。宿主
+//! （[`crate::app::application`]）拥有窗口、wgpu 后端和纹理上传。
 //!
 //! ```text
 //! Input -> EditorView::event -> EditorView::update -> layout -> paint
-//! paint:  scene.paint(世界/画布)  ->  igui_ui::paint(UI 覆盖在上层)
+//! paint:  clip(canvas_area){ 文档图像 -> 像素网格 -> 选区 }  ->  igui_ui::paint(UI)
 //! ```
 //!
 //! 每块面板一个模块（[`menu`] / [`toolbar`] / [`canvas`] / [`layer_panel`] /
@@ -25,6 +26,7 @@ mod new_document;
 mod options_bar;
 mod palette;
 mod properties_panel;
+mod selection;
 mod status_bar;
 mod tabs;
 mod toolbar;
@@ -48,7 +50,7 @@ use igui_core::{
     Edges, EventResult, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize,
 };
 use igui_render::{Paint, PaintContext};
-use igui_scene::{SceneChild, SceneTree, Visual};
+use igui_scene::{SceneChild, SceneTree};
 use igui_theme::{space, Theme};
 use igui_ui::{MouseFilter, SizeBasis, TextMeasurer};
 
@@ -201,8 +203,6 @@ pub struct EditorView {
     shown: Option<StatusSnapshot>,
     /// 指针最近一次落在画布区域里的位置（用于状态栏的像素坐标）。
     pointer: Option<Vec2>,
-    /// 世界层里的文档节点（`Node2D` + `Visual::Image`）；相机变换挂在它上面。
-    document_node: NodeId,
     /// 透明画布区域控件，用来取 fit 区域和做滚轮 / 平移的命中测试。
     canvas_area: NodeId,
     renderer: CpuRenderer,
@@ -450,23 +450,12 @@ impl EditorView {
                 &refs.zoom,
             ));
 
-        let mut tree = Flex::new()
+        let tree = Flex::new()
             .gap(0.0)
             .padding(Edges::ZERO)
             .mouse_filter(MouseFilter::Ignore)
             .child(page)
             .into_tree();
-
-        // 画布是场景里的一个 `Node2D`：相机的 transform 就是这个节点的世界
-        // 变换，`SceneTree::paint` 会把合成结果贴上去；纹理由宿主注册进后端。
-        let document_node = tree.add_node2d(tree.root(), "Document");
-        tree.set_visual(
-            document_node,
-            Visual::Image {
-                texture: DOCUMENT_TEXTURE,
-                size: Size::new(document_size.0 as f32, document_size.1 as f32),
-            },
-        );
 
         let tool_nodes: Vec<(ActiveTool, NodeId)> = tool_refs
             .into_iter()
@@ -558,7 +547,6 @@ impl EditorView {
             icon_count,
             shown: None,
             pointer: None,
-            document_node,
             canvas_area: refs.canvas.get().expect("canvas area mounted"),
             renderer: CpuRenderer,
             render_target: RenderTarget::new(document_size.0, document_size.1),
@@ -1086,18 +1074,44 @@ impl EditorView {
         }
         // 覆盖层用自己的树，必须在主树排完之后定位。
         self.overlays.layout(&self.tree, viewport);
-        self.sync_document_node();
         self.tree.update();
     }
 
-    /// 发出这一帧的绘制命令：先世界（文档图像 + 像素网格），再选区描边，
-    /// UI 覆盖在上层。
+    /// 发出这一帧的绘制命令：先在画布区域的裁剪里画世界（文档图像 + 像素网格 +
+    /// 选区），再让 `igui_ui::paint` 画 UI 覆盖在上层。
+    ///
+    /// 单树模型下 `igui_ui::paint` 也会画世界 canvas item，所以文档不再挂成
+    /// 场景 `Node2D`（那会被排在 UI 之后、画到所有面板之上）；这里手动画并裁到
+    /// 画布区域。
     pub fn paint(&self, ctx: &mut PaintContext) {
-        self.tree.paint(ctx);
+        ctx.save();
+        if let Some(area) = self.canvas_area_rect() {
+            ctx.clip_rect(area);
+        }
+        self.paint_document(ctx);
         self.paint_pixel_grid(ctx);
         self.paint_selection(ctx);
+        ctx.restore();
         igui_ui::paint(&self.tree, ctx);
         self.overlays.paint(ctx);
+    }
+
+    /// 把文档图像按相机变换画到屏幕空间。调用方负责先裁到画布区域。
+    fn paint_document(&self, ctx: &mut PaintContext) {
+        let (camera, size) = {
+            let state = self.state.borrow();
+            (
+                state.canvas,
+                Size::new(state.document.width as f32, state.document.height as f32),
+            )
+        };
+        let min = camera.document_to_screen(Vec2::ZERO);
+        let max = camera.document_to_screen(Vec2::new(size.width, size.height));
+        let rect = Rect::from_min_max(
+            Vec2::new(min.x.min(max.x), min.y.min(max.y)),
+            Vec2::new(min.x.max(max.x), min.y.max(max.y)),
+        );
+        ctx.draw_image(DOCUMENT_TEXTURE, rect, None, Paint::default());
     }
 
     /// 像素模式 + 放大到 [`GRID_MIN_ZOOM`] 以上时，在文档上画像素网格。
@@ -1142,10 +1156,8 @@ impl EditorView {
         }
     }
 
-    /// 框选选区的描边：把文档像素矩形换算成屏幕坐标，画一圈 1px 线。
-    ///
-    /// 画在场景（文档图像）之上、UI 之下，所以它不会盖住面板，也不受 `tree`
-    /// 里的相机变换影响（这里用的是相机换算后的屏幕坐标）。
+    /// 框选选区的描边：把文档像素矩形换算成屏幕坐标，画一圈黑白相间的
+    /// 「马赛克线段」（[`selection`]）。画在文档图像之上、UI 之下。
     fn paint_selection(&self, ctx: &mut PaintContext) {
         let state = self.state.borrow();
         let Some(selection) = state.selection else {
@@ -1161,8 +1173,7 @@ impl EditorView {
             Vec2::new(min.x.min(max.x), min.y.min(max.y)),
             Vec2::new(min.x.max(max.x), min.y.max(max.y)),
         );
-        let color = self.theme.palette().selection;
-        ctx.stroke_rect(rect, 1.0, Paint::new(color));
+        selection::paint(ctx, rect);
     }
 
     /// 路由一个后端无关的输入事件。
@@ -1287,26 +1298,6 @@ impl EditorView {
     }
 
     // -- 画布 ------------------------------------------------------------
-
-    /// 相机的变换 -> 文档节点；视觉尺寸跟随文档尺寸。
-    fn sync_document_node(&mut self) {
-        let (camera, size) = {
-            let state = self.state.borrow();
-            (
-                state.canvas,
-                Size::new(state.document.width as f32, state.document.height as f32),
-            )
-        };
-        self.tree
-            .set_transform(self.document_node, camera.transform());
-        self.tree.set_visual(
-            self.document_node,
-            Visual::Image {
-                texture: DOCUMENT_TEXTURE,
-                size,
-            },
-        );
-    }
 
     fn apply_canvas_action(&mut self, action: CanvasAction) {
         match action {
@@ -2393,16 +2384,34 @@ mod tests {
         );
     }
 
+    /// 文档图像只在画布区域的裁剪里画一次，且在所有 UI 之前（不会盖住面板）。
     #[test]
-    fn the_scene_paints_the_document_image() {
+    fn the_document_is_clipped_to_the_canvas_area_and_painted_once() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
+        let commands = paint_commands(&view);
+        let area = view.canvas_area_rect().expect("画布区域");
+
+        let draws: Vec<usize> = commands
+            .iter()
+            .enumerate()
+            .filter(|(_, command)| {
+                matches!(command, DrawCommand::DrawImage { texture, .. } if *texture == DOCUMENT_TEXTURE)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(draws.len(), 1, "文档图像只该画一次：{draws:?}");
+
+        let index = draws[0];
         assert!(
-            paint_commands(&view).iter().any(|command| matches!(
-                command,
-                DrawCommand::DrawImage { texture, .. } if *texture == DOCUMENT_TEXTURE
-            )),
-            "画布应发出文档图像的 DrawImage"
+            matches!(commands.get(index - 1), Some(DrawCommand::ClipRect(rect)) if *rect == area),
+            "文档图像应紧跟画布区域的 ClipRect：{:?}",
+            commands.get(index - 1)
+        );
+        assert!(
+            matches!(commands.get(index - 2), Some(DrawCommand::Save)),
+            "裁剪块应以 Save 开头：{:?}",
+            commands.get(index - 2)
         );
     }
 
@@ -3205,5 +3214,39 @@ mod tests {
             .event(&InputEvent::KeyDown { key: Key::Escape })
             .is_handled());
         assert!(view.selection().is_none());
+    }
+
+    /// 选区边框是黑白相间的线段（马赛克 / marching ants），不是半透明单色线。
+    #[test]
+    fn the_selection_border_is_marching_ants() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        let camera = view.canvas_camera();
+
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('m'),
+        });
+        view.update();
+        let start = camera.document_to_screen(Vec2::new(54.0, 54.0));
+        let end = camera.document_to_screen(Vec2::new(74.0, 74.0));
+        view.event(&InputEvent::PointerDown {
+            position: start,
+            button: PointerButton::Left,
+        });
+        view.event(&InputEvent::PointerMove { position: end });
+        view.event(&InputEvent::PointerUp {
+            position: end,
+            button: PointerButton::Left,
+        });
+        assert!(view.selection().is_some());
+
+        let commands = paint_commands(&view);
+        let has_line = |color: igui_core::Color| {
+            commands.iter().any(|command| {
+                matches!(command, DrawCommand::Line { paint, .. } if paint.color == color)
+            })
+        };
+        assert!(has_line(igui_core::Color::BLACK), "选区边框应有黑段");
+        assert!(has_line(igui_core::Color::WHITE), "选区边框应有白段");
     }
 }

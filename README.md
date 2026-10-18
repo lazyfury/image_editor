@@ -25,7 +25,7 @@ cargo run -- --pixel-font
 
 启动先进**主页**（`src/ui/home.rs` 的 `HomeView`）：
 
-- 「新建项目」：在主窗口里弹出一扇**模拟桌面的浮动窗口**（`src/ui/window.rs`
+- 「新建项目」：在主窗口里弹出一扇**模拟桌面的浮动窗口**（`src/ui/window/`
   的 `Window` + `src/ui/new_document.rs` 的 `NewDocumentModal`）选画布尺寸和背景色
   —— 不再开第二个原生窗口（macOS 15 上多 surface 会崩）。窗口带标题栏（拖动
   移动）、四条边 / 角（拖动缩放）、关闭按钮和遮罩；Esc / 点窗口外取消，输入
@@ -50,8 +50,8 @@ cargo run -- --pixel-font
   和状态栏显示文档尺寸。合成 / 渲染仍未接。
 - [x] **Phase 3 — Canvas（缩放 / 平移 / 坐标转换 / 显示图像）**：
   `src/renderer/` 的 CPU 合成器把文档图层合成为一张 `PixelBuffer`；宿主用
-  `register_texture` 上传，画布是场景里的一个 `Node2D`（`Visual::Image`），
-  相机变换挂在它的 `Transform2D` 上，由 `igui_scene` 绘制、UI 覆盖其上。
+  `register_texture` 上传；[`EditorView::paint`] 按相机把文档图像、像素网格和选区
+  画在画布区域的裁剪里（在所有 UI 之前），所以文档不会盖住面板、也不会溢出画布。
   `src/canvas/` 提供相机与坐标转换；滚轮缩放（锚定指针）、中键平移、
   `+`/`-`/`0`/`F` 快捷键，状态栏显示指针下的像素坐标。画布默认带一层透明
   棋盘格背景（`src/canvas/checkerboard.rs`）：只在显示用的合成结果上生成，
@@ -103,7 +103,8 @@ cargo run -- --pixel-font
   文档尺寸、丢弃画布外像素）。
   框选拖出选区（`canvas::pixel_selection` 把两个角点
   裁剪成整数 `PixelRegion`，存在 `AppState.selection`），画笔落笔按选区裁剪，
-  选中时画一圈描边，Esc 清空；吸管用 `renderer::sample_pixel` 取**合成后**的
+  选中时画一圈黑白相间的「马赛克线段」描边（`ui/selection.rs`，亮底 / 暗底都
+  看得见），Esc 清空；吸管用 `renderer::sample_pixel` 取**合成后**的
   颜色写进前景色。三个工具的纯逻辑分别放在 `canvas` / `renderer` / `tools`，
   视图只做坐标换算与状态同步。
 - [x] **Phase 9 — 菜单栏（真实下拉）**：标题点击改成一个共享请求格，
@@ -215,17 +216,20 @@ src/
 │   ├── brush.rs         # BrushTool + BrushMode（画笔 / 橡皮，抬笔提交一笔）
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）
 ├── ui/
-│   ├── mod.rs           # EditorView：页面 + 文档 Node2D + 相机同步 + undo/redo
+│   ├── mod.rs           # EditorView：页面 + 裁剪画布绘制 + undo/redo
 │   ├── card.rs          # 项目内简单卡片（侧栏统一外观：surface + 内边距）
 │   ├── menu.rs          # 菜单栏
 │   ├── toolbar.rs       # 工具栏（工具 + 撤销/重做）
 │   ├── palette.rs       # 左侧调色盘面板（HSV 取色器 + 前景/背景 + 预设色块）
 │   ├── options_bar.rs   # 工具选项栏（笔刷大小 / 不透明度 / 提示）
 │   ├── canvas.rs        # 透明画布区域（命中 / 定位用）
+│   ├── selection.rs     # 选区描边（黑白相间马赛克线段）
 │   ├── file_panel.rs    # Phase 7：文件面板（路径 + 导入 / 导出按钮）
 │   ├── layer_panel.rs   # 图层面板（List + 操作按钮）
 │   ├── history_panel.rs # 历史面板（List：undo/redo 栈，点一步跳过去）
 │   ├── properties_panel.rs  # 当前图层属性（只读）
+│   ├── new_document.rs  # 「新建文档」浮动窗口（尺寸 / 背景色）
+│   ├── window/          # 模拟桌面的浮动窗口（拖动移动 / 拖动缩放）
 │   └── status_bar.rs
 └── selfcheck.rs         # 无头自检（录制 DrawList + igui_profile 体检）
 ```
