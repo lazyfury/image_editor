@@ -66,6 +66,11 @@ pub struct Window {
     tree: SceneTree,
     /// 窗口外框（定位 / 尺寸都由它的 `offsets` 决定）。
     frame: NodeId,
+    /// 内容区 / 页脚节点（布局回归测试用）。
+    #[cfg_attr(not(test), allow(dead_code))]
+    content: NodeId,
+    #[cfg_attr(not(test), allow(dead_code))]
+    footer: NodeId,
     /// 关闭请求：关闭按钮、Esc、点窗口外都会置位，宿主取走一次。
     close: Rc<Cell<bool>>,
     /// 当前窗口矩形（逻辑坐标）。
@@ -103,6 +108,7 @@ impl Window {
         let header = Flex::row()
             .basis(SizeBasis::Px(TITLE_BAR_HEIGHT))
             .grow(0.0)
+            .gap(0.0)
             .align(Align::Center)
             .padding(Edges::new(TITLE_PADDING_X, 0.0, 0.0, 0.0))
             .mouse_filter(MouseFilter::Ignore)
@@ -118,7 +124,9 @@ impl Window {
             .child(
                 Text::small(title, theme)
                     .color(palette.foreground)
-                    .grow(1.0),
+                    .grow(1.0)
+                    // 标题不能抢指针，否则抓标题文字拖不动窗口。
+                    .mouse_filter(MouseFilter::Ignore),
             )
             .child(close_button(theme, close.clone()));
 
@@ -151,6 +159,10 @@ impl Window {
             .anchors(Edges::ZERO)
             .offsets(Edges::new(0.0, 0.0, size.x, size.y))
             .min_size(min_size.x, min_size.y)
+            // `Flex` 默认 padding 16 / gap 8；外框必须显式清零，否则标题栏、
+            // 页脚都会被缩进，和内容区的 padding 重复。
+            .padding(Edges::ZERO)
+            .gap(0.0)
             .surface(
                 SurfaceStyle::new(theme.surface(SurfaceLevel::Floating))
                     .border(palette.border)
@@ -164,7 +176,10 @@ impl Window {
         let mut tree = SceneTree::new();
         let layer = tree.add_child(
             tree.root(),
-            Flex::column().mouse_filter(MouseFilter::Ignore),
+            Flex::column()
+                .padding(Edges::ZERO)
+                .gap(0.0)
+                .mouse_filter(MouseFilter::Ignore),
         );
         let frame = tree.add_child(layer, frame);
         let content_id = content_ref.get().expect("内容区已挂载");
@@ -174,6 +189,8 @@ impl Window {
         Self {
             tree,
             frame,
+            content: content_id,
+            footer: footer_id,
             close,
             rect: Cell::new(Rect::from_min_size(Vec2::ZERO, Size::new(size.x, size.y))),
             initial_size: size,
@@ -591,6 +608,31 @@ mod tests {
         );
         click(&mut window, close);
         assert!(window.take_close_request());
+    }
+
+    /// 页脚是标题栏与内容区之外的独立底部区域。
+    #[test]
+    fn the_content_is_flush_with_the_header_and_the_frame() {
+        let (mut window, _, _) = window_with_button();
+        window.layout(viewport());
+        let rect = window.rect();
+        let content = igui_ui::control(&window.tree, window.content)
+            .map(|control| control.rect)
+            .expect("内容区 rect");
+        let footer = igui_ui::control(&window.tree, window.footer)
+            .map(|control| control.rect)
+            .expect("页脚 rect");
+        // 外框不能自带 padding（`Flex` 默认 16），否则标题栏 / 页脚会被缩进。
+        assert_eq!(content.left(), rect.left(), "内容区应贴左边");
+        assert_eq!(content.right(), rect.right(), "内容区应贴右边");
+        assert_eq!(
+            content.top(),
+            rect.top() + TITLE_BAR_HEIGHT,
+            "内容区应紧贴标题栏下沿"
+        );
+        assert_eq!(footer.left(), rect.left(), "页脚应贴左边");
+        assert_eq!(footer.right(), rect.right(), "页脚应贴右边");
+        assert_eq!(footer.bottom(), rect.bottom(), "页脚应贴底边");
     }
 
     /// 页脚是标题栏与内容区之外的独立底部区域。
