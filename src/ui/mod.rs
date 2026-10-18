@@ -35,6 +35,7 @@ mod options_bar;
 mod paint;
 mod palette;
 mod properties_panel;
+mod rename;
 mod selection;
 mod status_bar;
 mod sync;
@@ -87,7 +88,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use igui_components::{set_text, update_control, ListState, NodeRef, Overlays};
-use igui_core::{Edges, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize};
+use igui_core::{Edges, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize};
 use igui_scene::SceneTree;
 use igui_theme::{space, Theme};
 use igui_ui::{SizeBasis, TextMeasurer};
@@ -154,10 +155,13 @@ struct Refs {
     sidebar_handle: NodeRef,
 }
 
-/// 正在进行的图层重命名。
+/// 正在进行的图层重命名：目标图层 + 浮层 + 输入框句柄 + 确定 / 取消格。
 struct Rename {
     id: LayerId,
-    buffer: String,
+    overlay: igui_components::OverlayId,
+    edit: rename::EditSlot,
+    confirm: Rc<Cell<bool>>,
+    cancel: Rc<Cell<bool>>,
 }
 
 /// 状态栏同步快照：(工具, 缩放, 宽, 高, 指针下的文档像素)。
@@ -321,9 +325,9 @@ pub struct EditorView {
     last_history: Option<(usize, usize)>,
     /// 最近一次见到的文档 `revision`；变了就重合成 + 刷新图层列表。
     last_revision: u64,
-    /// “重命名”按钮点过之后置位，由 `update` 取走。
-    rename_request: Rc<Cell<bool>>,
-    renaming: Option<Rename>,
+    /// “重命名”按钮点过之后写入自己的 `NodeId`（兼作浮层锚点），由 `update` 取走。
+    rename_request: Rc<Cell<Option<NodeId>>>,
+    rename: Option<Rename>,
     props_name: NodeId,
     props_detail: NodeId,
     props_geometry: NodeId,
@@ -342,6 +346,12 @@ impl EditorView {
     pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
         igui_ui::set_text_measurer(&mut self.tree, measurer.clone());
         self.overlays.set_text_measurer(measurer);
+    }
+
+    /// 把系统剪贴板接到文本输入（重命名浮层里的输入框）。
+    pub fn set_clipboard(&mut self, clipboard: Rc<RefCell<dyn igui_ui::Clipboard>>) {
+        igui_ui::set_clipboard(&mut self.tree, clipboard.clone());
+        self.overlays.set_clipboard(clipboard);
     }
 
     /// 顶部预留 `inset` 逻辑像素（工作区标签条占的那一条）。
@@ -430,8 +440,18 @@ impl EditorView {
             self.refresh_history();
         }
 
-        if self.rename_request.replace(false) {
-            self.begin_rename();
+        if let Some(anchor) = self.rename_request.take() {
+            self.open_rename(anchor);
+        }
+        // 重命名浮层：Enter / 「确定」写 `confirm` 格，「取消」写 `cancel` 格；
+        // Esc / 点外部由浮层自己关，下面的 `is_empty` 兜底清记录。
+        let rename_finish = match &self.rename {
+            Some(rename) if rename.confirm.get() => Some(true),
+            Some(rename) if rename.cancel.get() => Some(false),
+            _ => None,
+        };
+        if let Some(commit) = rename_finish {
+            self.finish_rename(commit);
         }
         if let Some(action) = self.menu_action.take() {
             self.overlays.close_all();
@@ -453,10 +473,9 @@ impl EditorView {
             self.open_menu.set(None);
             self.open_tool_group.set(None);
             self.gradient_editor_open.set(false);
+            self.rename = None;
         }
-        if self.renaming.is_some() {
-            self.sync_rename_status();
-        } else if let Some(message) = self.message.borrow_mut().take() {
+        if let Some(message) = self.message.borrow_mut().take() {
             set_text(&mut self.tree, self.message_label, message);
         }
         self.sync_tabs();

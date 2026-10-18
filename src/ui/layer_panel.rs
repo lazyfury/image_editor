@@ -90,7 +90,7 @@ pub fn layer_panel(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     list: List,
-    rename_request: Rc<Cell<bool>>,
+    rename_request: Rc<Cell<Option<NodeId>>>,
 ) -> impl Component {
     Card::new(theme)
         .gap(space::SM)
@@ -106,7 +106,7 @@ pub fn layer_panel(
 fn action_buttons(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
-    rename_request: Rc<Cell<bool>>,
+    rename_request: Rc<Cell<Option<NodeId>>>,
 ) -> impl Component {
     let add = {
         let state = state.clone();
@@ -133,8 +133,8 @@ fn action_buttons(
     };
     let rename = {
         let rename_request = rename_request.clone();
-        button(theme, "重命名", move |_tree, _id| {
-            rename_request.set(true)
+        button(theme, "重命名", move |_tree, id| {
+            rename_request.set(Some(id))
         })
     };
     let toggle = {

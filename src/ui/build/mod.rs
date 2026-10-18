@@ -61,7 +61,7 @@ struct Wiring {
     tabs_height: Rc<Cell<f32>>,
     layer_count: Rc<Cell<usize>>,
     layer_selected: Rc<Cell<Option<usize>>>,
-    rename_request: Rc<Cell<bool>>,
+    rename_request: Rc<Cell<Option<NodeId>>>,
     history_count: Rc<Cell<usize>>,
     brush_request: Rc<Cell<Option<BrushAdjust>>>,
     pixel_mode: Rc<Cell<bool>>,

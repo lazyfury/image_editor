@@ -170,6 +170,22 @@ impl EditorView {
             .map(|(_, id)| *id)
     }
 
+    /// 图层面板「重命名」按钮的中心（点它弹重命名浮层）。
+    pub fn rename_button_center(&self) -> Option<Vec2> {
+        let node = self.tree.iter().find(|&node| {
+            igui_ui::content(&self.tree, node).and_then(|content| content.as_text())
+                == Some("重命名")
+        })?;
+        igui_ui::control(&self.tree, node).map(|control| control.rect.center())
+    }
+
+    /// 重命名浮层的输入框句柄（浮层开着时才 `Some`）。
+    pub fn rename_field(&self) -> Option<Rc<RefCell<igui_ui::TextEdit>>> {
+        self.rename
+            .as_ref()
+            .and_then(|rename| rename.edit.borrow().clone())
+    }
+
     /// 调色盘色块数量。
     pub fn palette_swatch_count(&self) -> usize {
         self.palette_nodes.len()

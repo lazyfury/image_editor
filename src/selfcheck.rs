@@ -270,6 +270,28 @@ fn check_magic_wand(failures: &mut Vec<String>) {
     }
 }
 
+/// 图层重命名：点「重命名」按钮弹输入框浮层，改文本 + Enter 提交。
+fn check_rename(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    let button = view.rename_button_center().expect("「重命名」按钮");
+    click_at(&mut view, button);
+    view.update();
+    view.layout(viewport());
+
+    let Some(field) = view.rename_field() else {
+        failures.push("点「重命名」应打开输入框浮层".to_string());
+        return;
+    };
+    field.borrow_mut().set_text("Hero");
+    view.event(&InputEvent::KeyDown { key: Key::Enter });
+    view.update();
+    view.layout(viewport());
+    if !contains(&paint_frame(&view), "Hero") {
+        failures.push("重命名没有提交到图层列表".to_string());
+    }
+}
+
 fn gray_pixels(pixels: &PixelBuffer, cx: u32, cy: u32, radius: u32) -> usize {
     let mut count = 0;
     let y_end = (cy + radius).min(pixels.height.saturating_sub(1));
@@ -589,6 +611,7 @@ pub fn check() -> (usize, String) {
     check_bucket(&mut failures);
     check_gradient(&mut failures);
     check_magic_wand(&mut failures);
+    check_rename(&mut failures);
 
     // 调色盘：色块齐全，点一个预设色块应把前景色改掉。
     if view.palette_swatch_count() < 16 {

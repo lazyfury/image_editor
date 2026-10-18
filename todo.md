@@ -83,9 +83,9 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
   `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
   不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。
-- [ ] **`docs/upstream.md`**：集中记「需要改 igui 才能做」的两件事（图层右键菜单
-  要 `igui_ui` 右键回调 + `Overlays` 指针锚点；退出守卫要 `igui_winit` 的
-  `CloseRequested` 钩子）与 tag 升级步骤。
+- [ ] **`docs/upstream.md`**：集中记「需要改 igui 才能做」的事（目前只剩退出守卫：
+  `igui_winit` 的 `CloseRequested` 直接 `event_loop.exit()`，没有宿主钩子）与
+  tag 升级步骤。
 
 ### 可扩展
 
@@ -95,6 +95,12 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   `Selection` 的轮廓改成**线段列表**（矩形 4 段 / 套索 N 段 / 魔棒是掩码边界边），
   描边仍由 `ui/selection.rs` 画马赛克。
 - [ ] **图层混合模式**：`BlendMode` 目前只有 `Normal`（`document/layer.rs` TODO v1.1）。
+- [ ] **继续接上游已有组件**（都在当前 pin 的 v0.3.0 里，只是当初没接）：
+  `Overlays::confirm` 换掉自造 `ui/confirm.rs`（169 行 + 同帧关闭补丁）、
+  `Overlays::tips` 给工具栏 / 选项栏加悬停 tooltip、`Overlays::message_tone`
+  做保存 / 导出 toast（需给 `EditorView::update` 传 `dt` 并调 `overlays.update`）、
+  `List::on_context` + `menu_at` 做图层右键菜单、`ScrollView` 包住属性面板 /
+  首页、`Select` 收窄选项栏、新建文档尺寸可直接键入（`TextInput`）。
 - [ ] **`History` 上限**：目前无步数 / 字节上限，大文档多步编辑会一直涨。
 - [ ] **工具元数据表**：新增一个工具要改 7+ 处（枚举 / `ALL` / 标签 / 图标 /
   `tool_groups` / `begin..end` 的 match / 快捷键）；可收成一张 `ToolSpec` 表。
@@ -150,6 +156,13 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   （Lucide ISC），否则新工具没有图标（按钮仍在，只是空图标）。
 
 ## Done（近期）
+
+- **图层重命名改用上游 `TextInput` 浮层**（`ui/rename.rs`）：原来是在状态栏里
+  手写按键缓冲（`InputEvent::TextInput` + `Backspace`，没光标 / 选区 / 剪贴板 /
+  IME），现在是 `Overlays::popover(Placement::Above)` 里一个上游 `TextInput`
+  （`autofocus`，自带光标 / 选区 / Ctrl+C/V / 中文 IME preedit），Enter / 「确定」
+  提交、Esc / 点外部取消；删掉 `ui/sync.rs` 的 `handle_rename_input` /
+  `sync_rename_status`，顺带把系统剪贴板接进视图（`EditorView::set_clipboard`）。
 
 - **多工作区 + `.igui` 工作区文件 + 主页画廊**（Phase 18–22）：`io/workspace.rs`
   自包含二进制容器（多图层 + PNG 像素，零新依赖）；`io/recent.rs` 配置目录下的

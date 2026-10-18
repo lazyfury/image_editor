@@ -15,6 +15,7 @@
 //! `--frames N` 由 [`FrameLimitPlugin`] 在 N 帧后结束进程，让真实渲染管线能在
 //! 无头环境里被验证。
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -26,7 +27,7 @@ use igui_backend_wgpu::{FontConfig, FontMetrics, FontMode, TextureFilter};
 use igui_core::{Color, EventResult, InputEvent, Key, Modifiers};
 use igui_render::{DrawList, PaintContext};
 use igui_theme::{SurfaceLevel, Theme};
-use igui_ui::TextMeasurer;
+use igui_ui::{Clipboard, TextMeasurer};
 use igui_winit::{
     ClipboardPlugin, GpuConfig, ImePlugin, KeyboardPlugin, PointerPlugin, SharedBackend,
     SharedWindow, WgpuPlugin, WindowConfig, WinitPlugin,
@@ -121,6 +122,7 @@ struct ImageEditorLogic {
     theme: &'static dyn Theme,
     /// 后端真实字体度量（`init` 时从服务里取；模态 / 工作区 / 标签条共享）。
     measurer: Option<Rc<dyn TextMeasurer>>,
+    clipboard: Option<Rc<RefCell<dyn Clipboard>>>,
     screen: Screen,
     /// 打开中的工作区；回主页时也保留，方便再切回来。
     workspaces: Workspaces,
@@ -200,6 +202,7 @@ impl ImageEditorLogic {
         Self {
             theme,
             measurer: None,
+            clipboard: None,
             screen: Screen::Home(home),
             workspaces,
             dialog,
@@ -260,10 +263,13 @@ impl ImageEditorLogic {
         }
     }
 
-    /// 工作区编辑器统一配置：字体度量 + 顶部给标签条留位置。
+    /// 工作区编辑器统一配置：字体度量 + 系统剪贴板 + 顶部给标签条留位置。
     fn configure_editor(&self, editor: &mut EditorView) {
         if let Some(measurer) = self.measurer.clone() {
             editor.set_text_measurer(measurer);
+        }
+        if let Some(clipboard) = self.clipboard.clone() {
+            editor.set_clipboard(clipboard);
         }
         editor.set_top_inset(TAB_STRIP_HEIGHT);
     }
@@ -350,6 +356,7 @@ impl AppLogic for ImageEditorLogic {
     fn init(&mut self, ctx: &InitContext<'_>) {
         // 度量插件已经在 `resumed` 时把度量放进服务。
         self.measurer = ctx.service::<Rc<dyn TextMeasurer>>().cloned();
+        self.clipboard = ctx.service::<Rc<RefCell<dyn Clipboard>>>().cloned();
         if let Some(measurer) = self.measurer.clone() {
             self.tabs.set_text_measurer(measurer.clone());
             if let Screen::Home(home) = &mut self.screen {
@@ -357,6 +364,11 @@ impl AppLogic for ImageEditorLogic {
             }
             if let Some(workspace) = self.workspaces.active_mut() {
                 workspace.editor.set_text_measurer(measurer);
+            }
+        }
+        if let Some(clipboard) = self.clipboard.clone() {
+            if let Some(workspace) = self.workspaces.active_mut() {
+                workspace.editor.set_clipboard(clipboard);
             }
         }
     }

@@ -3,6 +3,8 @@
 //! 全是「读状态 -> `set_text` / `update_control` / 可见性」的幂等同步；`update`
 //! 每帧按需调用。
 
+use igui_components::Placement;
+
 use crate::app::state::ActiveTool;
 
 use super::*;
@@ -109,7 +111,11 @@ impl EditorView {
         set_text(&mut self.tree, self.props_geometry, geometry);
     }
 
-    pub(super) fn begin_rename(&mut self) {
+    /// 打开重命名浮层，锚在「重命名」按钮上。
+    ///
+    /// 编辑 / 光标 / 选区 / 剪贴板 / IME 全交给浮层里的
+    /// [`TextInput`](igui_components::TextInput)；这里只管提交。
+    pub(super) fn open_rename(&mut self, anchor: NodeId) {
         let (id, name) = {
             let state = self.state.borrow();
             match state.document.active_layer() {
@@ -117,67 +123,52 @@ impl EditorView {
                 None => return,
             }
         };
-        self.renaming = Some(Rename { id, buffer: name });
+        let edit = Rc::new(RefCell::new(None));
+        let confirm = Rc::new(Cell::new(false));
+        let cancel = Rc::new(Cell::new(false));
+        let theme = self.theme;
+        let slot = edit.clone();
+        let (ok, no) = (confirm.clone(), cancel.clone());
+        let overlay = self
+            .overlays
+            .popover(anchor, Placement::Above, move |tree, root| {
+                rename::content(tree, root, theme, &name, &slot, ok.clone(), no.clone());
+            });
+        self.overlays.title(overlay, "重命名图层");
+        self.rename = Some(Rename {
+            id,
+            overlay,
+            edit,
+            confirm,
+            cancel,
+        });
     }
 
-    pub(super) fn cancel_rename(&mut self) {
-        self.renaming = None;
-        set_text(&mut self.tree, self.message_label, "");
-    }
-
-    pub(super) fn commit_rename(&mut self) {
-        let Some(rename) = self.renaming.take() else {
+    /// 关掉重命名浮层；`commit` 为真时提交输入框里的文本。
+    pub(super) fn finish_rename(&mut self, commit: bool) {
+        let Some(rename) = self.rename.take() else {
             return;
         };
-        let name = rename.buffer.trim().to_string();
-        if !name.is_empty() {
-            let mut state = self.state.borrow_mut();
-            let before = LayerMetaCommand::capture(&state.document);
-            state.document.rename_layer(rename.id, name);
-            let after = LayerMetaCommand::capture(&state.document);
-            state.execute(Box::new(LayerMetaCommand::new(before, after, "重命名图层")));
-        }
-        set_text(&mut self.tree, self.message_label, "");
-    }
-
-    pub(super) fn sync_rename_status(&mut self) {
-        if let Some(rename) = &self.renaming {
-            let text = format!("重命名图层：{}▌  （Enter 确认 · Esc 取消）", rename.buffer);
-            set_text(&mut self.tree, self.message_label, text);
+        self.overlays.close(rename.overlay);
+        if commit {
+            self.commit_rename(rename);
         }
     }
 
-    /// 重命名编辑中的按键 / 文本输入；返回是否消费了事件。
-    pub(super) fn handle_rename_input(&mut self, event: &InputEvent) -> bool {
-        match event {
-            InputEvent::KeyDown { key: Key::Escape } => {
-                self.cancel_rename();
-                true
-            }
-            InputEvent::KeyDown { key: Key::Enter } => {
-                self.commit_rename();
-                true
-            }
-            InputEvent::KeyDown {
-                key: Key::Backspace,
-            } => {
-                if let Some(rename) = &mut self.renaming {
-                    rename.buffer.pop();
-                }
-                true
-            }
-            InputEvent::TextInput { text } => {
-                if let Some(rename) = &mut self.renaming {
-                    rename
-                        .buffer
-                        .extend(text.chars().filter(|ch| !ch.is_control()));
-                }
-                true
-            }
-            // 其余按键也吞掉：重命名时按字母不该触发工具 / 画布快捷键。
-            InputEvent::KeyDown { .. } => true,
-            _ => false,
+    /// 提交重命名：读输入框的文本，非空就改名（一条 undo）。
+    fn commit_rename(&mut self, rename: Rename) {
+        let Some(edit) = rename.edit.borrow().clone() else {
+            return;
+        };
+        let name = edit.borrow().text().trim().to_string();
+        if name.is_empty() {
+            return;
         }
+        let mut state = self.state.borrow_mut();
+        let before = LayerMetaCommand::capture(&state.document);
+        state.document.rename_layer(rename.id, name);
+        let after = LayerMetaCommand::capture(&state.document);
+        state.execute(Box::new(LayerMetaCommand::new(before, after, "重命名图层")));
     }
 
     // -- 文件 / 路径（Phase 7） ------------------------------------------

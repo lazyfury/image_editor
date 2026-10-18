@@ -33,6 +33,14 @@ fn label_text(view: &EditorView, id: NodeId) -> String {
         .expect("expected a label")
 }
 
+/// 点图层面板的「重命名」按钮。
+fn click_rename(view: &mut EditorView) {
+    let center = view
+        .rename_button_center()
+        .expect("图层面板应有「重命名」按钮");
+    click(view, center);
+}
+
 #[test]
 fn keyboard_shortcut_selects_a_tool() {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
@@ -757,22 +765,39 @@ fn the_crop_action_shrinks_a_moved_layer_back_to_the_document() {
 fn renaming_the_active_layer_uses_text_input() {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
     view.layout(viewport());
-    view.rename_request.set(true);
+    // 点真实按钮：它把自己的 `NodeId` 写进请求格，兼作浮层锚点。
+    click_rename(&mut view);
     view.update();
-    assert!(view.renaming.is_some(), "应进入重命名");
+    view.layout(viewport());
 
-    // 清掉“背景”再输入新名字。
-    for _ in 0..8 {
-        view.event(&InputEvent::KeyDown {
-            key: Key::Backspace,
-        });
-    }
+    let edit = view
+        .rename
+        .as_ref()
+        .expect("应打开重命名浮层")
+        .edit
+        .borrow()
+        .clone()
+        .expect("浮层内容应建好输入框");
+
+    // 浮层锚在按钮上方，整块落在视口里（否则输入框点不到）。
+    let overlay = view.rename.as_ref().expect("浮层已开").overlay;
+    let popover = view.overlays.rect(overlay).expect("浮层应已布局");
+    let screen = viewport().logical_size();
+    assert!(
+        popover.origin.x >= 0.0
+            && popover.origin.y >= 0.0
+            && popover.origin.x + popover.size.width <= screen.width
+            && popover.origin.y + popover.size.height <= screen.height,
+        "浮层应完整落在视口里：{popover:?}"
+    );
+
+    edit.borrow_mut().select_all();
     view.event(&InputEvent::TextInput {
         text: "Hero".into(),
     });
     view.event(&InputEvent::KeyDown { key: Key::Enter });
 
-    assert!(view.renaming.is_none(), "Enter 结束重命名");
+    assert!(view.rename.is_none(), "Enter 结束重命名");
     let name = view
         .state
         .borrow()
@@ -782,15 +807,48 @@ fn renaming_the_active_layer_uses_text_input() {
     assert_eq!(name.as_deref(), Some("Hero"));
 }
 
+/// 「确定」按钮只写共享格；`update` 取走后走同一条提交路径。
+#[test]
+fn the_rename_confirm_request_commits() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    click_rename(&mut view);
+    view.update();
+    view.layout(viewport());
+
+    {
+        let rename = view.rename.as_ref().expect("应打开重命名浮层");
+        rename
+            .edit
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .borrow_mut()
+            .set_text("Hero");
+        rename.confirm.set(true);
+    }
+    view.update();
+
+    assert!(view.rename.is_none(), "确定后浮层关闭");
+    assert_eq!(
+        view.state.borrow().document.active_layer().unwrap().name,
+        "Hero"
+    );
+}
+
 #[test]
 fn escape_cancels_a_rename() {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
     view.layout(viewport());
-    view.rename_request.set(true);
+    click_rename(&mut view);
     view.update();
-    view.event(&InputEvent::TextInput { text: "x".into() });
+    view.layout(viewport());
+    assert!(view.rename.is_some(), "应打开重命名浮层");
+
+    // Esc 由浮层自己吞掉（`dismiss_on_escape`），下一帧 `update` 清掉记录。
     view.event(&InputEvent::KeyDown { key: Key::Escape });
-    assert!(view.renaming.is_none());
+    view.update();
+    assert!(view.rename.is_none());
     assert_eq!(
         view.state.borrow().document.active_layer().unwrap().name,
         "背景",

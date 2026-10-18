@@ -31,8 +31,10 @@ impl EditorView {
         } else if self.overlays.handle_input(event).is_handled() {
             return EventResult::Handled;
         }
-        // 重命名 / 路径编辑进行中：键盘只编辑文本，不触发工具 / 画布快捷键。
-        if self.renaming.is_some() && self.handle_rename_input(event) {
+        // 重命名浮层里的输入框会自己吞掉编辑键；单行的 `TextInput` 不处理 Enter，
+        // 所以这里补一刀提交。
+        if self.rename.is_some() && matches!(event, InputEvent::KeyDown { key: Key::Enter }) {
+            self.finish_rename(true);
             return EventResult::Handled;
         }
         match event {

@@ -62,7 +62,8 @@ cargo run -- --pixel-font
   采样，像素不会插值模糊。
 - [x] **Phase 4 — 图层管理**：图层面板接真实 `Document`：虚拟化图层列表
   （眼睛 / 名字 / 不透明度、点选当前图层）+ 增删 / 显示隐藏 / 不透明度 ±10% /
-  上移下移 / 重命名（键盘内联编辑，Enter 确认・Esc 取消）；任何改动后重新合成
+  上移下移 / 重命名（`Overlays::popover` 里一个上游 `TextInput`，Enter 确认・
+  Esc 取消）；任何改动后重新合成
   并重传纹理。属性面板实时显示当前图层：名字 / 不透明度 / 混合模式，以及图层
   的 `position` 偏移与缓冲区尺寸（移动画布外内容后缓冲会变大，这里能看到）。
 - [x] **Phase 5 — Brush / Eraser**：`src/tools/` 的 `Tool` 接口 +
@@ -280,6 +281,7 @@ src/
 │   ├── layer_panel.rs   # 图层面板（List + 操作按钮）
 │   ├── history_panel.rs # 历史面板（List：undo/redo 栈，点一步跳过去）
 │   ├── properties_panel.rs  # 当前图层属性（只读）
+│   ├── rename.rs        # 图层重命名浮层（`Overlays::popover` + `TextInput`）
 │   ├── new_document.rs  # 「新建文档」浮动窗口（尺寸 / 背景色）
 │   ├── window/          # 模拟桌面的浮动窗口（拖动移动 / 拖动缩放）
 │   └── status_bar.rs
@@ -303,8 +305,8 @@ src/
 ## 图层操作
 
 在右侧图层面板里先点选一个图层，再用按钮操作它：`+ 图层` / `− 删除`、
-`显示/隐藏`、不透明度 `−` / `+`、`↑` / `↓`、`重命名`（输入后 Enter 确认，
-Esc 取消）。列表第 0 行是最上面的图层。
+`显示/隐藏`、不透明度 `−` / `+`、`↑` / `↓`、`重命名`（弹一个 `TextInput`
+浮层，Enter 确认 / Esc 取消）。列表第 0 行是最上面的图层。
 
 ## 文件与导入导出（Phase 7 / 23）
 

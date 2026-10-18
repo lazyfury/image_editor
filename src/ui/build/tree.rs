@@ -54,7 +54,7 @@ pub(super) fn build_tree(
 
     let layer_count = Rc::new(Cell::new(0usize));
     let layer_selected: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
-    let rename_request = Rc::new(Cell::new(false));
+    let rename_request: Rc<Cell<Option<NodeId>>> = Rc::new(Cell::new(None));
     let layer_list = layer_panel::layer_list(
         theme,
         state.clone(),

@@ -219,7 +219,7 @@ pub(super) fn finish(
         last_history: None,
         last_revision: u64::MAX,
         rename_request,
-        renaming: None,
+        rename: None,
         props_name: refs.props_name.get().expect("props name mounted"),
         props_detail: refs.props_detail.get().expect("props detail mounted"),
         props_geometry: refs.props_geometry.get().expect("props geometry mounted"),
