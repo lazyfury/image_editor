@@ -1,29 +1,66 @@
-//! 工具栏：切换激活工具 + 撤销 / 重做。
+//! 工具栏：分组工具按钮（长按展开切换）+ 撤销 / 重做。
 //!
-//! 每个入口是「图标按钮 + 小字标签」：按钮只负责点击 / 高亮（`dynamic_background`），
-//! 图标由 `EditorView` 在树建好后用 `crate::icons` 描边上去（`igui_svg`，见
-//! `assets/icons/`）。这样切换工具不需要重建这棵树，只有高亮的按钮换颜色。
+//! 相关工具收进一个「组按钮」（见 [`crate::app::tool_groups`]）：组按钮画当前
+//! 「脸」的图标 + 小字标签，右下角一个小三角表示「可长按展开」。
+//!
+//! - **短按**：激活脸工具（写 [`ToolbarWiring::request`]，由 `EditorView` 统一
+//!   应用并同步脸）。
+//! - **长按**（按住 ≥ 阈值且没怎么移动）：`EditorView` 轮询 [`LongPress`] 打开
+//!   向右的浮层，列出组内全部工具。
+//!
+//! 图标用 `foreground` 动态画（读共享的脸格），换脸不需要重建树；标签用
+//! `set_text` 同步（跟状态栏一个套路）。
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Instant;
 
 use igui_components::{Button, Component, Divider, Flex, NodeRef, Text};
-use igui_core::{Color, Edges};
+use igui_core::{Color, Edges, NodeId, Rect, Size, Vec2};
+use igui_scene::SceneTree;
 use igui_theme::{radius, space, SurfaceLevel, Theme};
-use igui_ui::{Align, MouseFilter, SizeBasis, SurfaceStyle};
+use igui_ui::{Align, MouseFilter, PointerPhase, SizeBasis, SurfaceStyle};
 
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
+use crate::app::tool_groups::{ToolGroup, TOOL_GROUPS};
 use crate::icons::{Icon, IconSet, TOOLBAR_ICON};
-use crate::ui::TOOLBAR_WIDTH;
+use crate::ui::{LONG_PRESS_SLOP, TOOLBAR_WIDTH};
 
-/// 竖直工具栏。`slots` 收集每个工具按钮的节点，`history_slots` 收集撤销 /
-/// 重做按钮的节点；测试与自检靠它们模拟点击（点击目标是按钮，不是标签）。
+/// 工具栏长按状态。由组按钮的 `on_pointer` 写，`EditorView::update` 轮询。
+#[derive(Debug, Clone, Copy, Default)]
+pub enum LongPress {
+    #[default]
+    Idle,
+    /// 已按下、还在等阈值。`moved` 为真表示指针移动超过容差、不再算长按。
+    Pending {
+        group: usize,
+        start: Instant,
+        origin: Vec2,
+        moved: bool,
+    },
+    /// 已展开浮层；松手时不要再当短按激活。
+    Fired,
+}
+
+/// 工具栏的共享接线（回调拿不到 `&mut EditorView`，都走共享格）。
+pub struct ToolbarWiring {
+    pub state: Rc<RefCell<AppState>>,
+    pub message: Rc<RefCell<Option<String>>>,
+    pub icons: Rc<IconSet>,
+    /// 每个组的「脸」工具，下标对应 [`TOOL_GROUPS`]。
+    pub faces: Vec<Rc<Cell<ActiveTool>>>,
+    pub long_press: Rc<RefCell<LongPress>>,
+    /// 工具激活请求（短按 / 浮层选中都写它）。
+    pub request: Rc<Cell<Option<ActiveTool>>>,
+}
+
+/// 竖直工具栏。`group_slots` / `label_slots` 收集每个组按钮与其标签的节点，
+/// `history_slots` 收集撤销 / 重做按钮；测试与自检靠它们模拟点击。
 pub fn tool_bar(
     theme: &'static dyn Theme,
-    state: Rc<RefCell<AppState>>,
-    message: Rc<RefCell<Option<String>>>,
-    icons: Rc<IconSet>,
-    slots: &mut Vec<(ActiveTool, NodeRef)>,
+    wiring: ToolbarWiring,
+    group_slots: &mut Vec<NodeRef>,
+    label_slots: &mut Vec<NodeRef>,
     history_slots: &mut Vec<(HistoryAction, NodeRef)>,
 ) -> impl Component {
     let mut bar = Flex::column()
@@ -33,15 +70,24 @@ pub fn tool_bar(
         .shrink(0.0)
         .background(theme.surface(SurfaceLevel::Surface))
         .mouse_filter(MouseFilter::Ignore);
-    for tool in ActiveTool::ALL {
-        let slot = NodeRef::new();
-        slots.push((tool, slot.clone()));
-        bar = bar.child(tool_button(
+    for (index, group) in TOOL_GROUPS.iter().enumerate() {
+        let button_slot = NodeRef::new();
+        let label_slot = NodeRef::new();
+        group_slots.push(button_slot.clone());
+        label_slots.push(label_slot.clone());
+        let face = wiring
+            .faces
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| Rc::new(Cell::new(group.face())));
+        bar = bar.child(group_button(
             theme,
-            tool,
-            state.clone(),
-            icons.clone(),
-            &slot,
+            *group,
+            index,
+            &wiring,
+            face,
+            &button_slot,
+            &label_slot,
         ));
     }
     bar = bar.child(Divider::horizontal(theme));
@@ -51,35 +97,81 @@ pub fn tool_bar(
         bar = bar.child(history_button(
             theme,
             action,
-            state.clone(),
-            message.clone(),
-            icons.clone(),
+            wiring.state.clone(),
+            wiring.message.clone(),
+            wiring.icons.clone(),
             &slot,
         ));
     }
     bar
 }
 
-/// 一个工具按钮：图标 + 点击写入激活工具；激活时高亮，悬停时给一点反馈。
-fn tool_button(
+/// 一个组按钮：动态画脸图标（+ 可展开小三角）、短按激活脸、长按记录手势。
+fn group_button(
     theme: &'static dyn Theme,
-    tool: ActiveTool,
-    state: Rc<RefCell<AppState>>,
-    icons: Rc<IconSet>,
-    slot: &NodeRef,
+    group: ToolGroup,
+    index: usize,
+    wiring: &ToolbarWiring,
+    face: Rc<Cell<ActiveTool>>,
+    button_slot: &NodeRef,
+    label_slot: &NodeRef,
 ) -> impl Component {
-    let click_state = state.clone();
+    let color = theme.palette().foreground;
+    let icons = wiring.icons.clone();
+    let press = wiring.long_press.clone();
+    let request = wiring.request.clone();
+    let click_face = face.clone();
+    let highlight_state = wiring.state.clone();
+    let expandable = !group.is_single();
+
     let button = Button::ghost("", theme)
         .min_size(32.0, 28.0)
-        .child(
-            Icon::new(icons, tool.icon(), theme.palette().foreground, TOOLBAR_ICON)
-                .min_size(12.0, 12.0),
-        )
-        .on_click(move |_tree, _id| {
-            click_state.borrow_mut().active_tool = tool;
+        .foreground(move |ctx, rect, _| {
+            if let Some(document) = icons.document(face.get().icon()) {
+                let icon = Rect::from_center_size(rect.center(), Size::splat(TOOLBAR_ICON));
+                document.draw(ctx, icon, color);
+            }
+            if expandable {
+                // 右下角一个小三角，提示「可长按展开」。
+                let point = |dx: f32, dy: f32| Vec2::new(rect.right() - dx, rect.bottom() - dy);
+                let (a, b, c) = (point(6.0, 1.5), point(1.5, 1.5), point(1.5, 6.0));
+                ctx.draw_line(a, b, 1.0, color);
+                ctx.draw_line(b, c, 1.0, color);
+                ctx.draw_line(c, a, 1.0, color);
+            }
+        })
+        .on_pointer(move |_tree, _id, phase, _rect, point| {
+            let mut state = press.borrow_mut();
+            match phase {
+                PointerPhase::Down => {
+                    *state = LongPress::Pending {
+                        group: index,
+                        start: Instant::now(),
+                        origin: point,
+                        moved: false,
+                    };
+                }
+                PointerPhase::Move => {
+                    if let LongPress::Pending { origin, moved, .. } = &mut *state {
+                        if (point - *origin).length() > LONG_PRESS_SLOP {
+                            *moved = true;
+                        }
+                    }
+                }
+                PointerPhase::Up => {
+                    let was_pending = matches!(*state, LongPress::Pending { .. });
+                    *state = LongPress::Idle;
+                    // 长按已展开浮层时，这次松手不算短按。
+                    if was_pending {
+                        request.set(Some(click_face.get()));
+                    }
+                }
+                PointerPhase::DoubleClick => {}
+            }
         })
         .dynamic_background(move |interact| {
-            if state.borrow().active_tool == tool {
+            let active = group.contains(highlight_state.borrow().active_tool);
+            if active {
                 SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
             } else if interact.hovered || interact.pressed {
                 SurfaceStyle::new(theme.palette().surface_hover).radius(radius::SM)
@@ -87,8 +179,15 @@ fn tool_button(
                 SurfaceStyle::new(Color::TRANSPARENT)
             }
         })
-        .ref_(slot);
-    labeled(theme, tool.short_label(), button)
+        .ref_(button_slot);
+
+    Flex::column()
+        .gap(0.0)
+        .padding(Edges::ZERO)
+        .align(Align::Center)
+        .mouse_filter(MouseFilter::Ignore)
+        .child(button)
+        .child(Text::caption(group.face().short_label(), theme).ref_(label_slot))
 }
 
 /// 撤销 / 重做按钮：图标 + 写共享状态里的 `History`，并把结果写到状态栏提示。
@@ -122,23 +221,125 @@ fn history_button(
             });
         })
         .ref_(slot);
-    labeled(theme, action.label(), button)
-}
-
-/// 把「图标按钮 + 小字标签」竖着摞起来。
-///
-/// `Flex` 默认带 16px 内边距（和一个 8px gap），这里必须清零，否则每个入口
-/// 会比内容高 32px，工具栏会显得很空。
-fn labeled(
-    theme: &'static dyn Theme,
-    caption: &str,
-    button: impl Component + 'static,
-) -> impl Component {
     Flex::column()
         .gap(0.0)
         .padding(Edges::ZERO)
         .align(Align::Center)
         .mouse_filter(MouseFilter::Ignore)
         .child(button)
-        .child(Text::caption(caption, theme))
+        .child(Text::caption(action.label(), theme))
+}
+
+/// 长按展开的工具浮层：一列「图标 + 文字」行，点一行切工具。
+pub fn tool_flyout_content(
+    tree: &mut SceneTree,
+    root: NodeId,
+    theme: &'static dyn Theme,
+    group: usize,
+    state: Rc<RefCell<AppState>>,
+    icons: Rc<IconSet>,
+    request: Rc<Cell<Option<ActiveTool>>>,
+) {
+    let Some(group) = TOOL_GROUPS.get(group) else {
+        return;
+    };
+    let mut column = Flex::column()
+        .gap(space::XXXS)
+        .padding(Edges::ZERO)
+        .mouse_filter(MouseFilter::Ignore);
+    for &tool in group.tools {
+        column = column.child(flyout_row(
+            theme,
+            tool,
+            state.clone(),
+            icons.clone(),
+            request.clone(),
+        ));
+    }
+    tree.add_child(root, column);
+}
+
+/// 浮层里的一行：图标 + 标签，当前工具高亮。
+fn flyout_row(
+    theme: &'static dyn Theme,
+    tool: ActiveTool,
+    state: Rc<RefCell<AppState>>,
+    icons: Rc<IconSet>,
+    request: Rc<Cell<Option<ActiveTool>>>,
+) -> impl Component {
+    let highlight_state = state.clone();
+    let click_request = request.clone();
+    Button::ghost("", theme)
+        .min_size(140.0, 28.0)
+        .child(
+            Flex::row()
+                .align(Align::Center)
+                .gap(space::SM)
+                .padding(Edges::ZERO)
+                .mouse_filter(MouseFilter::Ignore)
+                .child(Icon::new(
+                    icons,
+                    tool.icon(),
+                    theme.palette().foreground,
+                    TOOLBAR_ICON,
+                ))
+                .child(Text::small(tool.short_label(), theme)),
+        )
+        .on_click(move |_tree, _id| click_request.set(Some(tool)))
+        .dynamic_background(move |interact| {
+            let active = highlight_state.borrow().active_tool == tool;
+            if active {
+                SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
+            } else if interact.hovered || interact.pressed {
+                SurfaceStyle::new(theme.palette().surface_hover).radius(radius::SM)
+            } else {
+                SurfaceStyle::new(Color::TRANSPARENT)
+            }
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use igui_core::{InputEvent, PointerButton, ViewportSize};
+
+    fn click(tree: &mut SceneTree, position: Vec2) {
+        igui_ui::handle_input(
+            tree,
+            &InputEvent::PointerDown {
+                position,
+                button: PointerButton::Left,
+            },
+        );
+        igui_ui::handle_input(
+            tree,
+            &InputEvent::PointerUp {
+                position,
+                button: PointerButton::Left,
+            },
+        );
+        tree.update();
+    }
+
+    /// 浮层里点一行会写工具请求。
+    #[test]
+    fn clicking_a_flyout_row_requests_that_tool() {
+        let theme = crate::theme::editor_theme(false);
+        let state = Rc::new(RefCell::new(AppState::default()));
+        let icons = Rc::new(IconSet::load());
+        let request: Rc<Cell<Option<ActiveTool>>> = Rc::new(Cell::new(None));
+
+        let mut tree = SceneTree::new();
+        let root = tree.root();
+        let row = flyout_row(theme, ActiveTool::Eraser, state, icons, request.clone())
+            .build(&mut tree, root);
+        let viewport = ViewportSize::new(Size::new(220.0, 60.0));
+        tree.set_viewport_size(viewport.logical_size());
+        igui_ui::layout(&mut tree, viewport);
+        tree.update();
+
+        let center = igui_ui::control(&tree, row).expect("浮层行").rect.center();
+        click(&mut tree, center);
+        assert_eq!(request.get(), Some(ActiveTool::Eraser));
+    }
 }

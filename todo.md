@@ -110,6 +110,12 @@
 
 ## Done（近期）
 
+- **工具栏分组 + 长按展开**（`app/tool_groups.rs` + `ui/toolbar.rs`）：9 个工具
+  收成 5 个组按钮（移动 / 画笔 / 选区 / 填充 / 吸管），组按钮画当前「脸」的
+  图标 + 标签（图标用 `foreground` 动态画）+ 右下小三角；短按激活脸，长按
+  （350ms / 6px 容差）用 `Overlays::popover(Placement::Right)` 展开浮层选工具；
+  快捷键 / 浮层选中的工具会更新所属组的脸。等阈值期间 `EditorView::needs_frame`
+  为 true，宿主持续出帧。
 - **画布内容裁剪 + 去重复绘制**：v0.3.0 单树模型下 `igui_ui::paint` 会再画一遍世界
   canvas item，文档原来挂成场景 `Node2D`，第二遍落在所有 UI 之上。改成
   `EditorView::paint` 先 `clip_rect(canvas_area)`，手动按相机画文档图像 + 像素

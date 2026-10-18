@@ -43,9 +43,11 @@ pub use tabs::SidebarTab;
 use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
+use std::time::Duration;
 
 use igui_components::{
-    set_text, update_control, Component, Divider, Flex, ListState, NodeRef, Overlays, ResizeHandle,
+    set_text, update_control, Component, Divider, Flex, ListState, NodeRef, Overlays, Placement,
+    ResizeHandle,
 };
 use igui_core::{
     Edges, EventResult, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize,
@@ -56,6 +58,7 @@ use igui_theme::{space, Theme};
 use igui_ui::{MouseFilter, SizeBasis, TextMeasurer};
 
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
+use crate::app::tool_groups::{group_index, TOOL_GROUPS};
 use crate::canvas::{
     document_to_pixel, paint_backdrop, pixel_selection, screen_to_document, CanvasCamera,
     Selection, DOCUMENT_TEXTURE,
@@ -74,6 +77,10 @@ use crate::ui::tabs::TabsView;
 
 /// 工具栏宽度（逻辑像素）。
 const TOOLBAR_WIDTH: f32 = 52.0;
+/// 工具栏长按展开的阈值（毫秒）。
+const LONG_PRESS_MS: u64 = 350;
+/// 长按期间允许的指针移动容差（逻辑像素）；超过就当拖动、不展开。
+pub const LONG_PRESS_SLOP: f32 = 6.0;
 /// 左侧调色盘面板的宽度（可拖）。
 const PALETTE_WIDTH: f32 = 172.0;
 const PALETTE_MIN: f32 = 156.0;
@@ -138,8 +145,21 @@ pub struct EditorView {
     tool_label: NodeId,
     zoom_label: NodeId,
     message_label: NodeId,
-    /// 工具按钮节点。测试与自检靠它真的点一下。
-    tool_nodes: Vec<(ActiveTool, NodeId)>,
+    /// 分组工具按钮 / 标签节点（下标对应 `TOOL_GROUPS`）。
+    tool_group_nodes: Vec<NodeId>,
+    tool_face_labels: Vec<NodeId>,
+    /// 每个组的「脸」工具（长按展开 / 快捷键都会更新它）。
+    tool_faces: Vec<Rc<Cell<ActiveTool>>>,
+    /// 工具栏长按状态（组按钮写、`update` 轮询）。
+    long_press: Rc<RefCell<toolbar::LongPress>>,
+    /// 工具激活请求（短按 / 浮层选中）。
+    tool_request: Rc<Cell<Option<ActiveTool>>>,
+    /// 当前展开的工具浮层属于哪个组；没展开为 `None`。
+    open_tool_group: Cell<Option<usize>>,
+    /// 长按阈值（测试可调，默认 [`LONG_PRESS_MS`]）。
+    long_press_threshold: Duration,
+    /// 图标包（长按浮层打开时还要用它画行图标）。
+    icons: Rc<IconSet>,
     /// 撤销 / 重做按钮节点（Phase 6）。
     history_nodes: Vec<(HistoryAction, NodeId)>,
     palette_nodes: Vec<NodeId>,
@@ -286,17 +306,31 @@ impl EditorView {
             &mut file_refs,
         );
 
-        let mut tool_refs: Vec<(ActiveTool, NodeRef)> = Vec::new();
+        let mut group_refs: Vec<NodeRef> = Vec::new();
+        let mut label_refs: Vec<NodeRef> = Vec::new();
         let mut history_refs: Vec<(HistoryAction, NodeRef)> = Vec::new();
         let mut palette_refs: Vec<NodeRef> = Vec::new();
         // 图标包只加载一次；工具栏的按钮在构建时就把 `Icon` 子组件搭进去。
         let icons = Rc::new(IconSet::load());
+        let tool_faces: Vec<Rc<Cell<ActiveTool>>> = TOOL_GROUPS
+            .iter()
+            .map(|group| Rc::new(Cell::new(group.face())))
+            .collect();
+        let long_press: Rc<RefCell<toolbar::LongPress>> =
+            Rc::new(RefCell::new(toolbar::LongPress::Idle));
+        let tool_request: Rc<Cell<Option<ActiveTool>>> = Rc::new(Cell::new(None));
         let toolbar = toolbar::tool_bar(
             theme,
-            state.clone(),
-            message.clone(),
-            icons.clone(),
-            &mut tool_refs,
+            toolbar::ToolbarWiring {
+                state: state.clone(),
+                message: message.clone(),
+                icons: icons.clone(),
+                faces: tool_faces.clone(),
+                long_press: long_press.clone(),
+                request: tool_request.clone(),
+            },
+            &mut group_refs,
+            &mut label_refs,
             &mut history_refs,
         );
         let palette_panel = palette::palette_panel(
@@ -482,9 +516,13 @@ impl EditorView {
             .child(page)
             .into_tree();
 
-        let tool_nodes: Vec<(ActiveTool, NodeId)> = tool_refs
-            .into_iter()
-            .map(|(tool, slot)| (tool, slot.get().expect("tool button mounted")))
+        let tool_group_nodes: Vec<NodeId> = group_refs
+            .iter()
+            .map(|slot| slot.get().expect("tool group button mounted"))
+            .collect();
+        let tool_face_labels: Vec<NodeId> = label_refs
+            .iter()
+            .map(|slot| slot.get().expect("tool face label mounted"))
             .collect();
         let history_nodes: Vec<(HistoryAction, NodeId)> = history_refs
             .into_iter()
@@ -539,7 +577,14 @@ impl EditorView {
             tool_label: refs.tool.get().expect("tool label mounted"),
             zoom_label: refs.zoom.get().expect("zoom label mounted"),
             message_label: refs.message.get().expect("message label mounted"),
-            tool_nodes,
+            tool_group_nodes,
+            tool_face_labels,
+            tool_faces,
+            long_press,
+            tool_request,
+            open_tool_group: Cell::new(None),
+            long_press_threshold: Duration::from_millis(LONG_PRESS_MS),
+            icons,
             history_nodes,
             palette_nodes,
             file_nodes,
@@ -684,9 +729,18 @@ impl EditorView {
         if let Some(index) = self.menu_request.take() {
             self.open_menu(index);
         }
-        // Esc / 点外部已经关掉了菜单时，清掉记录的下标。
+        // 工具栏：长按展开浮层、处理工具激活请求、同步组的「脸」。
+        self.poll_long_press();
+        if let Some(tool) = self.tool_request.take() {
+            self.state.borrow_mut().active_tool = tool;
+            self.overlays.close_all();
+            self.open_tool_group.set(None);
+        }
+        self.sync_tool_faces();
+        // Esc / 点外部已经关掉了菜单 / 浮层时，清掉记录。
         if self.overlays.is_empty() {
             self.open_menu.set(None);
+            self.open_tool_group.set(None);
         }
         if self.renaming.is_some() {
             self.sync_rename_status();
@@ -948,6 +1002,7 @@ impl EditorView {
             return;
         };
         self.overlays.close_all();
+        self.open_tool_group.set(None);
         let theme = self.theme;
         let action = self.menu_action.clone();
         let (can_undo, can_redo, has_selection) = {
@@ -971,6 +1026,69 @@ impl EditorView {
             );
         });
         self.open_menu.set(Some(index));
+    }
+
+    /// 长按到阈值就展开对应组的工具浮层。
+    fn poll_long_press(&mut self) {
+        let group = {
+            let state = self.long_press.borrow();
+            match &*state {
+                toolbar::LongPress::Pending {
+                    group,
+                    start,
+                    moved,
+                    ..
+                } if !*moved && start.elapsed() >= self.long_press_threshold => Some(*group),
+                _ => None,
+            }
+        };
+        if let Some(group) = group {
+            *self.long_press.borrow_mut() = toolbar::LongPress::Fired;
+            self.open_tool_flyout(group);
+        }
+    }
+
+    /// 展开某个组的工具浮层（向右锚在组按钮上）。
+    fn open_tool_flyout(&mut self, group: usize) {
+        let Some(&anchor) = self.tool_group_nodes.get(group) else {
+            return;
+        };
+        self.overlays.close_all();
+        self.open_menu.set(None);
+        let theme = self.theme;
+        let state = self.state.clone();
+        let icons = self.icons.clone();
+        let request = self.tool_request.clone();
+        self.overlays
+            .popover(anchor, Placement::Right, move |tree, root| {
+                toolbar::tool_flyout_content(
+                    tree,
+                    root,
+                    theme,
+                    group,
+                    state.clone(),
+                    icons.clone(),
+                    request.clone(),
+                );
+            });
+        self.open_tool_group.set(Some(group));
+    }
+
+    /// 当前工具属于哪个组，就把那个组的「脸」更新成它；标签跟着改。
+    fn sync_tool_faces(&mut self) {
+        let active = self.state.borrow().active_tool;
+        for (index, group) in TOOL_GROUPS.iter().enumerate() {
+            if group.contains(active) {
+                if let Some(face) = self.tool_faces.get(index) {
+                    face.set(active);
+                }
+            }
+            if let (Some(face), Some(&label)) =
+                (self.tool_faces.get(index), self.tool_face_labels.get(index))
+            {
+                set_text(&mut self.tree, label, face.get().short_label());
+            }
+        }
     }
 
     /// 执行一个菜单动作（[`EditorView::update`] 在关闭菜单后调用）。
@@ -1925,18 +2043,50 @@ impl EditorView {
         self.icon_count
     }
 
-    /// 工具按钮的中心点（逻辑坐标）。测试与自检用它模拟一次真实点击。
+    /// 工具所在**组按钮**的中心点（逻辑坐标）。测试与自检用它模拟一次真实点击；
+    /// 短按组按钮激活的是该组当前的「脸」。
     pub fn tool_center(&self, tool: ActiveTool) -> Option<Vec2> {
         let id = self.tool_node(tool)?;
         igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
-    /// 工具按钮的节点 id。
+    /// 工具所在组按钮的节点 id。
     pub fn tool_node(&self, tool: ActiveTool) -> Option<NodeId> {
-        self.tool_nodes
-            .iter()
-            .find(|(candidate, _)| *candidate == tool)
-            .map(|(_, id)| *id)
+        let group = group_index(tool)?;
+        self.tool_group_nodes.get(group).copied()
+    }
+
+    /// 某个组按钮的中心点（下标对应 `TOOL_GROUPS`）。
+    #[cfg(test)]
+    pub fn tool_group_center(&self, group: usize) -> Option<Vec2> {
+        let id = *self.tool_group_nodes.get(group)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 某个组当前的「脸」工具（测试 / 自检）。
+    #[cfg(test)]
+    pub fn tool_face(&self, group: usize) -> Option<ActiveTool> {
+        self.tool_faces.get(group).map(|face| face.get())
+    }
+
+    /// 当前展开的工具浮层属于哪个组。
+    #[cfg(test)]
+    pub fn tool_flyout_open(&self) -> Option<usize> {
+        self.open_tool_group.get()
+    }
+
+    /// 编辑器是否在等长按阈值（宿主据此持续出帧）。
+    pub fn needs_frame(&self) -> bool {
+        matches!(
+            &*self.long_press.borrow(),
+            toolbar::LongPress::Pending { .. }
+        )
+    }
+
+    /// 测试：把长按阈值改成 `ms`（0 = 下一帧就展开，大值 = 当作短按）。
+    #[cfg(test)]
+    pub fn set_long_press_ms(&mut self, ms: u64) {
+        self.long_press_threshold = Duration::from_millis(ms);
     }
 
     /// 撤销 / 重做按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
@@ -2295,10 +2445,21 @@ mod tests {
     }
 
     #[test]
-    fn clicking_a_tool_button_selects_it() {
+    fn clicking_a_group_button_activates_its_face() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        let center = view.tool_center(ActiveTool::Eraser).expect("eraser button");
+        // 默认脸是画笔：点组按钮激活画笔。
+        let center = view.tool_center(ActiveTool::Brush).expect("brush group");
+        click(&mut view, center);
+        view.update();
+        assert_eq!(view.active_tool(), ActiveTool::Brush);
+
+        // 按 E 选橡皮，脸跟着变；再点同一个组按钮就激活橡皮。
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('e'),
+        });
+        view.update();
+        assert_eq!(view.tool_face(1), Some(ActiveTool::Eraser));
         click(&mut view, center);
         view.update();
         assert_eq!(view.active_tool(), ActiveTool::Eraser);
@@ -2996,8 +3157,12 @@ mod tests {
     fn the_eraser_clears_instead_of_painting() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        // 走真实路径：点工具栏的橡皮按钮（不是快捷键）。
-        let eraser = view.tool_center(ActiveTool::Eraser).expect("eraser button");
+        // 走真实路径：先按 E 选橡皮（脸跟着变），再点工具栏的画笔组按钮。
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('e'),
+        });
+        view.update();
+        let eraser = view.tool_center(ActiveTool::Eraser).expect("brush group");
         view.event(&InputEvent::PointerDown {
             position: eraser,
             button: PointerButton::Left,
@@ -3053,8 +3218,12 @@ mod tests {
             "画笔应在 (64,64) 留下黑色"
         );
 
-        // 点工具栏的橡皮，再在同一位置擦一下。
-        let eraser = view.tool_center(ActiveTool::Eraser).expect("eraser button");
+        // 先按 E 选橡皮（脸跟着变），再点工具栏的画笔组按钮。
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('e'),
+        });
+        view.update();
+        let eraser = view.tool_center(ActiveTool::Eraser).expect("brush group");
         view.event(&InputEvent::PointerDown {
             position: eraser,
             button: PointerButton::Left,
@@ -3197,13 +3366,75 @@ mod tests {
     fn the_toolbar_packs_its_buttons_tightly() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        let first = view.tool_center(ActiveTool::ALL[0]).expect("first tool");
+        let first = view.tool_group_center(0).expect("first group");
         let last = view
-            .tool_center(*ActiveTool::ALL.last().unwrap())
-            .expect("last tool");
-        let pitch = (last.y - first.y) / (ActiveTool::ALL.len() - 1) as f32;
+            .tool_group_center(TOOL_GROUPS.len() - 1)
+            .expect("last group");
+        let pitch = (last.y - first.y) / (TOOL_GROUPS.len() - 1) as f32;
         // `Flex` 默认带 16px 内边距；忘记清零会让每一项高 32px、间距翻倍。
         assert!(pitch < 60.0, "工具栏每一项的间距应紧凑，实际 {pitch:.1}px");
+    }
+
+    /// 快捷键选中组内工具后，组的「脸」跟着更新（组按钮图标 / 标签同步）。
+    #[test]
+    fn a_shortcut_updates_the_group_face() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        assert_eq!(view.tool_face(1), Some(ActiveTool::Brush));
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('e'),
+        });
+        view.update();
+        assert_eq!(view.tool_face(1), Some(ActiveTool::Eraser));
+        assert_eq!(view.tool_face(2), Some(ActiveTool::RectangleSelect));
+    }
+
+    /// 长按组按钮展开工具浮层；短按不展开。
+    #[test]
+    fn a_long_press_opens_the_tool_flyout() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.set_long_press_ms(0);
+        view.layout(viewport());
+        let center = view.tool_center(ActiveTool::Brush).expect("brush group");
+
+        view.event(&InputEvent::PointerDown {
+            position: center,
+            button: PointerButton::Left,
+        });
+        view.update();
+        assert_eq!(view.tool_flyout_open(), Some(1), "长按应展开画笔组浮层");
+        assert!(!view.needs_frame(), "展开后不再需要持续出帧");
+
+        // 松手不算短按，不会切工具。
+        view.event(&InputEvent::PointerUp {
+            position: center,
+            button: PointerButton::Left,
+        });
+        view.update();
+        assert_eq!(view.active_tool(), ActiveTool::Brush);
+    }
+
+    /// 没到阈值的短按只激活脸，不展开浮层。
+    #[test]
+    fn a_short_click_does_not_open_the_tool_flyout() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.set_long_press_ms(10_000);
+        view.layout(viewport());
+        let center = view.tool_center(ActiveTool::Brush).expect("brush group");
+        view.event(&InputEvent::PointerDown {
+            position: center,
+            button: PointerButton::Left,
+        });
+        view.update();
+        assert_eq!(view.tool_flyout_open(), None);
+        assert!(view.needs_frame(), "等阈值时应持续出帧");
+        view.event(&InputEvent::PointerUp {
+            position: center,
+            button: PointerButton::Left,
+        });
+        view.update();
+        assert_eq!(view.tool_flyout_open(), None);
+        assert_eq!(view.active_tool(), ActiveTool::Brush);
     }
 
     // -- Phase 7：导入导出 --------------------------------------------------

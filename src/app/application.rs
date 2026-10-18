@@ -299,6 +299,11 @@ impl AppLogic for ImageEditorLogic {
             modal.paint(paint);
         }
     }
+
+    /// 编辑器在等工具栏长按阈值时要持续出帧（winit 侧靠它 `request_redraw`）。
+    fn needs_frame(&self) -> bool {
+        matches!(&self.screen, Screen::Editor(editor) if editor.needs_frame())
+    }
 }
 
 /// Ctrl/Cmd+Z 撤销、Shift+Ctrl/Cmd+Z（或 Ctrl+Y）重做；命中返回 `true`。

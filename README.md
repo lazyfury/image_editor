@@ -189,11 +189,12 @@ Phase 10/11 和性能收尾），README 只留功能说明。要点：
 ## 结构
 
 ```text
-assets/icons/            # vendor 的 7 个 Lucide 图标（工具栏用）+ ISC LICENSE
+assets/icons/            # vendor 的 11 个 Lucide 图标（工具栏用）+ ISC LICENSE
 src/
 ├── main.rs              # 参数解析
 ├── app/
 │   ├── state.rs         # ActiveTool / CanvasCamera / AppState（纯数据）
+│   ├── tool_groups.rs   # 工具栏分组（组内工具 + 默认脸）
 │   └── application.rs   # winit + wgpu 宿主（滚轮 -> Wheel、纹理上传）
 ├── icons.rs             # Lucide 图标包加载 + `Icon` 组件（igui_svg）
 ├── document/            # Phase 2：后端无关的数据模型
@@ -230,7 +231,7 @@ src/
 │   ├── mod.rs           # EditorView：页面 + 裁剪画布绘制 + undo/redo
 │   ├── card.rs          # 项目内简单卡片（侧栏统一外观：surface + 内边距）
 │   ├── menu.rs          # 菜单栏
-│   ├── toolbar.rs       # 工具栏（工具 + 撤销/重做）
+│   ├── toolbar.rs       # 分组工具栏（长按展开切换）+ 撤销/重做
 │   ├── palette.rs       # 左侧调色盘面板（HSV 取色器 + 前景/背景 + 预设色块）
 │   ├── options_bar.rs   # 工具选项栏（笔刷大小 / 不透明度 / 提示）
 │   ├── canvas.rs        # 透明画布区域（命中 / 定位用）
@@ -312,13 +313,28 @@ Phase 6 起还做一次**真实的撤销 / 重做往返**：画笔一笔 → 点
 
 ## 图标（Lucide，附加）
 
-工具栏的 5 个工具和撤销 / 重做各有一枚 Lucide 图标。图标是一个真正的
-`Icon` **组件**（`src/icons.rs`）：`Icon::new(icons, name, color, size)` 占
-`size × size`，在自己的矩形里居中描边；构建按钮时直接
+工具栏的 9 个工具收成 **5 个组按钮**（见下）和撤销 / 重做各一枚 Lucide 图标。
+图标是一个真正的 `Icon` **组件**（`src/icons.rs`）：`Icon::new(icons, name, color, size)`
+占 `size × size`，在自己的矩形里居中描边；构建按钮时直接
 `.child(Icon::new(..))`（见 `ui/toolbar.rs`），不用等树建好再回头挂装饰器。
 按钮本身是空的点击 / 高亮区，`Icon` 的 `mouse_filter` 是 `Ignore`，点击落到按钮上。
 当前工具用 `theme.palette().selection` 高亮（`Button` 的显式 `dynamic_background`
 会覆盖 variant 的默认背景）。
+
+### 分组工具栏（长按展开）
+
+`ActiveTool` 的 9 个工具按 [`app::tool_groups`](src/app/tool_groups.rs) 收成 5 个
+组按钮：移动、画笔（画笔/橡皮）、选区（框选/套索）、填充（油漆桶/矩形填充/
+自由填充）、吸管。组按钮画当前「脸」工具的图标 + 标签，右下角一个小三角表示
+可展开：
+
+- **短按**：激活脸工具（写一个请求格，`update` 统一应用）。
+- **长按**（按住 ≥ 350ms 且没移动超过 6px）：`update` 轮询长按状态，到点用
+  `Overlays::popover(.., Placement::Right, ..)` 弹出浮层，列出组内全部工具。
+- 键盘快捷键 / 浮层选中的工具会把所属组的「脸」更新成它，所以激活组的图标永远
+  等于当前工具。
+- 等长按阈值期间 `EditorView::needs_frame` 返回 true，宿主持续出帧（winit 侧
+  靠它 `request_redraw`）。
 
 描边走核心的 `igui_svg`（backend-neutral：把 SVG 描边成 IR 的 `Line` /
 `FillCircle`）——**不栅格化成纹理**，也不加额外依赖；小字标签在按钮下面。
