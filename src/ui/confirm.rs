@@ -13,7 +13,7 @@ use igui_render::PaintContext;
 use igui_theme::{space, Theme, Tone};
 use igui_ui::{MouseFilter, TextMeasurer};
 
-use super::window::Window;
+use super::window::{Window, FOOTER_BUTTON_MIN_WIDTH};
 
 /// 用户对「要不要保存」的选择。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,14 +54,17 @@ impl ConfirmDialog {
                     .mouse_filter(MouseFilter::Ignore)
                     .child(
                         Button::primary("保存", theme)
+                            .min_size(FOOTER_BUTTON_MIN_WIDTH, 0.0)
                             .on_click(move |_tree, _id| save.set(Some(ConfirmResult::Save))),
                     )
                     .child(
                         Button::secondary("不保存", theme)
+                            .min_size(FOOTER_BUTTON_MIN_WIDTH, 0.0)
                             .on_click(move |_tree, _id| discard.set(Some(ConfirmResult::Discard))),
                     )
                     .child(
                         Button::ghost("取消", theme)
+                            .min_size(FOOTER_BUTTON_MIN_WIDTH, 0.0)
                             .on_click(move |_tree, _id| cancel.set(Some(ConfirmResult::Cancel))),
                     )
                     .build(tree, footer);
@@ -110,6 +113,27 @@ mod tests {
     use igui_backend_recording::RecordingBackend;
     use igui_core::Size;
     use igui_render::{DrawCommand, RenderBackend};
+
+    /// 页脚按钮要有统一的宽度，不能跟着文字长度 / 字形宽度跑。
+    #[test]
+    fn the_footer_buttons_are_the_same_size() {
+        let theme = crate::theme::editor_theme(false);
+        let mut dialog = ConfirmDialog::new(theme, "t", "m");
+        dialog.layout(ViewportSize::new(Size::new(800.0, 600.0)));
+        let tree = dialog.window.tree();
+        // 页脚里的按钮：高 24，宽在 [40, 120]（排除外层行与关闭按钮）。
+        let sizes: Vec<Size> = tree
+            .iter()
+            .filter_map(|id| igui_ui::control(tree, id))
+            .map(|control| control.rect.size)
+            .filter(|size| (size.height - 24.0).abs() < 0.5 && (40.0..=120.0).contains(&size.width))
+            .collect();
+        assert_eq!(sizes.len(), 3, "应有三个页脚按钮：{sizes:?}");
+        assert!(
+            sizes.iter().all(|size| *size == sizes[0]),
+            "页脚按钮应一样大：{sizes:?}"
+        );
+    }
 
     /// 确认框得把三个选项都画出来（保存 / 不保存 / 取消）。
     #[test]

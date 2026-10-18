@@ -19,7 +19,7 @@ use igui_scene::SceneTree;
 use igui_theme::{radius, space, TextSize, Theme, Tone};
 use igui_ui::{Align, Justify, MouseFilter, SurfaceStyle, TextMeasurer};
 
-use super::window::Window;
+use super::window::{Window, FOOTER_BUTTON_MIN_WIDTH};
 use crate::canvas::{CHECKER_DARK, CHECKER_LIGHT};
 use crate::document::Color;
 
@@ -300,6 +300,7 @@ fn build_content(
         .mouse_filter(MouseFilter::Ignore)
         .child(
             Button::secondary("取消", theme)
+                .min_size(FOOTER_BUTTON_MIN_WIDTH, 0.0)
                 .on_click(move |_tree, _id| {
                     cancel_result.set(Some(NewDocumentResult::Cancel));
                 })
@@ -307,6 +308,7 @@ fn build_content(
         )
         .child(
             Button::primary("创建", theme)
+                .min_size(FOOTER_BUTTON_MIN_WIDTH, 0.0)
                 .on_click(move |_tree, _id| {
                     create_result.set(Some(NewDocumentResult::Create(*create_choices.borrow())));
                 })
@@ -516,6 +518,21 @@ mod tests {
         let mut modal = NewDocumentModal::new(crate::theme::editor_theme(false));
         modal.layout(viewport());
         modal
+    }
+
+    /// 页脚按钮要有统一的宽度（创建 / 取消一样大）。
+    #[test]
+    fn the_footer_buttons_are_the_same_size() {
+        let modal = modal();
+        let tree = modal.window.tree();
+        let size_of = |slot: &Cell<Option<NodeId>>| {
+            let id = slot.get().expect("页脚按钮已挂载");
+            igui_ui::control(tree, id).map(|control| control.rect.size)
+        };
+        let create = size_of(&modal.nodes.create).expect("创建按钮 rect");
+        let cancel = size_of(&modal.nodes.cancel).expect("取消按钮 rect");
+        assert_eq!(create, cancel, "创建 / 取消按钮应一样大");
+        assert!(create.width >= FOOTER_BUTTON_MIN_WIDTH, "size = {create:?}");
     }
 
     fn click(modal: &mut NewDocumentModal, position: Vec2) {

@@ -40,6 +40,9 @@ const TITLE_PADDING_X: f32 = 12.0;
 const CLOSE_BUTTON: f32 = 34.0;
 /// 关闭按钮悬停时的底色（Windows 风格的红）。
 const CLOSE_HOVER: Color = Color::new(0.86, 0.22, 0.20, 1.0);
+/// 页脚按钮的最小宽度：让「保存 / 不保存 / 取消」看起来一样大
+/// （否则宽度会跟着文字长度与字形宽度跑，长短不一）。
+pub const FOOTER_BUTTON_MIN_WIDTH: f32 = 72.0;
 /// 模态遮罩。
 const SCRIM: Color = Color::new(0.0, 0.0, 0.0, 0.35);
 
