@@ -83,6 +83,12 @@ impl ConfirmDialog {
         self.result.take()
     }
 
+    /// 测试用：直接设一个结果（模拟点了某个按钮）。
+    #[cfg(test)]
+    pub(crate) fn choose(&self, result: ConfirmResult) {
+        self.result.set(Some(result));
+    }
+
     /// 关窗口按钮 / Esc / 点窗口外（等同于取消）；取走一次。
     pub fn take_close_request(&self) -> bool {
         self.window.take_close_request()
@@ -98,5 +104,45 @@ impl ConfirmDialog {
 
     pub fn paint(&self, ctx: &mut PaintContext) {
         self.window.paint(ctx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use igui_backend_recording::RecordingBackend;
+    use igui_core::Size;
+    use igui_render::{DrawCommand, RenderBackend};
+
+    /// 确认框得把三个选项都画出来（保存 / 不保存 / 取消）。
+    #[test]
+    fn the_dialog_shows_save_discard_and_cancel() {
+        let theme = crate::theme::editor_theme(false);
+        let mut dialog = ConfirmDialog::new(theme, "未保存的改动", "要保存吗？");
+        let viewport = ViewportSize::new(Size::new(800.0, 600.0));
+        dialog.layout(viewport);
+
+        let mut backend = RecordingBackend::new();
+        backend.begin_frame(viewport).expect("begin frame");
+        let mut ctx = PaintContext::new();
+        dialog.paint(&mut ctx);
+        backend.submit(&ctx.into_draw_list()).expect("submit frame");
+        backend.end_frame().expect("end frame");
+        let frame = backend.last_frame().expect("a frame was recorded").clone();
+
+        let texts: Vec<String> = frame
+            .commands()
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::DrawText { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        for label in ["保存", "不保存", "取消"] {
+            assert!(
+                texts.iter().any(|text| text.contains(label)),
+                "确认框应显示「{label}」"
+            );
+        }
     }
 }

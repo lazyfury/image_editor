@@ -538,22 +538,22 @@ impl ImageEditorLogic {
     }
 
     /// 确认框出结果（或被动关闭）后收尾。
+    /// 确认框出结果（或被动关闭）后收尾；用户还没点就保持打开。
     fn finish_confirm(&mut self) {
         let Some(confirm) = self.confirm.as_ref() else {
             return;
         };
         let result = confirm.take_result();
         let closed = confirm.take_close_request();
-        let index = self.pending_close;
-        self.confirm = None;
-        self.pending_close = None;
-        let Some(index) = index else {
+        // 什么都没发生（还没点）：确认框继续开着，等用户选。
+        let Some(outcome) = resolve_confirm(result, closed) else {
             return;
         };
-        let outcome = result.unwrap_or(ConfirmResult::Cancel);
-        if closed && result.is_none() {
+        let Some(index) = self.pending_close else {
             return;
-        }
+        };
+        self.confirm = None;
+        self.pending_close = None;
         match outcome {
             ConfirmResult::Save => {
                 if self.save_workspace_at(index, false) {
@@ -816,6 +816,16 @@ impl AppLogic for ImageEditorLogic {
                 .workspaces
                 .active()
                 .is_some_and(|workspace| workspace.editor.needs_frame())
+    }
+}
+
+/// 确认框的结果：点了按钮用按钮的；被动关闭（关窗口 / Esc / 点外）= 取消；
+/// 什么都没发生返回 `None`（确认框保持打开）。
+fn resolve_confirm(result: Option<ConfirmResult>, closed: bool) -> Option<ConfirmResult> {
+    match (result, closed) {
+        (Some(result), _) => Some(result),
+        (None, true) => Some(ConfirmResult::Cancel),
+        (None, false) => None,
     }
 }
 
@@ -1085,6 +1095,76 @@ mod tests {
         );
         assert!(path.exists());
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// 确认框的结果：没点按钮前保持打开，关窗口算取消。
+    #[test]
+    fn resolve_confirm_keeps_waiting_until_the_user_chooses() {
+        assert_eq!(resolve_confirm(None, false), None, "还没选：保持打开");
+        assert_eq!(
+            resolve_confirm(None, true),
+            Some(ConfirmResult::Cancel),
+            "关窗口 = 取消"
+        );
+        assert_eq!(
+            resolve_confirm(Some(ConfirmResult::Discard), false),
+            Some(ConfirmResult::Discard)
+        );
+    }
+
+    /// 把第 0 个工作区弄脏（保存 revision 与当前对不上）。
+    fn make_dirty(logic: &mut ImageEditorLogic) {
+        let workspace = logic.workspaces.get_mut(0).unwrap();
+        workspace.saved_revision = workspace.saved_revision.wrapping_add(1);
+    }
+
+    #[test]
+    fn closing_a_dirty_workspace_opens_a_confirmation_and_waits() {
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+        make_dirty(&mut logic);
+        logic.request_close(0);
+        assert!(logic.confirm.is_some(), "脏工作区关闭应先弹确认");
+        logic.finish_confirm();
+        assert!(logic.confirm.is_some(), "没点按钮时确认框不该消失");
+        assert_eq!(logic.workspaces.tabs().len(), 1, "还没关");
+    }
+
+    #[test]
+    fn discarding_closes_without_saving() {
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+        make_dirty(&mut logic);
+        logic.request_close(0);
+        logic
+            .confirm
+            .as_ref()
+            .unwrap()
+            .choose(ConfirmResult::Discard);
+        logic.finish_confirm();
+        assert!(logic.confirm.is_none(), "确认框应关闭");
+        assert!(logic.workspaces.is_empty(), "应直接丢弃并关闭");
+    }
+
+    #[test]
+    fn cancelling_keeps_the_workspace() {
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+        make_dirty(&mut logic);
+        logic.request_close(0);
+        logic
+            .confirm
+            .as_ref()
+            .unwrap()
+            .choose(ConfirmResult::Cancel);
+        logic.finish_confirm();
+        assert!(logic.confirm.is_none());
+        assert_eq!(logic.workspaces.tabs().len(), 1, "取消后工作区还在");
+    }
+
+    #[test]
+    fn a_clean_workspace_closes_without_a_confirmation() {
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+        logic.request_close(0);
+        assert!(logic.confirm.is_none(), "干净工作区不用确认");
+        assert!(logic.workspaces.is_empty(), "直接关");
     }
 
     #[test]
