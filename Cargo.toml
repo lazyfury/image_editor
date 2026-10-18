@@ -42,6 +42,29 @@ igui_backend_recording = { git = "https://github.com/lazyfury/igui", tag = "v0.3
 igui_profile = { git = "https://github.com/lazyfury/igui", tag = "v0.3.0" }
 # Structured events for the important app actions (AGENTS.md §31).
 tracing = "0.1"
+# 拖放：`igui_winit` 不转发拖放，宿主自己看 `winit::event::WindowEvent`
+# （`DroppedFile`）。版本必须和 `igui_winit` 依赖的 winit 一致，否则类型对不上。
+winit = "0.30"
+
+# 原生文件对话框：手写平台 FFI，不引第三方对话框 crate。macOS 走 AppKit 的
+# `NSOpenPanel` / `NSSavePanel`；`objc2*` 已在 winit/wgpu 的依赖树里。
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSApplication",
+    "NSOpenPanel",
+    "NSSavePanel",
+    "NSPanel",
+    "NSResponder",
+    "NSWindow",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSArray",
+    "NSString",
+    "NSURL",
+] }
 
 # 独立的桌面应用示例：不加入主 workspace，避免 winit/wgpu 影响
 # `cargo check --workspace`（跟 `examples/file_browser` 同样的取舍）。

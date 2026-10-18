@@ -17,6 +17,7 @@
 
 mod canvas;
 mod card;
+mod confirm;
 mod file_panel;
 mod gradient_editor;
 mod history_panel;
@@ -34,7 +35,7 @@ mod toolbar;
 mod window;
 mod workspace_tabs;
 
-pub use file_panel::IoAction;
+pub use confirm::{ConfirmDialog, ConfirmResult};
 pub use home::{HomeEntry, HomeOpenRequest, HomeView};
 pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
@@ -43,11 +44,32 @@ pub use options_bar::GradientAdjust;
 pub use options_bar::{BucketAdjust, BucketToggle};
 pub use tabs::SidebarTab;
 
-/// 文件面板留下的工作区保存 / 打开请求；宿主取走后做文件 IO 与工作区切换。
+/// 文件面板 / 快捷键留下的文件意图；宿主取走后弹原生对话框并执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkspaceRequest {
+pub enum FileRequest {
+    /// ⌘S：有路径直接写，没有就走另存为。
     Save,
+    /// ⌘⇧S：总是弹保存对话框。
+    SaveAs,
+    /// ⌘O：弹打开对话框（`.igui`）。
     Open,
+    /// 弹打开对话框（`.png`）→ 新图层。
+    ImportPng,
+    /// ⌘E：弹保存对话框（`.png`）。
+    ExportPng,
+}
+
+impl FileRequest {
+    /// 按钮 / 菜单标签。
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Save => "保存",
+            Self::SaveAs => "另存为…",
+            Self::Open => "打开…",
+            Self::ImportPng => "导入 PNG…",
+            Self::ExportPng => "导出 PNG…",
+        }
+    }
 }
 pub use workspace_tabs::{WorkspaceTab, WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT};
 
@@ -181,13 +203,11 @@ pub struct EditorView {
     history_nodes: Vec<(HistoryAction, NodeId)>,
     palette_nodes: Vec<NodeId>,
     /// 文件面板的按钮节点（Phase 7）。
-    file_nodes: Vec<(IoAction, NodeId)>,
-    /// 导入 / 导出的路径，文件面板与内联编辑共享。
-    path: Rc<RefCell<String>>,
-    /// 文件面板按钮留下的动作请求；`update` 取走执行。
-    io_request: Rc<Cell<Option<IoAction>>>,
-    /// 工作区保存 / 打开请求；宿主取走执行。
-    workspace_request: Rc<Cell<Option<WorkspaceRequest>>>,
+    file_nodes: Vec<(FileRequest, NodeId)>,
+    /// 文件面板 / 快捷键留下的文件意图；宿主取走执行。
+    file_request: Rc<Cell<Option<FileRequest>>>,
+    /// 当前工作区文件路径（只读展示，宿主每帧喂）。
+    workspace_path: Rc<RefCell<Option<std::path::PathBuf>>>,
     /// 菜单标题留下的“打开第几个菜单”请求；`update` 取走打开下拉。
     menu_request: Rc<Cell<Option<usize>>>,
     /// 菜单项留下的动作请求；`update` 取走执行（并关闭菜单）。
@@ -269,8 +289,6 @@ pub struct EditorView {
     /// 路径标签节点，以及上一次写入的内容（避免每帧刷文本）。
     path_label: NodeId,
     shown_path: Option<String>,
-    /// 路径内联编辑的缓冲区（`Some` = 正在编辑）。
-    path_edit: Option<String>,
     /// 图标包里索引到的图标数量（自检 / 报告用）。
     icon_count: usize,
     /// 上一次同步到状态栏的内容，避免每帧都 `set_text`。
@@ -323,28 +341,17 @@ impl EditorView {
     pub fn new(theme: &'static dyn Theme, state: AppState) -> Self {
         let refs = Refs::default();
         let document_size = (state.document.width, state.document.height);
-        let document_name = state.document.name.clone();
         let state = Rc::new(RefCell::new(state));
         let message: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-        // 默认导出到当前目录 + 文档名；用户可在文件面板里改。
-        let path: Rc<RefCell<String>> = Rc::new(RefCell::new(
-            crate::io::default_export_path(&document_name)
-                .to_string_lossy()
-                .into_owned(),
-        ));
-        let io_request: Rc<Cell<Option<IoAction>>> = Rc::new(Cell::new(None));
-        let workspace_request: Rc<Cell<Option<WorkspaceRequest>>> = Rc::new(Cell::new(None));
+        // 文件面板 / 快捷键只发意图；路径由宿主的原生对话框选。
+        let file_request: Rc<Cell<Option<FileRequest>>> = Rc::new(Cell::new(None));
+        let workspace_path: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::new(RefCell::new(None));
         let menu_request: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
         let menu_action: Rc<Cell<Option<menu::MenuAction>>> = Rc::new(Cell::new(None));
         let mut menu_refs: Vec<NodeRef> = Vec::new();
-        let mut file_refs: Vec<(IoAction, NodeRef)> = Vec::new();
-        let file_panel = file_panel::file_panel(
-            theme,
-            path.clone(),
-            io_request.clone(),
-            &refs.path,
-            &mut file_refs,
-        );
+        let mut file_refs: Vec<(FileRequest, NodeRef)> = Vec::new();
+        let file_panel =
+            file_panel::file_panel(theme, file_request.clone(), &refs.path, &mut file_refs);
 
         let mut group_refs: Vec<NodeRef> = Vec::new();
         let mut label_refs: Vec<NodeRef> = Vec::new();
@@ -590,7 +597,7 @@ impl EditorView {
             .iter()
             .map(|slot| slot.get().expect("palette swatch mounted"))
             .collect();
-        let file_nodes: Vec<(IoAction, NodeId)> = file_refs
+        let file_nodes: Vec<(FileRequest, NodeId)> = file_refs
             .into_iter()
             .map(|(action, slot)| (action, slot.get().expect("file button mounted")))
             .collect();
@@ -652,9 +659,8 @@ impl EditorView {
             history_nodes,
             palette_nodes,
             file_nodes,
-            path,
-            io_request,
-            workspace_request,
+            file_request,
+            workspace_path,
             menu_request,
             menu_action,
             menu_nodes,
@@ -714,7 +720,6 @@ impl EditorView {
             tab_contents,
             path_label: refs.path.get().expect("path label mounted"),
             shown_path: None,
-            path_edit: None,
             icon_count,
             shown: None,
             pointer: None,
@@ -780,11 +785,6 @@ impl EditorView {
 
     /// 宿主每帧调用：同步状态栏、在文档改动后刷新图层列表并标记重合成。
     pub fn update(&mut self) {
-        // 文件面板的请求先执行：导入会改文档，之后的 revision 检查会刷新
-        // 图层列表与合成。
-        if let Some(action) = self.io_request.take() {
-            self.handle_io(action);
-        }
         self.sync_status();
         self.sync_path();
         if let Some(adjust) = self.brush_request.take() {
@@ -1053,68 +1053,15 @@ impl EditorView {
 
     // -- 文件 / 路径（Phase 7） ------------------------------------------
 
-    /// 路径标签每帧同步：编辑中显示缓冲区 + 光标，否则显示当前路径。
+    /// 工作区文件路径每帧同步（只读展示）。
     fn sync_path(&mut self) {
-        let display = match &self.path_edit {
-            Some(buffer) => format!("{buffer}▌"),
-            None => self.path.borrow().clone(),
+        let display = match &*self.workspace_path.borrow() {
+            Some(path) => path.display().to_string(),
+            None => "未保存（⌘S 保存）".to_string(),
         };
         if self.shown_path.as_deref() != Some(display.as_str()) {
             set_text(&mut self.tree, self.path_label, display.clone());
             self.shown_path = Some(display);
-        }
-    }
-
-    /// 执行一个文件动作（由文件面板按钮请求触发）。
-    fn handle_io(&mut self, action: IoAction) {
-        match action {
-            IoAction::EditPath => {
-                self.renaming = None;
-                self.path_edit = Some(self.path.borrow().clone());
-                *self.message.borrow_mut() = Some("编辑路径：Enter 确认 · Esc 取消".to_string());
-            }
-            IoAction::SaveWorkspace => {
-                self.workspace_request.set(Some(WorkspaceRequest::Save));
-            }
-            IoAction::OpenWorkspace => {
-                self.workspace_request.set(Some(WorkspaceRequest::Open));
-            }
-            IoAction::Export => {
-                let path = self.io_path();
-                if path.trim().is_empty() {
-                    *self.message.borrow_mut() = Some("先点「改路径」设置导出路径".to_string());
-                    return;
-                }
-                let message = match self.export_png_to(&path) {
-                    Ok(()) => {
-                        tracing::info!(target: "image_editor", path = path.as_str(), "png_exported");
-                        format!("已导出 PNG：{path}")
-                    }
-                    Err(error) => format!("导出失败：{error}"),
-                };
-                *self.message.borrow_mut() = Some(message);
-            }
-            IoAction::Import => {
-                let path = self.io_path();
-                if path.trim().is_empty() {
-                    *self.message.borrow_mut() = Some("先点「改路径」设置导入路径".to_string());
-                    return;
-                }
-                let message = match self.import_png_from(&path) {
-                    Ok((width, height)) => {
-                        tracing::info!(
-                            target: "image_editor",
-                            path = path.as_str(),
-                            width,
-                            height,
-                            "png_imported"
-                        );
-                        format!("已导入 PNG：{path}（{width} × {height}）")
-                    }
-                    Err(error) => format!("导入失败：{error}"),
-                };
-                *self.message.borrow_mut() = Some(message);
-            }
         }
     }
 
@@ -1263,8 +1210,8 @@ impl EditorView {
             menu::MenuAction::Redo => {
                 self.redo();
             }
-            menu::MenuAction::Import => self.handle_io(IoAction::Import),
-            menu::MenuAction::Export => self.handle_io(IoAction::Export),
+            menu::MenuAction::Import => self.file_request.set(Some(FileRequest::ImportPng)),
+            menu::MenuAction::Export => self.file_request.set(Some(FileRequest::ExportPng)),
             menu::MenuAction::ZoomIn => self.apply_canvas_action(CanvasAction::ZoomIn),
             menu::MenuAction::ZoomOut => self.apply_canvas_action(CanvasAction::ZoomOut),
             menu::MenuAction::ZoomReset => self.apply_canvas_action(CanvasAction::Reset),
@@ -1311,46 +1258,6 @@ impl EditorView {
         state.execute(Box::new(CropLayerCommand::new(id, before, position)));
         self.texture_dirty = true;
         *self.message.borrow_mut() = Some("已裁到文档大小".to_string());
-    }
-
-    /// 路径编辑中的按键 / 文本输入；返回是否消费了事件。
-    fn handle_path_input(&mut self, event: &InputEvent) -> bool {
-        match event {
-            InputEvent::KeyDown { key: Key::Escape } => {
-                self.path_edit = None;
-                true
-            }
-            InputEvent::KeyDown { key: Key::Enter } => {
-                self.commit_path_edit();
-                true
-            }
-            InputEvent::KeyDown {
-                key: Key::Backspace,
-            } => {
-                if let Some(buffer) = &mut self.path_edit {
-                    buffer.pop();
-                }
-                true
-            }
-            InputEvent::TextInput { text } => {
-                if let Some(buffer) = &mut self.path_edit {
-                    buffer.extend(text.chars().filter(|ch| !ch.is_control()));
-                }
-                true
-            }
-            // 其余按键也吞掉：编辑路径时按字母不该触发工具 / 画布快捷键。
-            InputEvent::KeyDown { .. } => true,
-            _ => false,
-        }
-    }
-
-    fn commit_path_edit(&mut self) {
-        if let Some(buffer) = self.path_edit.take() {
-            let path = buffer.trim();
-            if !path.is_empty() {
-                *self.path.borrow_mut() = path.to_string();
-            }
-        }
     }
 
     /// 把当前文档合成后写成 PNG。
@@ -1585,9 +1492,6 @@ impl EditorView {
         }
         // 重命名 / 路径编辑进行中：键盘只编辑文本，不触发工具 / 画布快捷键。
         if self.renaming.is_some() && self.handle_rename_input(event) {
-            return EventResult::Handled;
-        }
-        if self.path_edit.is_some() && self.handle_path_input(event) {
             return EventResult::Handled;
         }
         match event {
@@ -2354,7 +2258,7 @@ impl EditorView {
     }
 
     /// 文件面板按钮的节点 id。
-    pub fn file_node(&self, action: IoAction) -> Option<NodeId> {
+    pub fn file_node(&self, action: FileRequest) -> Option<NodeId> {
         self.file_nodes
             .iter()
             .find(|(candidate, _)| *candidate == action)
@@ -2362,7 +2266,7 @@ impl EditorView {
     }
 
     /// 文件面板按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
-    pub fn file_center(&self, action: IoAction) -> Option<Vec2> {
+    pub fn file_center(&self, action: FileRequest) -> Option<Vec2> {
         igui_ui::control(&self.tree, self.file_node(action)?).map(|control| control.rect.center())
     }
 
@@ -2583,19 +2487,19 @@ impl EditorView {
             .map(|layer| layer.position)
     }
 
-    /// 当前的导入 / 导出路径。
-    pub fn io_path(&self) -> String {
-        self.path.borrow().clone()
+    /// 设置当前工作区文件路径（只读展示；宿主每帧调用）。
+    pub fn set_workspace_path(&mut self, path: Option<&Path>) {
+        *self.workspace_path.borrow_mut() = path.map(Path::to_path_buf);
     }
 
-    /// 设置导入 / 导出路径（测试与自检把它指到临时文件）。
-    pub fn set_io_path(&mut self, path: impl Into<String>) {
-        *self.path.borrow_mut() = path.into();
+    /// 请求一个文件动作（快捷键用）。
+    pub fn request_file(&self, request: FileRequest) {
+        self.file_request.set(Some(request));
     }
 
-    /// 文件面板留下的工作区保存 / 打开请求；取走一次。
-    pub fn take_workspace_request(&self) -> Option<WorkspaceRequest> {
-        self.workspace_request.take()
+    /// 文件面板 / 快捷键留下的意图；取走一次。
+    pub fn take_file_request(&self) -> Option<FileRequest> {
+        self.file_request.take()
     }
 
     /// 写一条状态栏提示（宿主保存 / 打开工作区后回报结果）。
@@ -3833,69 +3737,63 @@ mod tests {
         paint_a_stroke(&mut view);
 
         let path = temp_png("export");
-        view.set_io_path(path.to_string_lossy().into_owned());
-        let export = view.file_center(IoAction::Export).expect("导出按钮");
-        click(&mut view, export);
-        view.update();
+        view.export_png_to(&path.to_string_lossy())
+            .expect("导出 PNG");
 
         let exported = crate::io::read_png(&path).expect("导出的 PNG 应能解码");
         assert_eq!(exported.get_pixel(0, 0), Color::WHITE);
         assert_eq!(exported.get_pixel(64, 64), Color::BLACK);
-        assert!(label_text(&view, view.message_label).contains("已导出"));
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
-    fn importing_a_png_adds_a_layer_and_shows_a_message() {
+    fn importing_a_png_adds_a_layer() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
         let path = temp_png("import");
         crate::io::write_png(&path, &PixelBuffer::filled(2, 2, Color::RED)).unwrap();
 
         let before = view.state.borrow().document.layers.len();
-        view.set_io_path(path.to_string_lossy().into_owned());
-        let import = view.file_center(IoAction::Import).expect("导入按钮");
-        click(&mut view, import);
+        view.import_png_from(&path.to_string_lossy())
+            .expect("导入 PNG");
         view.update();
 
         assert_eq!(view.state.borrow().document.layers.len(), before + 1);
-        assert!(label_text(&view, view.message_label).contains("已导入"));
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
-    fn a_failed_export_reports_the_error_and_keeps_running() {
-        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
-        view.layout(viewport());
+    fn a_failed_export_is_an_error() {
+        let view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         let missing = std::env::temp_dir()
             .join("image_editor_definitely_missing_dir")
             .join("x.png");
-        view.set_io_path(missing.to_string_lossy().into_owned());
-        let export = view.file_center(IoAction::Export).expect("导出按钮");
-        click(&mut view, export);
-        view.update();
-        assert!(label_text(&view, view.message_label).contains("导出失败"));
+        assert!(view.export_png_to(&missing.to_string_lossy()).is_err());
     }
 
+    /// 每个文件按钮只留下对应的意图（路径由宿主原生对话框选）。
     #[test]
-    fn the_path_can_be_edited_inline() {
+    fn file_buttons_emit_their_intent() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
         view.layout(viewport());
-        let original = view.io_path();
-        let edit = view.file_center(IoAction::EditPath).expect("改路径按钮");
-
-        click(&mut view, edit);
-        view.update();
-        assert!(view.path_edit.is_some(), "应进入路径编辑");
-        view.event(&InputEvent::TextInput { text: "X".into() });
-        view.event(&InputEvent::KeyDown { key: Key::Enter });
-        assert_eq!(view.io_path(), format!("{original}X"));
-
-        click(&mut view, edit);
-        view.update();
-        view.event(&InputEvent::TextInput { text: "Y".into() });
-        view.event(&InputEvent::KeyDown { key: Key::Escape });
-        assert_eq!(view.io_path(), format!("{original}X"), "Esc 丢弃编辑");
+        for action in [
+            FileRequest::Save,
+            FileRequest::SaveAs,
+            FileRequest::Open,
+            FileRequest::ImportPng,
+            FileRequest::ExportPng,
+        ] {
+            let center = view
+                .file_center(action)
+                .unwrap_or_else(|| panic!("{action:?} 按钮"));
+            click(&mut view, center);
+            view.update();
+            assert_eq!(
+                view.take_file_request(),
+                Some(action),
+                "{action:?} 应留下意图"
+            );
+        }
     }
 
     // -- Phase 8：移动 / 框选 / 吸管 ---------------------------------------

@@ -109,12 +109,26 @@ impl Workspaces {
         self.items.get_mut(self.active)
     }
 
+    /// 按下标取一个工作区（确认关闭 / 保存指定工作区用）。
+    pub fn get(&self, index: usize) -> Option<&Workspace> {
+        self.items.get(index)
+    }
+
+    /// 按下标取一个工作区（可变）。
+    pub fn get_mut(&mut self, index: usize) -> Option<&mut Workspace> {
+        self.items.get_mut(index)
+    }
+
     /// 关闭一个工作区；激活下标跟着收缩。返回是否删掉了。
     pub fn remove(&mut self, index: usize) -> bool {
         if index >= self.items.len() {
             return false;
         }
         self.items.remove(index);
+        // 删掉的是激活之前的：后面的都往前挪一格，激活下标也跟着减一。
+        if index < self.active {
+            self.active -= 1;
+        }
         if self.active >= self.items.len() {
             self.active = self.items.len().saturating_sub(1);
         }
@@ -169,6 +183,17 @@ mod tests {
         assert_eq!(workspaces.active().unwrap().title(), "A");
         assert!(workspaces.remove(0));
         assert!(workspaces.is_empty());
+    }
+
+    #[test]
+    fn closing_an_earlier_tab_keeps_the_same_workspace_active() {
+        let mut workspaces = Workspaces::new();
+        workspaces.push(from_path("A"));
+        workspaces.push(from_path("B"));
+        workspaces.push(from_path("C"));
+        workspaces.set_active(2); // C
+        assert!(workspaces.remove(0)); // 关掉 A
+        assert_eq!(workspaces.active().unwrap().title(), "C", "激活的仍是 C");
     }
 
     #[test]

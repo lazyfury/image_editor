@@ -4,6 +4,7 @@
 //! 宿主。方向保持 `app -> ui -> 领域`，宿主不把平台类型泄漏进视图。
 
 pub mod application;
+pub mod drop_files;
 pub mod state;
 pub mod tool_groups;
 pub mod workspaces;

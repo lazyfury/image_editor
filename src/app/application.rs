@@ -15,6 +15,7 @@
 //! `--frames N` 由 [`FrameLimitPlugin`] 在 N 帧后结束进程，让真实渲染管线能在
 //! 无头环境里被验证。
 
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use igui_app::{
@@ -34,9 +35,11 @@ use igui_winit::{
 use crate::app::state::AppState;
 use crate::app::workspaces::{Workspace, Workspaces};
 use crate::document::PixelBuffer;
+use crate::io::{DialogOptions, FileDialog, FileFilter, NativeFileDialog};
 use crate::ui::{
-    EditorView, HomeEntry, HomeOpenRequest, HomeView, NewDocumentModal, NewDocumentResult,
-    NewDocumentSpec, WorkspaceRequest, WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT,
+    ConfirmDialog, ConfirmResult, EditorView, FileRequest, HomeEntry, HomeOpenRequest, HomeView,
+    NewDocumentModal, NewDocumentResult, NewDocumentSpec, WorkspaceTabAction, WorkspaceTabs,
+    TAB_STRIP_HEIGHT,
 };
 
 /// 主窗口（也是唯一的窗口）的初始大小。
@@ -95,13 +98,15 @@ fn build_app(options: Options) -> App {
     .plugin(PointerPlugin)
     .plugin(KeyboardPlugin)
     .plugin(ImePlugin)
-    .plugin(ClipboardPlugin);
+    .plugin(ClipboardPlugin)
+    .plugin(crate::app::drop_files::DropFilesPlugin);
 
     if let Some(frames) = options.frames {
         builder = builder.plugin(FrameLimitPlugin { frames });
     }
 
-    builder.logic(ImageEditorLogic::new(theme)).build()
+    let dialog: Rc<dyn FileDialog> = Rc::new(NativeFileDialog::default());
+    builder.logic(ImageEditorLogic::new(theme, dialog)).build()
 }
 
 /// 应用逻辑：主页 / 多工作区编辑器 +「新建文档」模态框，都在这一个 `AppLogic` 里。
@@ -112,10 +117,16 @@ struct ImageEditorLogic {
     screen: Screen,
     /// 打开中的工作区；回主页时也保留，方便再切回来。
     workspaces: Workspaces,
+    /// 原生文件对话框（测试注入 `NoopFileDialog`）。
+    dialog: Rc<dyn FileDialog>,
     /// 顶部工作区标签条。
     tabs: WorkspaceTabs,
     /// 「新建文档」模态窗口；有它时输入全交给它。
     modal: Option<NewDocumentModal>,
+    /// 「保存 / 不保存 / 取消」确认框（关闭脏工作区时）。
+    confirm: Option<ConfirmDialog>,
+    /// 正在等待确认关闭的工作区下标。
+    pending_close: Option<usize>,
     modifiers: Modifiers,
     /// 文档换了标题，下一帧写回原生窗口。
     title_dirty: bool,
@@ -176,7 +187,7 @@ fn home_entries(workspaces: &Workspaces) -> Vec<HomeEntry> {
 }
 
 impl ImageEditorLogic {
-    fn new(theme: &'static dyn Theme) -> Self {
+    fn new(theme: &'static dyn Theme, dialog: Rc<dyn FileDialog>) -> Self {
         let workspaces = Workspaces::new();
         let home = HomeView::new(theme, home_entries(&workspaces));
         Self {
@@ -184,8 +195,11 @@ impl ImageEditorLogic {
             measurer: None,
             screen: Screen::Home(home),
             workspaces,
+            dialog,
             tabs: WorkspaceTabs::new(theme),
             modal: None,
+            confirm: None,
+            pending_close: None,
             modifiers: Modifiers::NONE,
             title_dirty: false,
         }
@@ -318,59 +332,78 @@ impl ImageEditorLogic {
                 }
                 self.title_dirty = true;
             }
-            WorkspaceTabAction::Close(index) => {
-                self.workspaces.remove(index);
-                if self.workspaces.is_empty() {
-                    self.go_home();
-                } else {
-                    self.title_dirty = true;
-                }
-            }
+            WorkspaceTabAction::Close(index) => self.request_close(index),
             WorkspaceTabAction::New => self.open_new_document_modal(),
             WorkspaceTabAction::Home => self.go_home(),
         }
     }
 
-    /// 文件面板留下的工作区保存 / 打开请求。
-    fn handle_workspace_requests(&mut self, ctx: &FrameContext<'_>) {
+    /// 起始目录：当前工作区父目录 → `$HOME`。
+    fn start_dir(&self) -> Option<PathBuf> {
+        self.workspaces
+            .active()
+            .and_then(|workspace| workspace.path.as_ref())
+            .and_then(|path| path.parent())
+            .map(Path::to_path_buf)
+            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+    }
+
+    /// 文件面板 / 快捷键留下的文件意图。
+    fn handle_file_requests(&mut self, ctx: &FrameContext<'_>) {
         let request = self
             .workspaces
             .active()
-            .and_then(|workspace| workspace.editor.take_workspace_request());
+            .and_then(|workspace| workspace.editor.take_file_request());
         let Some(request) = request else {
             return;
         };
-        let path = self
-            .workspaces
-            .active()
-            .map(|workspace| workspace.editor.io_path())
-            .unwrap_or_default();
         match request {
-            WorkspaceRequest::Save => self.save_workspace(&path),
-            WorkspaceRequest::Open => self.open_workspace(ctx, std::path::Path::new(&path)),
+            FileRequest::Save => {
+                let index = self.workspaces.active_index();
+                self.save_workspace_at(index, false);
+            }
+            FileRequest::SaveAs => {
+                let index = self.workspaces.active_index();
+                self.save_workspace_at(index, true);
+            }
+            FileRequest::Open => self.open_via_dialog(ctx),
+            FileRequest::ImportPng => self.import_via_dialog(),
+            FileRequest::ExportPng => self.export_via_dialog(),
         }
     }
 
-    /// 把当前工作区保存成 `.igui`（路径扩展名换成 `.igui`）。
-    fn save_workspace(&mut self, path: &str) {
-        if path.trim().is_empty() {
-            if let Some(workspace) = self.workspaces.active() {
-                workspace.editor.set_message("先点「改路径」设置保存路径");
+    /// 保存第 `index` 个工作区。`force_dialog`（另存为）或还没路径时弹保存框；
+    /// 返回是否真的写盘（用户取消 / 失败返回 `false`）。
+    fn save_workspace_at(&mut self, index: usize, force_dialog: bool) -> bool {
+        let Some(workspace) = self.workspaces.get(index) else {
+            return false;
+        };
+        let target = match (&workspace.path, force_dialog) {
+            (Some(path), false) => path.clone(),
+            _ => {
+                let options = DialogOptions {
+                    title: "保存工作区".to_string(),
+                    filters: vec![FileFilter::new("工作区", &[crate::io::WORKSPACE_EXTENSION])],
+                    default_name: Some(format!("{}.igui", workspace.title())),
+                    start_dir: self.start_dir(),
+                };
+                let Some(path) = self.dialog.pick_save(&options) else {
+                    return false;
+                };
+                path
             }
-            return;
-        }
-        let target = crate::io::workspace_path_from(path);
-        let Some(workspace) = self.workspaces.active() else {
-            return;
+        };
+        let Some(workspace) = self.workspaces.get(index) else {
+            return false;
         };
         let document = workspace.editor.document_snapshot();
         match crate::io::write_workspace(&target, &document) {
             Ok(()) => {
-                if let Some(workspace) = self.workspaces.active_mut() {
+                if let Some(workspace) = self.workspaces.get_mut(index) {
                     workspace.mark_saved(target.clone());
                 }
                 let _ = crate::io::record_recent(&target);
-                if let Some(workspace) = self.workspaces.active() {
+                if let Some(workspace) = self.workspaces.get(index) {
                     workspace
                         .editor
                         .set_message(format!("已保存工作区：{}", target.display()));
@@ -381,23 +414,201 @@ impl ImageEditorLogic {
                     "workspace_saved"
                 );
                 self.title_dirty = true;
+                true
             }
             Err(error) => {
-                if let Some(workspace) = self.workspaces.active() {
+                if let Some(workspace) = self.workspaces.get(index) {
                     workspace.editor.set_message(format!("保存失败：{error}"));
                 }
+                false
             }
         }
     }
 
-    /// 从 `.igui` 打开一个新工作区。
-    fn open_workspace(&mut self, ctx: &FrameContext<'_>, path: &std::path::Path) {
-        if path.as_os_str().is_empty() {
-            if let Some(workspace) = self.workspaces.active() {
-                workspace.editor.set_message("先点「改路径」设置工作区路径");
+    /// 弹打开框选一个 `.igui` 并打开。
+    fn open_via_dialog(&mut self, ctx: &FrameContext<'_>) {
+        let options = DialogOptions {
+            title: "打开工作区".to_string(),
+            filters: vec![FileFilter::new("工作区", &[crate::io::WORKSPACE_EXTENSION])],
+            default_name: None,
+            start_dir: self.start_dir(),
+        };
+        if let Some(path) = self.dialog.pick_open(&options) {
+            self.open_workspace(ctx, &path);
+        }
+    }
+
+    /// 弹打开框选一张 PNG，作为新图层导入。
+    fn import_via_dialog(&mut self) {
+        let options = DialogOptions {
+            title: "导入 PNG".to_string(),
+            filters: vec![FileFilter::new("PNG 图片", &["png"])],
+            default_name: None,
+            start_dir: self.start_dir(),
+        };
+        let Some(path) = self.dialog.pick_open(&options) else {
+            return;
+        };
+        self.import_png(&path);
+    }
+
+    /// 把一张 PNG 导入当前工作区（新图层）。
+    fn import_png(&mut self, path: &Path) {
+        let Some(workspace) = self.workspaces.active_mut() else {
+            return;
+        };
+        let path_text = path.to_string_lossy().into_owned();
+        let message = match workspace.editor.import_png_from(&path_text) {
+            Ok((width, height)) => {
+                tracing::info!(
+                    target: "image_editor",
+                    path = path_text.as_str(),
+                    width,
+                    height,
+                    "png_imported"
+                );
+                format!("已导入 PNG：{path_text}（{width} × {height}）")
             }
+            Err(error) => format!("导入失败：{error}"),
+        };
+        workspace.editor.set_message(message);
+    }
+
+    /// 弹保存框选一个 `.png`，导出当前文档的合成。
+    fn export_via_dialog(&mut self) {
+        let Some(workspace) = self.workspaces.active() else {
+            return;
+        };
+        let options = DialogOptions {
+            title: "导出 PNG".to_string(),
+            filters: vec![FileFilter::new("PNG 图片", &["png"])],
+            default_name: Some(format!("{}.png", workspace.editor.document_name())),
+            start_dir: self.start_dir(),
+        };
+        let Some(path) = self.dialog.pick_save(&options) else {
+            return;
+        };
+        let path_text = path.to_string_lossy().into_owned();
+        let message = match workspace.editor.export_png_to(&path_text) {
+            Ok(()) => {
+                tracing::info!(target: "image_editor", path = path_text.as_str(), "png_exported");
+                format!("已导出 PNG：{path_text}")
+            }
+            Err(error) => format!("导出失败：{error}"),
+        };
+        workspace.editor.set_message(message);
+    }
+
+    /// 关闭工作区：有未保存改动先弹确认框。
+    fn request_close(&mut self, index: usize) {
+        let dirty = self
+            .workspaces
+            .get(index)
+            .map(|workspace| workspace.dirty())
+            .unwrap_or(false);
+        if dirty {
+            self.pending_close = Some(index);
+            let name = self
+                .workspaces
+                .get(index)
+                .map(|workspace| workspace.title())
+                .unwrap_or_default();
+            let mut confirm = ConfirmDialog::new(
+                self.theme,
+                "未保存的改动",
+                &format!("「{name}」有未保存的改动。关闭前要保存吗？"),
+            );
+            if let Some(measurer) = self.measurer.clone() {
+                confirm.set_text_measurer(measurer);
+            }
+            self.confirm = Some(confirm);
+        } else {
+            self.close_workspace(index);
+        }
+    }
+
+    /// 真正移除一个工作区。
+    fn close_workspace(&mut self, index: usize) {
+        self.workspaces.remove(index);
+        if self.workspaces.is_empty() {
+            self.go_home();
+        } else {
+            self.title_dirty = true;
+        }
+    }
+
+    /// 确认框出结果（或被动关闭）后收尾。
+    fn finish_confirm(&mut self) {
+        let Some(confirm) = self.confirm.as_ref() else {
+            return;
+        };
+        let result = confirm.take_result();
+        let closed = confirm.take_close_request();
+        let index = self.pending_close;
+        self.confirm = None;
+        self.pending_close = None;
+        let Some(index) = index else {
+            return;
+        };
+        let outcome = result.unwrap_or(ConfirmResult::Cancel);
+        if closed && result.is_none() {
             return;
         }
+        match outcome {
+            ConfirmResult::Save => {
+                if self.save_workspace_at(index, false) {
+                    self.close_workspace(index);
+                }
+            }
+            ConfirmResult::Discard => self.close_workspace(index),
+            ConfirmResult::Cancel => {}
+        }
+    }
+
+    /// 拖放的文件：有工作区就当新图层导入，没有就从图片开一个新文档。
+    fn handle_dropped_files(&mut self, ctx: &FrameContext<'_>) {
+        let Some(shared) = ctx.service::<crate::app::drop_files::DroppedFiles>() else {
+            return;
+        };
+        let files: Vec<PathBuf> = shared.0.borrow_mut().drain(..).collect();
+        for path in files {
+            match &self.screen {
+                Screen::Editor => self.import_png(&path),
+                Screen::Home(_) => self.open_document_from_image(ctx, &path),
+            }
+        }
+    }
+
+    /// 主页拖入一张图：按图片尺寸建一个新文档，再把它作为图层导入。
+    fn open_document_from_image(&mut self, ctx: &FrameContext<'_>, path: &Path) {
+        let Ok(pixels) = crate::io::read_png(path) else {
+            // 不是能解码的图片，就当工作区文件试试。
+            self.open_workspace(ctx, path);
+            return;
+        };
+        let state = AppState::with_document(
+            pixels.width,
+            pixels.height,
+            crate::document::Color::TRANSPARENT,
+        );
+        let mut editor = EditorView::new(self.theme, state);
+        self.configure_editor(&mut editor);
+        if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
+            backend
+                .borrow_mut()
+                .set_texture_filter(crate::canvas::DOCUMENT_TEXTURE, TextureFilter::Nearest);
+            if let Some(pixels) = editor.take_texture_upload() {
+                upload_texture(&backend, &pixels);
+            }
+        }
+        self.workspaces.push(Workspace::new(editor));
+        self.screen = Screen::Editor;
+        self.title_dirty = true;
+        self.import_png(path);
+    }
+
+    /// 从 `.igui` 打开一个新工作区。
+    fn open_workspace(&mut self, ctx: &FrameContext<'_>, path: &Path) {
         match crate::io::read_workspace(path) {
             Ok(document) => {
                 let mut editor = EditorView::new(self.theme, AppState::from_document(document));
@@ -441,7 +652,8 @@ impl ImageEditorLogic {
         let title = match &self.screen {
             Screen::Editor => match self.workspaces.active() {
                 Some(workspace) => {
-                    format!("{} — igui 图像编辑器", workspace.editor.document_name())
+                    let dirty = if workspace.dirty() { "• " } else { "" };
+                    format!("{dirty}{} — igui 图像编辑器", workspace.title())
                 }
                 None => "igui 图像编辑器".to_string(),
             },
@@ -480,6 +692,11 @@ impl AppLogic for ImageEditorLogic {
             modal.event(event);
             return EventResult::Handled;
         }
+        // 确认框同样模态。
+        if let Some(confirm) = self.confirm.as_mut() {
+            confirm.event(event);
+            return EventResult::Handled;
+        }
 
         if self.shortcut_modifier() && matches!(event, InputEvent::TextInput { .. }) {
             return EventResult::Handled;
@@ -487,6 +704,11 @@ impl AppLogic for ImageEditorLogic {
 
         let command = self.shortcut_modifier();
         let shift = self.modifiers.shift;
+        // ⌘N 在任何一屏都能新建文档。
+        if command && command_key(event) == Some('n') {
+            self.open_new_document_modal();
+            return EventResult::Handled;
+        }
         match &mut self.screen {
             Screen::Home(home) => home.event(event),
             Screen::Editor => {
@@ -495,6 +717,10 @@ impl AppLogic for ImageEditorLogic {
                 }
                 if let Some(workspace) = self.workspaces.active_mut() {
                     if history_shortcut(&mut workspace.editor, command, shift, event) {
+                        return EventResult::Handled;
+                    }
+                    if let Some(request) = file_shortcut(command, shift, event) {
+                        workspace.editor.request_file(request);
                         return EventResult::Handled;
                     }
                     return workspace.editor.event(event);
@@ -508,7 +734,25 @@ impl AppLogic for ImageEditorLogic {
         while let Some(action) = self.tabs.take_request() {
             self.handle_tab_action(action);
         }
+
+        self.open_modal_if_requested();
+        self.sync_modal();
+        self.finish_modal(ctx);
+        self.finish_confirm();
+
+        // 以下都可能改文档 / 激活工作区（导入、打开、拖放、画廊切换），所以先处理，
+        // 最后统一 `update` + 上传纹理，新内容当帧就能显示。
+        if matches!(self.screen, Screen::Home(_)) {
+            self.handle_home_requests(ctx);
+        }
+        if matches!(self.screen, Screen::Editor) {
+            self.handle_file_requests(ctx);
+        }
+        self.handle_dropped_files(ctx);
+
         if let Some(workspace) = self.workspaces.active_mut() {
+            let path = workspace.path.clone();
+            workspace.editor.set_workspace_path(path.as_deref());
             workspace.editor.update();
             if let Some(pixels) = workspace.editor.take_texture_upload() {
                 if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
@@ -517,15 +761,7 @@ impl AppLogic for ImageEditorLogic {
             }
         }
 
-        self.open_modal_if_requested();
-        self.sync_modal();
-        self.finish_modal(ctx);
-
-        if matches!(self.screen, Screen::Home(_)) {
-            self.handle_home_requests(ctx);
-        }
         if matches!(self.screen, Screen::Editor) {
-            self.handle_workspace_requests(ctx);
             self.tabs
                 .set_tabs(&self.workspaces.tabs(), self.workspaces.active_index());
         }
@@ -550,6 +786,9 @@ impl AppLogic for ImageEditorLogic {
         if let Some(modal) = self.modal.as_mut() {
             modal.layout(viewport);
         }
+        if let Some(confirm) = self.confirm.as_mut() {
+            confirm.layout(viewport);
+        }
     }
 
     fn paint(&mut self, _ctx: &FrameContext<'_>, paint: &mut PaintContext) {
@@ -565,6 +804,9 @@ impl AppLogic for ImageEditorLogic {
         if let Some(modal) = self.modal.as_ref() {
             modal.paint(paint);
         }
+        if let Some(confirm) = self.confirm.as_ref() {
+            confirm.paint(paint);
+        }
     }
 
     /// 编辑器在等工具栏长按阈值时要持续出帧（winit 侧靠它 `request_redraw`）。
@@ -574,6 +816,30 @@ impl AppLogic for ImageEditorLogic {
                 .workspaces
                 .active()
                 .is_some_and(|workspace| workspace.editor.needs_frame())
+    }
+}
+
+/// Ctrl/Cmd 按下时的字母键（小写）。
+fn command_key(event: &InputEvent) -> Option<char> {
+    match event {
+        InputEvent::KeyDown {
+            key: Key::Character(ch),
+        } => Some(ch.to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
+/// Ctrl/Cmd + S / O / E 的文件快捷键；命中返回意图。
+fn file_shortcut(command: bool, shift: bool, event: &InputEvent) -> Option<FileRequest> {
+    if !command {
+        return None;
+    }
+    match command_key(event)? {
+        's' if shift => Some(FileRequest::SaveAs),
+        's' => Some(FileRequest::Save),
+        'o' => Some(FileRequest::Open),
+        'e' => Some(FileRequest::ExportPng),
+        _ => None,
     }
 }
 
@@ -737,6 +1003,107 @@ impl FrameObserver for FrameLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::cell::RefCell;
+
+    /// 脚本化的假对话框：`open` / `save` 各一个返回队列。
+    #[derive(Default)]
+    struct FakeFileDialog {
+        open: RefCell<std::collections::VecDeque<PathBuf>>,
+        save: RefCell<std::collections::VecDeque<PathBuf>>,
+    }
+
+    impl FakeFileDialog {
+        fn saving(path: PathBuf) -> Self {
+            let dialog = Self::default();
+            dialog.save.borrow_mut().push_back(path);
+            dialog
+        }
+    }
+
+    impl FileDialog for FakeFileDialog {
+        fn pick_open(&self, _options: &DialogOptions) -> Option<PathBuf> {
+            self.open.borrow_mut().pop_front()
+        }
+
+        fn pick_save(&self, _options: &DialogOptions) -> Option<PathBuf> {
+            self.save.borrow_mut().pop_front()
+        }
+    }
+
+    fn logic_with_dialog(dialog: Rc<dyn FileDialog>) -> ImageEditorLogic {
+        let theme = crate::theme::editor_theme(false);
+        let mut logic = ImageEditorLogic::new(theme, dialog);
+        logic
+            .workspaces
+            .push(Workspace::new(EditorView::new(theme, AppState::default())));
+        logic
+    }
+
+    fn temp_workspace(tag: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "image_editor_ws_{}_{n}_{tag}.igui",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn save_as_uses_the_dialog_and_clears_the_dirty_flag() {
+        let path = temp_workspace("saveas");
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::saving(path.clone())));
+        let index = logic.workspaces.active_index();
+        assert!(logic.save_workspace_at(index, true), "另存为应写盘");
+        assert!(path.exists());
+        let workspace = logic.workspaces.get(index).unwrap();
+        assert!(!workspace.dirty(), "保存后不脏");
+        assert_eq!(workspace.path.as_deref(), Some(path.as_path()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn cancelling_save_as_leaves_the_workspace_unsaved() {
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+        let index = logic.workspaces.active_index();
+        assert!(!logic.save_workspace_at(index, true), "取消应返回 false");
+        assert!(
+            logic.workspaces.get(index).unwrap().path.is_none(),
+            "取消后仍没有路径"
+        );
+    }
+
+    #[test]
+    fn save_without_a_path_falls_back_to_save_as() {
+        let path = temp_workspace("save");
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::saving(path.clone())));
+        let index = logic.workspaces.active_index();
+        assert!(
+            logic.save_workspace_at(index, false),
+            "没路径时保存应回退到另存为"
+        );
+        assert!(path.exists());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn file_shortcuts_map_to_intents() {
+        let s = InputEvent::KeyDown {
+            key: Key::Character('s'),
+        };
+        assert_eq!(file_shortcut(true, false, &s), Some(FileRequest::Save));
+        assert_eq!(file_shortcut(true, true, &s), Some(FileRequest::SaveAs));
+        assert_eq!(
+            file_shortcut(false, false, &s),
+            None,
+            "没有 Ctrl/Cmd 不算快捷键"
+        );
+        let o = InputEvent::KeyDown {
+            key: Key::Character('o'),
+        };
+        assert_eq!(file_shortcut(true, false, &o), Some(FileRequest::Open));
+    }
 
     #[test]
     fn history_shortcut_requires_a_command_modifier() {

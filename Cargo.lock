@@ -861,8 +861,12 @@ dependencies = [
  "igui_theme",
  "igui_ui",
  "igui_winit",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "png 0.17.16",
  "tracing",
+ "winit",
 ]
 
 [[package]]

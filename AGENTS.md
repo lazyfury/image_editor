@@ -12,17 +12,21 @@ This file is the short source of truth for rules. Details live in `README.md`
 
 ```
 src/app/        state (AppState/document session) + workspaces (multi-workspace) +
-                single-window host on the igui_app runtime + igui_winit plugins
+                single-window host on the igui_app runtime + igui_winit plugins +
+                drop_files (drag-and-drop -> new layer)
 src/ui/         views + project-local components: home (recent gallery),
                 new_document, editor (mod.rs), workspace_tabs, menu, toolbar,
-                options_bar, canvas, layer/file/properties/tabs/palette panels
+                options_bar, canvas, layer/file/properties/tabs/palette panels,
+                window (floating window), confirm (unsaved-changes dialog)
 src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + commands
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser, Move, Paint-bucket flood fill, Gradient (multi-stop
                 ramp), Rectangle/Free fill
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
                 Selection (pixel mask + outline: rect / lasso)
-src/io/         PNG encode/decode + `.igui` workspace files + recent list + paths
+src/io/         PNG encode/decode + `.igui` workspace files + recent list +
+                dialog.rs (hand-written native file dialogs: macOS NSOpenPanel /
+                NSSavePanel, Windows comdlg32, Unix zenity/kdialog; no `rfd`)
 src/fonts.rs    bundled-font discovery (assets/fonts/)
 src/icons.rs    vendored Lucide SVG subset, drawn via igui_svg (no textures)
 src/theme.rs    editor theme (compact density)
@@ -45,6 +49,11 @@ Cargo fetches the repo once for all crates. Do **not** vendor or fork the igui
 crates here; shared UI-layer changes belong in the igui repo and must keep its
 own gate green. To upgrade, bump the tag here and follow `release.md`'s
 rename / API mapping.
+
+The app also depends directly on `winit` (for `WindowEvent::DroppedFile`, which
+`igui_winit` does not forward) and, on macOS, on `objc2` / `objc2-app-kit` /
+`objc2-foundation` for the hand-written `NSOpenPanel` / `NSSavePanel` file
+dialogs — **no `rfd`**. Those crates are already in the lockfile via winit/wgpu.
 
 ## Bundled font
 

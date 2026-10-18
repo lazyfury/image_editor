@@ -22,7 +22,7 @@ use igui_render::{DrawCommand, PaintContext, RenderBackend};
 
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::document::{Color, PixelBuffer};
-use crate::ui::{EditorView, IoAction};
+use crate::ui::{EditorView, FileRequest};
 
 /// 自检用的窗口尺寸（跟宿主的初始窗口一致）。
 const WIDTH: f32 = 1280.0;
@@ -366,12 +366,11 @@ pub fn check() -> (usize, String) {
         failures.push("重做没有恢复画笔笔触".to_string());
     }
 
-    // Phase 7：导出当前文档为 PNG，再从磁盘解码回来核对像素。
+    // Phase 7 / 23：导出当前文档为 PNG，再从磁盘解码回来核对像素。
     let export_path = temp_png("export");
-    view.set_io_path(export_path.to_string_lossy().into_owned());
-    let export_button = view.file_center(IoAction::Export).expect("导出按钮");
-    click_at(&mut view, export_button);
-    view.update();
+    if let Err(error) = view.export_png_to(&export_path.to_string_lossy()) {
+        failures.push(format!("导出 PNG 失败：{error}"));
+    }
     match crate::io::read_png(&export_path) {
         Ok(exported) => {
             if exported.get_pixel(0, 0) != Color::WHITE {
@@ -384,7 +383,15 @@ pub fn check() -> (usize, String) {
         Err(error) => failures.push(format!("导出的 PNG 无法解码：{error}")),
     }
 
-    // 导入：独立写一张 4×3 红色 PNG，点「导入 PNG」，应多一个图层，
+    // 点「导出 PNG…」按钮只留下意图（路径由宿主原生对话框选）。
+    let export_button = view.file_center(FileRequest::ExportPng).expect("导出按钮");
+    click_at(&mut view, export_button);
+    view.update();
+    if view.take_file_request() != Some(FileRequest::ExportPng) {
+        failures.push("导出按钮没有留下导出意图".to_string());
+    }
+
+    // 导入：独立写一张 4×3 红色 PNG，导入为新图层，
     // 合成后左上角变红（红色图层在最上面）。
     let import_path = temp_png("import");
     let source = PixelBuffer::filled(4, 3, Color::RED);
@@ -392,9 +399,9 @@ pub fn check() -> (usize, String) {
         failures.push(format!("测试图写入失败：{error}"));
     } else {
         let before = view.layer_count();
-        view.set_io_path(import_path.to_string_lossy().into_owned());
-        let import_button = view.file_center(IoAction::Import).expect("导入按钮");
-        click_at(&mut view, import_button);
+        if let Err(error) = view.import_png_from(&import_path.to_string_lossy()) {
+            failures.push(format!("导入 PNG 失败：{error}"));
+        }
         view.update();
         if view.layer_count() != before + 1 {
             failures.push("导入没有新增图层".to_string());
@@ -404,6 +411,14 @@ pub fn check() -> (usize, String) {
         if composite.get_pixel(0, 0) != Color::RED {
             failures.push("导入的图层没有进入合成结果".to_string());
         }
+    }
+
+    // 点「导入 PNG…」按钮同样只留下意图。
+    let import_button = view.file_center(FileRequest::ImportPng).expect("导入按钮");
+    click_at(&mut view, import_button);
+    view.update();
+    if view.take_file_request() != Some(FileRequest::ImportPng) {
+        failures.push("导入按钮没有留下导入意图".to_string());
     }
     let _ = std::fs::remove_file(&export_path);
     let _ = std::fs::remove_file(&import_path);
