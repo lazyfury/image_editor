@@ -45,6 +45,20 @@ impl Color {
     pub const fn is_transparent(self) -> bool {
         self.a == 0
     }
+
+    /// 按 `t`（0..=1）在两个颜色之间插值（RGBA 每个通道，四舍五入）。
+    ///
+    /// 这是多节点渐变 `evaluate` 的基础；端点（`t=0` / `t=1`）返回原色。
+    pub fn lerp(self, other: Self, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+        Self::new(
+            mix(self.r, other.r),
+            mix(self.g, other.g),
+            mix(self.b, other.b),
+            mix(self.a, other.a),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -72,5 +86,16 @@ mod tests {
         assert_eq!(color.to_rgba8(), [255, 255, 255, 0]);
         assert!(color.is_transparent());
         assert!(!Color::WHITE.is_transparent());
+    }
+
+    #[test]
+    fn lerp_hits_both_endpoints_and_the_midpoint() {
+        let a = Color::new(0, 0, 0, 0);
+        let b = Color::new(255, 255, 255, 255);
+        assert_eq!(a.lerp(b, 0.0), a);
+        assert_eq!(a.lerp(b, 1.0), b);
+        assert_eq!(a.lerp(b, 0.5), Color::new(128, 128, 128, 128));
+        // 越界会被 clamp。
+        assert_eq!(a.lerp(b, 2.0), b);
     }
 }

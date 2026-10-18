@@ -5,7 +5,7 @@
 //! [`EditorView::update`](crate::ui::EditorView) 统一执行 —— 回调拿不到
 //! `&mut self`，和菜单 / 文件面板一个套路。
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use igui_components::{Button, Component, Flex, NodeRef, Text};
@@ -14,6 +14,8 @@ use igui_theme::{radius, space, SurfaceLevel, Theme, Tone};
 use igui_ui::{Align, MouseFilter, SurfaceStyle};
 
 use crate::app::state::ActiveTool;
+use crate::document::Gradient;
+use crate::ui::gradient_editor;
 
 /// 选项栏里的一次笔刷调整。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +79,22 @@ impl BucketToggle {
     }
 }
 
+/// 选项栏里的一次渐变类型切换。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientAdjust {
+    KindPrev,
+    KindNext,
+}
+
+/// 渐变工具选项栏的共享状态 / 请求。
+pub struct GradientOptions {
+    pub gradient: Rc<RefCell<Gradient>>,
+    pub reverse: Rc<Cell<bool>>,
+    pub request: Rc<Cell<Option<GradientAdjust>>>,
+    /// 点「编辑…」置位；`update` 取走后打开多节点编辑器。
+    pub edit: Rc<Cell<bool>>,
+}
+
 /// 选项栏里需要回写的文本 / 容器槽位。
 #[derive(Default)]
 pub struct OptionsRefs {
@@ -86,6 +104,10 @@ pub struct OptionsRefs {
     pub opacity: NodeRef,
     pub bucket: NodeRef,
     pub tolerance: NodeRef,
+    pub gradient: NodeRef,
+    pub gradient_kind: NodeRef,
+    pub gradient_preview: NodeRef,
+    pub gradient_edit: NodeRef,
     pub hint: NodeRef,
 }
 
@@ -99,11 +121,13 @@ pub fn options_bar(
     square_state: Rc<Cell<bool>>,
     bucket_request: Rc<Cell<Option<BucketAdjust>>>,
     contiguous_state: Rc<Cell<bool>>,
+    gradient: GradientOptions,
     refs: &OptionsRefs,
     buttons: &mut Vec<(BrushAdjust, NodeRef)>,
     toggles: &mut Vec<(BrushToggle, NodeRef)>,
     bucket_buttons: &mut Vec<(BucketAdjust, NodeRef)>,
     bucket_toggles: &mut Vec<(BucketToggle, NodeRef)>,
+    gradient_buttons: &mut Vec<(GradientAdjust, NodeRef)>,
 ) -> impl Component {
     let brush = Flex::row()
         .align(Align::Center)
@@ -178,6 +202,40 @@ pub fn options_bar(
             bucket_toggles,
         ));
 
+    let edit_request = gradient.edit.clone();
+    let gradient_row = Flex::row()
+        .align(Align::Center)
+        .gap(space::XS)
+        .padding(Edges::ZERO)
+        .mouse_filter(MouseFilter::Ignore)
+        .child(Text::caption("类型", theme).tone(Tone::Muted))
+        .child(gradient_step_button(
+            theme,
+            "−",
+            gradient.request.clone(),
+            GradientAdjust::KindPrev,
+            gradient_buttons,
+        ))
+        .child(Text::small("", theme).ref_(&refs.gradient_kind))
+        .child(gradient_step_button(
+            theme,
+            "+",
+            gradient.request.clone(),
+            GradientAdjust::KindNext,
+            gradient_buttons,
+        ))
+        .child(gradient_editor::gradient_preview(
+            theme,
+            gradient.gradient.clone(),
+            &refs.gradient_preview,
+        ))
+        .child(
+            Button::ghost("编辑…", theme)
+                .on_click(move |_tree, _id| edit_request.set(true))
+                .ref_(&refs.gradient_edit),
+        )
+        .child(gradient_toggle_button(theme, "反向", gradient.reverse));
+
     Flex::row()
         .align(Align::Center)
         .gap(space::MD)
@@ -187,6 +245,7 @@ pub fn options_bar(
         .child(Text::small("", theme).ref_(&refs.tool))
         .child(brush.ref_(&refs.brush))
         .child(bucket.ref_(&refs.bucket))
+        .child(gradient_row.ref_(&refs.gradient))
         .child(Text::caption("", theme).tone(Tone::Muted).ref_(&refs.hint))
 }
 
@@ -197,6 +256,7 @@ pub const fn options_hint(tool: ActiveTool) -> &'static str {
         ActiveTool::RectangleSelect => "拖动框选 · Esc 清空",
         ActiveTool::LassoSelect => "按住拖动套索 · 松手成选区 · Esc 清空",
         ActiveTool::PaintBucket => "点击填充连通区域 · 容差可选",
+        ActiveTool::Gradient => "拖一条轴定义方向 · 编辑… 调多节点颜色",
         ActiveTool::RectangleFill => "拖动矩形 · 松手用前景色填充",
         ActiveTool::FreeFill => "按住拖出自由形状 · 松手填充内部",
         ActiveTool::Eyedropper => "点击画布取合成后的颜色",
@@ -266,6 +326,31 @@ fn bucket_toggle_button(
         .on_click(move |_tree, _id| click_state.set(!click_state.get()))
         .dynamic_background(move |interact| active_background(theme, state.get(), interact))
         .ref_(&slot)
+}
+
+fn gradient_step_button(
+    theme: &'static dyn Theme,
+    label: &str,
+    request: Rc<Cell<Option<GradientAdjust>>>,
+    adjust: GradientAdjust,
+    buttons: &mut Vec<(GradientAdjust, NodeRef)>,
+) -> impl Component {
+    let slot = NodeRef::new();
+    buttons.push((adjust, slot.clone()));
+    Button::ghost(label, theme)
+        .on_click(move |_tree, _id| request.set(Some(adjust)))
+        .ref_(&slot)
+}
+
+fn gradient_toggle_button(
+    theme: &'static dyn Theme,
+    label: &str,
+    state: Rc<Cell<bool>>,
+) -> impl Component {
+    let click_state = state.clone();
+    Button::ghost(label, theme)
+        .on_click(move |_tree, _id| click_state.set(!click_state.get()))
+        .dynamic_background(move |interact| active_background(theme, state.get(), interact))
 }
 
 /// 激活态底色 / 悬停态底色 / 透明。

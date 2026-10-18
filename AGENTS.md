@@ -17,7 +17,8 @@ src/ui/         views + project-local components: home, new_document, editor (mo
                 menu, toolbar, options_bar, canvas, layer/file/properties/tabs/palette panels
 src/document/   Document / Layer / PixelBuffer / Color / History + commands
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
-src/tools/      Brush/Eraser, Move, Paint-bucket flood fill, Rectangle/Free fill
+src/tools/      Brush/Eraser, Move, Paint-bucket flood fill, Gradient (multi-stop
+                ramp), Rectangle/Free fill
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
                 Selection (pixel mask + outline: rect / lasso)
 src/io/         PNG encode/decode + path helpers

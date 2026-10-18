@@ -140,6 +140,10 @@ cargo run -- --pixel-font
   「连续」开关）、**矩形填充**（`R`：拖矩形，松手用前景色填充 + 拖动预览）、
   **自由填充**（`U`：拖自由形状，松手填充内部）。都按当前选区裁剪，一次填充
   = 一条 undo（快照 + `PixelRegion::diff`）。
+- [x] **Phase 17 — 渐变工具（多节点 ramp）**：`tools::gradient` 的五种类型
+  （线性 / 对称 / 径向 / 角度 / 菱形）+ `document::Gradient` 多色标 ramp（采样 /
+  增删移 / 端点跟随前景背景）；拖一条轴定义方向，实时改图层预览、松手一条
+  undo；`ui/gradient_editor` 的色带 + 可拖动节点编辑器。
 
 ### 计划（Phase 10+）
 
@@ -203,6 +207,7 @@ src/
 │   ├── id.rs            # DocumentId / LayerId
 │   ├── point.rs         # 文档像素坐标
 │   ├── region.rs        # Phase 6：整数像素矩形 + diff + contains（选裁剪）
+│   ├── gradient.rs      # 多节点渐变 Gradient + GradientStop（ramp 采样 / 增删移）
 │   ├── pixel_buffer.rs  # 行优先 RGBA
 │   ├── layer.rs         # Layer + BlendMode
 │   ├── history.rs       # Phase 6：Command / History / PaintCommand
@@ -225,6 +230,7 @@ src/
 │   ├── tool.rs          # Tool trait + PointerEvent + ToolContext（含 History）
 │   ├── brush.rs         # BrushTool + BrushMode（画笔 / 橡皮，抬笔提交一笔）
 │   ├── fill.rs          # 洪水填充 flood_fill + PaintBucketTool + fill_selection
+│   ├── gradient.rs      # GradientKind / gradient_fill / GradientTool（多节点渐变）
 │   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）
 ├── ui/
@@ -236,6 +242,7 @@ src/
 │   ├── options_bar.rs   # 工具选项栏（笔刷大小 / 不透明度 / 提示）
 │   ├── canvas.rs        # 透明画布区域（命中 / 定位用）
 │   ├── selection.rs     # 选区描边（黑白相间马赛克线段）
+│   ├── gradient_editor.rs # 多节点渐变编辑器（色带 + 节点手柄 + 配色行）
 │   ├── file_panel.rs    # Phase 7：文件面板（路径 + 导入 / 导出按钮）
 │   ├── layer_panel.rs   # 图层面板（List + 操作按钮）
 │   ├── history_panel.rs # 历史面板（List：undo/redo 栈，点一步跳过去）
@@ -279,23 +286,41 @@ Esc 取消）。列表第 0 行是最上面的图层。
 没有原生文件对话框（winit 不带），所以用路径文本输入。路径打不开 / 不是 PNG
 只在状态栏报错，不会崩。
 
-## 工具（Phase 8 / 12–16）
+## 工具（Phase 8 / 12–17）
 
 | 工具 | 键 | 操作 |
 |---|---|---|
 | 移动 | `V` | 在画布上拖动 → 当前图层按指针位移改 `position`（不进撤销栈） |
-| 框选 | `M` | 拖动出矩形选区；画笔 / 填充只在选区内生效；选中有描边；`Esc` 清空 |
+| 框选 | `M` | 拖动出矩形选区；画笔 / 填充 / 渐变只在选区内生效；选中有描边；`Esc` 清空 |
 | 套索 | `L` | 按住拖出自由折线，松手成任意形状选区；`Esc` 清空 |
 | 油漆桶 | `G` | 点画布洪水填充连通区域；选项栏调容差 / 「连续」 |
+| 渐变 | `N` | 拖一条轴定义方向 / 长度，用**多节点 ramp** 填充选区；选项栏切类型（线性 / 对称 / 径向 / 角度 / 菱形）、「反向」、「编辑…」打开多节点编辑器 |
 | 矩形填充 | `R` | 拖出矩形，松手用前景色填充；拖动中有预览 |
 | 自由填充 | `U` | 按住拖出自由形状，松手填充内部 |
 | 吸管 | `I` | 点画布 → 取**合成后**的颜色作为前景色（画笔颜色） |
 
 选区是编辑器状态（`AppState.selection: Option<Rc<canvas::Selection>>`），不是
 文档数据；`Selection` 是「与文档同尺寸的像素掩码 + 描边轮廓」，所以矩形框选和
-自由套索是同一个类型，画笔 / 填充都直接查掩码（`contains` O(1)）。移动只改
+自由套索是同一个类型，画笔 / 填充 / 渐变都直接查掩码（`contains` O(1)）。移动只改
 `Layer.position`，合成器会把偏移算进摆放；和图层增删 / 排序一样**不**占用撤销
 步数。
+
+## 渐变（多节点 ramp）
+
+渐变是一条 `document::Gradient`：一串色标（`position` 0..=1 + `Color`，≥2 个，按
+位置排序），采样时定位区间并对两端做 RGBA 插值，两端 clamp——就是游戏引擎里的
+color ramp。默认两端是当前前景 / 背景，**未自定义时**端点每帧跟随它们；一旦在
+编辑器里加 / 移 / 改节点，就冻结成自定义。
+
+选项栏（仅渐变工具显示）：类型 `−/+`、色带预览、「编辑…」、「反向」。点
+「编辑…」用 `Overlays::popover` 打开 `ui/gradient_editor.rs`：一条色带预览 + 一排
+节点手柄，`on_pointer` 把指针 x 映射成位置——按下靠近手柄选中并拖动，按下空白
+新增节点；下面一行用「前景色 / 背景色」给选中节点上色（复用现有调色盘改前景的
+流程）、「删除」「重置」。
+
+拖动时渐变直接改当前图层做实时预览（落笔存快照，每次 move 从快照恢复再重画），
+松手 `PixelRegion::diff` 提交一条 undo；用 `blend_pixel`（source-over）合成，所以
+透明端会保留底下像素。
 
 ## 验证（无截图）
 
@@ -323,10 +348,10 @@ Phase 6 起还做一次**真实的撤销 / 重做往返**：画笔一笔 → 点
 
 ### 分组工具栏（长按展开）
 
-`ActiveTool` 的 9 个工具按 [`app::tool_groups`](src/app/tool_groups.rs) 收成 7 个
-组按钮：移动、画笔、橡皮、选区（框选/套索）、油漆桶、填充形状（矩形填充/
-自由填充）、吸管。组按钮画当前「脸」工具的图标 + 标签，右下角一个小三角表示
-可展开：
+`ActiveTool` 的 10 个工具按 [`app::tool_groups`](src/app/tool_groups.rs) 收成 7 个
+组按钮：移动、画笔、橡皮、选区（框选/套索）、油漆桶（油漆桶/渐变）、填充形状
+（矩形填充/自由填充）、吸管。组按钮画当前「脸」工具的图标 + 标签，右下角一个小
+三角表示可展开：
 
 - **短按**：激活脸工具（写一个请求格，`update` 统一应用）。
 - **长按**（按住 ≥ 350ms 且没移动超过 6px）：`update` 轮询长按状态，到点用

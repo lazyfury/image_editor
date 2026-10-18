@@ -201,6 +201,48 @@ fn check_bucket(failures: &mut Vec<String>) {
     }
 }
 
+/// 渐变工具：`N` 切换；选项栏切类型 / 打开多节点编辑器；端点默认来自前景背景。
+fn check_gradient(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('n'),
+    });
+    view.update();
+    view.layout(viewport());
+    if view.active_tool() != ActiveTool::Gradient {
+        failures.push("N 没有切到渐变工具".to_string());
+    }
+
+    let before = view.gradient_kind();
+    match view.gradient_button_center(crate::ui::GradientAdjust::KindNext) {
+        Some(center) => {
+            click_at(&mut view, center);
+            view.update();
+        }
+        None => failures.push("找不到渐变「类型 +」按钮".to_string()),
+    }
+    if view.gradient_kind() == before {
+        failures.push("渐变类型 + 没生效".to_string());
+    }
+    if view.gradient_stops().len() < 2 {
+        failures.push("默认渐变应有两个端点".to_string());
+    }
+
+    match view.gradient_edit_center() {
+        Some(center) => {
+            click_at(&mut view, center);
+            view.update();
+        }
+        None => failures.push("找不到渐变「编辑…」按钮".to_string()),
+    }
+    if !view.gradient_editor_open() {
+        failures.push("点编辑没有打开多节点编辑器".to_string());
+    }
+    view.event(&InputEvent::KeyDown { key: Key::Escape });
+    view.update();
+}
+
 fn gray_pixels(pixels: &PixelBuffer, cx: u32, cy: u32, radius: u32) -> usize {
     let mut count = 0;
     let y_end = (cy + radius).min(pixels.height.saturating_sub(1));
@@ -503,6 +545,7 @@ pub fn check() -> (usize, String) {
     }
     check_pixel_mode_edges(&mut failures);
     check_bucket(&mut failures);
+    check_gradient(&mut failures);
 
     // 调色盘：色块齐全，点一个预设色块应把前景色改掉。
     if view.palette_swatch_count() < 16 {

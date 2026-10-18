@@ -18,6 +18,7 @@
 mod canvas;
 mod card;
 mod file_panel;
+mod gradient_editor;
 mod history_panel;
 mod home;
 mod layer_panel;
@@ -37,6 +38,7 @@ pub use home::HomeView;
 pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
+pub use options_bar::GradientAdjust;
 pub use options_bar::{BucketAdjust, BucketToggle};
 pub use tabs::SidebarTab;
 
@@ -64,15 +66,17 @@ use crate::canvas::{
     Selection, DOCUMENT_TEXTURE,
 };
 use crate::document::{
-    AddLayerCommand, CropLayerCommand, Layer, LayerId, LayerMetaCommand, PixelBuffer,
+    AddLayerCommand, CropLayerCommand, Gradient, Layer, LayerId, LayerMetaCommand, PixelBuffer,
 };
 use crate::icons::IconSet;
 use crate::renderer::{sample_pixel, CpuRenderer, RenderTarget, Renderer};
 use crate::tools::{
-    fill_selection, BrushMode, BrushShape, BrushTool, MoveTool, PaintBucketTool, PointerEvent,
-    RectangleFillTool, Tool, ToolContext,
+    fill_selection, BrushMode, BrushShape, BrushTool, GradientKind, GradientTool, MoveTool,
+    PaintBucketTool, PointerEvent, RectangleFillTool, Tool, ToolContext,
 };
-use crate::ui::options_bar::{options_bar, options_hint, tool_has_brush, OptionsRefs};
+use crate::ui::options_bar::{
+    options_bar, options_hint, tool_has_brush, GradientOptions, OptionsRefs,
+};
 use crate::ui::tabs::TabsView;
 
 /// 工具栏宽度（逻辑像素）。
@@ -185,6 +189,7 @@ pub struct EditorView {
     options_size: NodeId,
     options_opacity: NodeId,
     options_bucket: NodeId,
+    options_gradient: NodeId,
     options_tolerance: NodeId,
     options_hint: NodeId,
     /// 选项栏 `−` / `+` 留下的请求；`update` 取走执行。
@@ -206,6 +211,25 @@ pub struct EditorView {
     paint_bucket: PaintBucketTool,
     /// 矩形填充工具（拖动中暴露预览角点）。
     rect_fill: RectangleFillTool,
+    /// 渐变工具 + 它的多节点 ramp（共享给编辑器）/ 类型 / 反向。
+    gradient: Rc<RefCell<Gradient>>,
+    gradient_tool: GradientTool,
+    gradient_kind: GradientKind,
+    gradient_reverse: Rc<Cell<bool>>,
+    /// 用户改过渐变节点后为 true；否则首尾跟随前景 / 背景。
+    gradient_customized: Rc<Cell<bool>>,
+    /// 编辑器里选中的节点下标。
+    gradient_selected: Rc<Cell<usize>>,
+    /// 选项栏渐变类型标签 / 预览条 / 编辑按钮节点。
+    gradient_kind_label: NodeId,
+    gradient_preview_node: NodeId,
+    gradient_edit_node: NodeId,
+    /// 「编辑…」请求 / 类型切换请求 / 编辑器是否开着。
+    gradient_edit_request: Rc<Cell<bool>>,
+    gradient_adjust: Rc<Cell<Option<GradientAdjust>>>,
+    gradient_editor_open: Cell<bool>,
+    /// 渐变类型切换按钮节点（测试 / 自检点击用）。
+    gradient_buttons: Vec<(GradientAdjust, NodeId)>,
     /// 右侧栏共享宽度（分隔条写、`clamp_sidebar_width` 也写）。
     sidebar_width: Rc<Cell<f32>>,
     /// 右侧栏节点（分隔条的目标）。
@@ -366,6 +390,14 @@ impl EditorView {
         let mut bucket_refs: Vec<(BucketAdjust, NodeRef)> = Vec::new();
         let bucket_contiguous = Rc::new(Cell::new(true));
         let mut bucket_toggle_refs: Vec<(BucketToggle, NodeRef)> = Vec::new();
+        let gradient = Rc::new(RefCell::new(Gradient::from_colors(
+            crate::document::Color::BLACK,
+            crate::document::Color::WHITE,
+        )));
+        let gradient_reverse = Rc::new(Cell::new(false));
+        let gradient_request: Rc<Cell<Option<GradientAdjust>>> = Rc::new(Cell::new(None));
+        let gradient_edit_request = Rc::new(Cell::new(false));
+        let mut gradient_refs: Vec<(GradientAdjust, NodeRef)> = Vec::new();
         let sidebar_width = Rc::new(Cell::new(SIDEBAR_WIDTH));
         let palette_width = Rc::new(Cell::new(PALETTE_WIDTH));
         let active_tab: Rc<Cell<SidebarTab>> = Rc::new(Cell::new(SidebarTab::default()));
@@ -418,11 +450,18 @@ impl EditorView {
                 square_mode.clone(),
                 bucket_request.clone(),
                 bucket_contiguous.clone(),
+                GradientOptions {
+                    gradient: gradient.clone(),
+                    reverse: gradient_reverse.clone(),
+                    request: gradient_request.clone(),
+                    edit: gradient_edit_request.clone(),
+                },
                 &options,
                 &mut brush_refs,
                 &mut toggle_refs,
                 &mut bucket_refs,
                 &mut bucket_toggle_refs,
+                &mut gradient_refs,
             ))
             .child(
                 Flex::row()
@@ -556,6 +595,10 @@ impl EditorView {
             .into_iter()
             .map(|(toggle, slot)| (toggle, slot.get().expect("bucket toggle mounted")))
             .collect();
+        let gradient_buttons: Vec<(GradientAdjust, NodeId)> = gradient_refs
+            .into_iter()
+            .map(|(adjust, slot)| (adjust, slot.get().expect("gradient button mounted")))
+            .collect();
         let tab_buttons: Vec<(SidebarTab, NodeId)> = tab_refs
             .iter()
             .map(|(tab, button, _)| (*tab, button.get().expect("tab button mounted")))
@@ -600,6 +643,7 @@ impl EditorView {
             options_size: options.size.get().expect("options size mounted"),
             options_opacity: options.opacity.get().expect("options opacity mounted"),
             options_bucket: options.bucket.get().expect("options bucket mounted"),
+            options_gradient: options.gradient.get().expect("options gradient mounted"),
             options_tolerance: options.tolerance.get().expect("options tolerance mounted"),
             options_hint: options.hint.get().expect("options hint mounted"),
             brush_request,
@@ -613,6 +657,25 @@ impl EditorView {
             bucket_contiguous,
             paint_bucket: PaintBucketTool::new(),
             rect_fill: RectangleFillTool::new(),
+            gradient_tool: GradientTool::new(gradient.clone()),
+            gradient,
+            gradient_kind: GradientKind::default(),
+            gradient_reverse,
+            gradient_customized: Rc::new(Cell::new(false)),
+            gradient_selected: Rc::new(Cell::new(0)),
+            gradient_kind_label: options
+                .gradient_kind
+                .get()
+                .expect("gradient kind label mounted"),
+            gradient_preview_node: options
+                .gradient_preview
+                .get()
+                .expect("gradient preview mounted"),
+            gradient_edit_node: options.gradient_edit.get().expect("gradient edit mounted"),
+            gradient_edit_request,
+            gradient_adjust: gradient_request,
+            gradient_editor_open: Cell::new(false),
+            gradient_buttons,
             sidebar_width,
             sidebar_node: refs.sidebar.get().expect("sidebar mounted"),
             sidebar_handle_node: refs.sidebar_handle.get().expect("sidebar handle mounted"),
@@ -686,6 +749,15 @@ impl EditorView {
         if let Some(adjust) = self.bucket_request.take() {
             self.apply_bucket_adjust(adjust);
         }
+        if let Some(adjust) = self.gradient_adjust.take() {
+            self.gradient_kind = match adjust {
+                GradientAdjust::KindPrev => self.gradient_kind.prev(),
+                GradientAdjust::KindNext => self.gradient_kind.next(),
+            };
+        }
+        if self.gradient_edit_request.replace(false) {
+            self.open_gradient_editor();
+        }
         // 选项栏开关是显示源，`brush` / `paint_bucket` 是绘制源，这里每帧对齐。
         self.brush.hard = self.pixel_mode.get();
         self.brush.shape = if self.square_mode.get() {
@@ -694,6 +766,18 @@ impl EditorView {
             BrushShape::Round
         };
         self.paint_bucket.contiguous = self.bucket_contiguous.get();
+        // 渐变：未自定义时首尾跟随前景 / 背景；工具读类型 / 反向。
+        if !self.gradient_customized.get() {
+            let (foreground, background) = {
+                let state = self.state.borrow();
+                (state.foreground, state.background)
+            };
+            self.gradient
+                .borrow_mut()
+                .set_endpoints(foreground, background);
+        }
+        self.gradient_tool.kind = self.gradient_kind;
+        self.gradient_tool.reverse = self.gradient_reverse.get();
         self.sync_options();
 
         let (revision, active) = {
@@ -741,6 +825,7 @@ impl EditorView {
         if self.overlays.is_empty() {
             self.open_menu.set(None);
             self.open_tool_group.set(None);
+            self.gradient_editor_open.set(false);
         }
         if self.renaming.is_some() {
             self.sync_rename_status();
@@ -1074,6 +1159,34 @@ impl EditorView {
         self.open_tool_group.set(Some(group));
     }
 
+    /// 打开多节点渐变编辑器（popover 锚在选项栏的预览条下）。
+    fn open_gradient_editor(&mut self) {
+        self.overlays.close_all();
+        self.open_menu.set(None);
+        self.open_tool_group.set(None);
+        let theme = self.theme;
+        let state = self.state.clone();
+        let gradient = self.gradient.clone();
+        let customized = self.gradient_customized.clone();
+        let selected = self.gradient_selected.clone();
+        let refs = gradient_editor::GradientEditorRefs::default();
+        let anchor = self.gradient_preview_node;
+        self.overlays
+            .popover(anchor, Placement::Below, move |tree, root| {
+                gradient_editor::gradient_editor_content(
+                    tree,
+                    root,
+                    theme,
+                    state.clone(),
+                    gradient.clone(),
+                    customized.clone(),
+                    selected.clone(),
+                    &refs,
+                );
+            });
+        self.gradient_editor_open.set(true);
+    }
+
     /// 当前工具属于哪个组，就把那个组的「脸」更新成它；标签跟着改。
     fn sync_tool_faces(&mut self) {
         let active = self.state.borrow().active_tool;
@@ -1257,6 +1370,7 @@ impl EditorView {
         self.paint_selection(ctx);
         self.paint_lasso(ctx);
         self.paint_rect_fill_preview(ctx);
+        self.paint_gradient_preview(ctx);
         ctx.restore();
         igui_ui::paint(&self.tree, ctx);
         self.overlays.paint(ctx);
@@ -1374,6 +1488,23 @@ impl EditorView {
             .map(|point| camera.document_to_screen(*point))
             .collect();
         selection::paint(ctx, &points);
+    }
+
+    /// 渐变拖动中的轴预览：起点→终点细线 + 两端小圆点。
+    fn paint_gradient_preview(&self, ctx: &mut PaintContext) {
+        let Some((start, end)) = self.gradient_tool.preview() else {
+            return;
+        };
+        if (end - start).length() < 1.0 {
+            return;
+        }
+        let camera = self.state.borrow().canvas;
+        let from = camera.document_to_screen(start);
+        let to = camera.document_to_screen(end);
+        let color = self.theme.palette().foreground;
+        ctx.draw_line(from, to, 1.0, Paint::new(color));
+        ctx.fill_circle(from, 3.0, Paint::new(color));
+        ctx.fill_circle(to, 3.0, Paint::new(color));
     }
 
     /// 路由一个后端无关的输入事件。
@@ -1620,6 +1751,7 @@ impl EditorView {
             || self.select_anchor.is_some()
             || !self.lasso_points.is_empty()
             || self.rect_fill.is_filling()
+            || self.gradient_tool.is_drawing()
     }
 
     /// 左键落下：把屏幕点换算成文档坐标，交给当前工具。
@@ -1697,6 +1829,27 @@ impl EditorView {
                 self.rect_fill
                     .on_pointer_down(&mut ctx, left_pointer(position));
             }
+            ActiveTool::Gradient => {
+                let (foreground, background, selection) = {
+                    let state = self.state.borrow();
+                    (state.foreground, state.background, state.selection.clone())
+                };
+                if !self.gradient_customized.get() {
+                    self.gradient
+                        .borrow_mut()
+                        .set_endpoints(foreground, background);
+                }
+                self.gradient_tool.clip = selection;
+                self.gradient_tool.kind = self.gradient_kind;
+                self.gradient_tool.reverse = self.gradient_reverse.get();
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.gradient_tool
+                    .on_pointer_down(&mut ctx, left_pointer(position));
+            }
             ActiveTool::Eyedropper => self.pick_color(position),
         }
     }
@@ -1742,6 +1895,16 @@ impl EditorView {
                 let mut ctx = ToolContext { document, history };
                 self.rect_fill
                     .on_pointer_move(&mut ctx, left_pointer(position));
+            }
+            ActiveTool::Gradient if self.gradient_tool.is_drawing() => {
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.gradient_tool
+                    .on_pointer_move(&mut ctx, left_pointer(position));
+                self.texture_dirty = true;
             }
             _ => {}
         }
@@ -1829,6 +1992,17 @@ impl EditorView {
                     .on_pointer_up(&mut ctx, left_pointer(position));
                 self.texture_dirty = true;
                 *self.message.borrow_mut() = Some("矩形填充".to_string());
+            }
+            ActiveTool::Gradient if self.gradient_tool.is_drawing() => {
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.gradient_tool
+                    .on_pointer_up(&mut ctx, left_pointer(position));
+                self.texture_dirty = true;
+                *self.message.borrow_mut() = Some("渐变".to_string());
             }
             _ => {}
         }
@@ -1936,6 +2110,11 @@ impl EditorView {
             self.options_tolerance,
             format!("{}", self.paint_bucket.tolerance),
         );
+        set_text(
+            &mut self.tree,
+            self.gradient_kind_label,
+            self.gradient_kind.label(),
+        );
 
         let show_brush = tool_has_brush(tool);
         if self.tree.is_visible(self.options_brush) != Some(show_brush) {
@@ -1946,6 +2125,11 @@ impl EditorView {
         if self.tree.is_visible(self.options_bucket) != Some(show_bucket) {
             self.tree.set_visible(self.options_bucket, show_bucket);
             igui_ui::mark_dirty(&mut self.tree, self.options_bucket);
+        }
+        let show_gradient = tool == ActiveTool::Gradient;
+        if self.tree.is_visible(self.options_gradient) != Some(show_gradient) {
+            self.tree.set_visible(self.options_gradient, show_gradient);
+            igui_ui::mark_dirty(&mut self.tree, self.options_gradient);
         }
     }
 
@@ -2210,6 +2394,38 @@ impl EditorView {
         igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
+    /// 渐变类型切换按钮 / 「编辑…」按钮的中心点（测试 / 自检点击用）。
+    pub fn gradient_button_center(&self, adjust: GradientAdjust) -> Option<Vec2> {
+        let id = self
+            .gradient_buttons
+            .iter()
+            .find(|(candidate, _)| *candidate == adjust)
+            .map(|(_, id)| *id)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    pub fn gradient_edit_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.gradient_edit_node).map(|control| control.rect.center())
+    }
+
+    /// 当前渐变类型 / ramp 色标 / 是否自定义 / 编辑器是否开着（测试 / 自检）。
+    pub fn gradient_kind(&self) -> GradientKind {
+        self.gradient_kind
+    }
+
+    pub fn gradient_stops(&self) -> Vec<(f32, crate::document::Color)> {
+        self.gradient
+            .borrow()
+            .stops()
+            .iter()
+            .map(|stop| (stop.position, stop.color))
+            .collect()
+    }
+
+    pub fn gradient_editor_open(&self) -> bool {
+        self.gradient_editor_open.get()
+    }
+
     /// 油漆桶当前容差 / 是否连续（测试 / 自检）。
     pub fn bucket_tolerance(&self) -> u8 {
         self.paint_bucket.tolerance
@@ -2350,6 +2566,7 @@ fn shortcut_tool(key: Key) -> Option<ActiveTool> {
         Key::Character('m') | Key::Character('M') => Some(ActiveTool::RectangleSelect),
         Key::Character('l') | Key::Character('L') => Some(ActiveTool::LassoSelect),
         Key::Character('g') | Key::Character('G') => Some(ActiveTool::PaintBucket),
+        Key::Character('n') | Key::Character('N') => Some(ActiveTool::Gradient),
         Key::Character('r') | Key::Character('R') => Some(ActiveTool::RectangleFill),
         Key::Character('u') | Key::Character('U') => Some(ActiveTool::FreeFill),
         Key::Character('i') | Key::Character('I') => Some(ActiveTool::Eyedropper),
@@ -3351,6 +3568,19 @@ mod tests {
         assert!(view.icon_count() >= needed, "图标包应覆盖工具栏图标");
     }
 
+    /// 每个工具的图标名都能在 vendor 的图标包里解析（包括自制的 `gradient`）。
+    #[test]
+    fn every_tool_icon_name_resolves() {
+        let icons = crate::icons::IconSet::load();
+        for tool in ActiveTool::ALL {
+            assert!(
+                icons.document(tool.icon()).is_some(),
+                "缺少图标 `{}`",
+                tool.icon()
+            );
+        }
+    }
+
     #[test]
     fn icons_draw_into_the_painted_frame() {
         let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
@@ -3908,5 +4138,75 @@ mod tests {
         let frame = view.take_texture_upload().expect("填充后应重合成");
         assert_eq!(frame.get_pixel(40, 40), Color::BLACK, "自由形状内部被填");
         assert_eq!(frame.get_pixel(80, 80), Color::WHITE, "形状外不变");
+    }
+
+    /// 渐变工具：拖一条轴把选区（整层）填成前景→背景的渐变，且能撤销。
+    #[test]
+    fn a_gradient_drag_fills_the_layer() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        let camera = view.canvas_camera();
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('n'),
+        });
+        view.update();
+        assert_eq!(view.active_tool(), ActiveTool::Gradient);
+
+        let from = camera.document_to_screen(Vec2::new(0.5, 0.5));
+        let to = camera.document_to_screen(Vec2::new(127.5, 0.5));
+        view.event(&InputEvent::PointerDown {
+            position: from,
+            button: PointerButton::Left,
+        });
+        view.event(&InputEvent::PointerMove { position: to });
+        view.event(&InputEvent::PointerUp {
+            position: to,
+            button: PointerButton::Left,
+        });
+        view.update();
+        view.mark_texture_dirty();
+        let frame = view.take_texture_upload().expect("渐变后应重合成");
+        assert_eq!(frame.get_pixel(0, 0), Color::BLACK, "起点是前景色");
+        assert_eq!(frame.get_pixel(127, 0), Color::WHITE, "终点是背景色");
+        assert!(view.can_undo(), "渐变应入历史");
+    }
+
+    /// 渐变类型从选项栏 `+` 切换。
+    #[test]
+    fn the_gradient_kind_cycles_from_the_options_bar() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('n'),
+        });
+        view.update();
+        view.layout(viewport());
+        assert_eq!(view.gradient_kind(), GradientKind::Linear);
+        let center = view
+            .gradient_button_center(GradientAdjust::KindNext)
+            .expect("渐变类型 + 按钮");
+        click(&mut view, center);
+        view.update();
+        assert_eq!(view.gradient_kind(), GradientKind::Reflected);
+    }
+
+    /// 默认渐变端点跟随前景 / 背景；「编辑…」打开多节点编辑器。
+    #[test]
+    fn the_gradient_endpoints_follow_the_colors_and_the_editor_opens() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.layout(viewport());
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('n'),
+        });
+        view.update();
+        view.layout(viewport());
+        let stops = view.gradient_stops();
+        assert_eq!(stops.first().map(|(_, c)| *c), Some(Color::BLACK));
+        assert_eq!(stops.last().map(|(_, c)| *c), Some(Color::WHITE));
+
+        let edit = view.gradient_edit_center().expect("编辑… 按钮");
+        click(&mut view, edit);
+        view.update();
+        assert!(view.gradient_editor_open(), "点编辑应打开编辑器");
     }
 }

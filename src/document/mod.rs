@@ -19,6 +19,7 @@ mod color;
 // 结构与 §4 推荐目录一致（`document/document.rs`）；名字重复是刻意的。
 #[allow(clippy::module_inception)]
 mod document;
+mod gradient;
 mod history;
 mod id;
 mod layer;
@@ -28,6 +29,7 @@ mod region;
 
 pub use color::Color;
 pub use document::{Document, DEFAULT_HEIGHT, DEFAULT_WIDTH};
+pub use gradient::{Gradient, GradientStop};
 pub use history::{
     AddLayerCommand, Command, CropLayerCommand, History, LayerMetaCommand, LayerStackMeta,
     PaintCommand, RemoveLayerCommand, SetLayerPositionCommand,

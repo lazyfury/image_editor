@@ -22,6 +22,7 @@ pub enum ActiveTool {
     RectangleSelect,
     LassoSelect,
     PaintBucket,
+    Gradient,
     RectangleFill,
     FreeFill,
     Eyedropper,
@@ -29,13 +30,14 @@ pub enum ActiveTool {
 
 impl ActiveTool {
     /// 工具栏从上到下的顺序。
-    pub const ALL: [ActiveTool; 9] = [
+    pub const ALL: [ActiveTool; 10] = [
         ActiveTool::Move,
         ActiveTool::Brush,
         ActiveTool::Eraser,
         ActiveTool::RectangleSelect,
         ActiveTool::LassoSelect,
         ActiveTool::PaintBucket,
+        ActiveTool::Gradient,
         ActiveTool::RectangleFill,
         ActiveTool::FreeFill,
         ActiveTool::Eyedropper,
@@ -50,6 +52,7 @@ impl ActiveTool {
             Self::RectangleSelect => "框选",
             Self::LassoSelect => "套索",
             Self::PaintBucket => "油漆桶",
+            Self::Gradient => "渐变",
             Self::RectangleFill => "矩形填充",
             Self::FreeFill => "自由填充",
             Self::Eyedropper => "吸管",
@@ -65,6 +68,7 @@ impl ActiveTool {
             Self::RectangleSelect => "square-dashed",
             Self::LassoSelect => "lasso-select",
             Self::PaintBucket => "paint-bucket",
+            Self::Gradient => "gradient",
             Self::RectangleFill => "square",
             Self::FreeFill => "paintbrush",
             Self::Eyedropper => "pipette",
@@ -80,6 +84,7 @@ impl ActiveTool {
             Self::RectangleSelect => "矩形选择",
             Self::LassoSelect => "自由选区",
             Self::PaintBucket => "油漆桶",
+            Self::Gradient => "渐变工具",
             Self::RectangleFill => "矩形填充",
             Self::FreeFill => "自由填充",
             Self::Eyedropper => "吸管",
