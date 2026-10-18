@@ -11,7 +11,7 @@ use igui_components::{Button, Component, Flex, Text};
 use igui_core::{Edges, EventResult, InputEvent, Vec2, ViewportSize};
 use igui_render::PaintContext;
 use igui_theme::{space, Theme, Tone};
-use igui_ui::{Justify, MouseFilter, TextMeasurer};
+use igui_ui::{MouseFilter, TextMeasurer};
 
 use super::window::Window;
 
@@ -39,37 +39,34 @@ impl ConfirmDialog {
         let save = result.clone();
         let discard = result.clone();
         let cancel = result.clone();
-        let window =
-            Window::new(
-                theme,
-                title,
-                Vec2::new(420.0, 190.0),
-                Vec2::new(320.0, 150.0),
-                move |tree, content| {
-                    Flex::column()
-                        .gap(space::LG)
-                        .padding(Edges::ZERO)
-                        .mouse_filter(MouseFilter::Ignore)
-                        .child(Text::small(message, theme).tone(Tone::Muted))
-                        .child(
-                            Flex::row()
-                                .gap(space::SM)
-                                .padding(Edges::ZERO)
-                                .justify(Justify::End)
-                                .mouse_filter(MouseFilter::Ignore)
-                                .child(Button::primary("保存", theme).on_click(
-                                    move |_tree, _id| save.set(Some(ConfirmResult::Save)),
-                                ))
-                                .child(Button::secondary("不保存", theme).on_click(
-                                    move |_tree, _id| discard.set(Some(ConfirmResult::Discard)),
-                                ))
-                                .child(Button::ghost("取消", theme).on_click(move |_tree, _id| {
-                                    cancel.set(Some(ConfirmResult::Cancel))
-                                })),
-                        )
-                        .build(tree, content);
-                },
-            );
+        let window = Window::new(
+            theme,
+            title,
+            Vec2::new(420.0, 190.0),
+            Vec2::new(320.0, 150.0),
+            move |tree, content, footer| {
+                Text::small(message, theme)
+                    .tone(Tone::Muted)
+                    .build(tree, content);
+                Flex::row()
+                    .gap(space::SM)
+                    .padding(Edges::ZERO)
+                    .mouse_filter(MouseFilter::Ignore)
+                    .child(
+                        Button::primary("保存", theme)
+                            .on_click(move |_tree, _id| save.set(Some(ConfirmResult::Save))),
+                    )
+                    .child(
+                        Button::secondary("不保存", theme)
+                            .on_click(move |_tree, _id| discard.set(Some(ConfirmResult::Discard))),
+                    )
+                    .child(
+                        Button::ghost("取消", theme)
+                            .on_click(move |_tree, _id| cancel.set(Some(ConfirmResult::Cancel))),
+                    )
+                    .build(tree, footer);
+            },
+        );
         Self { window, result }
     }
 

@@ -116,8 +116,10 @@ impl NewDocumentModal {
             let dirty = dirty.clone();
             let result = result.clone();
             let nodes = nodes.clone();
-            move |tree, parent| {
-                build_content(tree, parent, theme, &choices, &dirty, &result, &nodes);
+            move |tree, content, footer| {
+                build_content(
+                    tree, content, footer, theme, &choices, &dirty, &result, &nodes,
+                );
             }
         });
 
@@ -206,6 +208,7 @@ impl NewDocumentModal {
 fn build_content(
     tree: &mut SceneTree,
     parent: NodeId,
+    footer: NodeId,
     theme: &'static dyn Theme,
     choices: &Rc<RefCell<NewDocumentSpec>>,
     dirty: &Rc<Cell<bool>>,
@@ -290,7 +293,7 @@ fn build_content(
     let create_result = result.clone();
     let create_choices = choices.clone();
     let cancel_result = result.clone();
-    let footer = Flex::row()
+    let actions = Flex::row()
         .justify(Justify::End)
         .gap(space::SM)
         .padding(Edges::ZERO)
@@ -327,10 +330,10 @@ fn build_content(
             Text::caption("", theme)
                 .tone(Tone::Muted)
                 .ref_(&background_ref),
-        )
-        .child(footer);
+        );
 
     tree.add_child(parent, page);
+    tree.add_child(footer, actions);
 
     nodes.width.set(width_ref.get());
     nodes.height.set(height_ref.get());

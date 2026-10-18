@@ -9,7 +9,11 @@
 //! 标题栏与边框是「空」的（`MouseFilter::Ignore`），指针落在上面时窗口自己起一个
 //! [`Gesture`]；落在内容控件（按钮 / 色块）上则转发给树，不抢交互。
 //!
-//! [`NewDocumentModal`](crate::ui::NewDocumentModal) 是它目前唯一的使用者。
+//! 结构固定为三段：**标题栏**（贴边、只有标题左边距 + 关闭按钮贴右）、
+//! **内容区**（`grow`，自带 padding）和**页脚**（按钮右对齐）。
+//!
+//! [`NewDocumentModal`](crate::ui::NewDocumentModal) 与
+//! [`ConfirmDialog`](crate::ui::ConfirmDialog) 是它的使用者。
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -78,20 +82,70 @@ pub struct Window {
 }
 
 impl Window {
-    /// 建一个窗口：标题栏 + 内容区。`content` 在树建好后往内容区加子节点。
+    /// 建一个窗口：标题栏 + 内容区 + 页脚。
     ///
     /// `size` 是初始尺寸（首帧在视口里居中），`min_size` 是拖动缩放的
-    /// 下限；实际尺寸还会被内容固有尺寸撑大。
+    /// 下限；实际尺寸还会被内容固有尺寸撑大。`build` 在树建好后拿到
+    /// `(tree, content, footer)`：正文加进 `content`，操作按钮加进 `footer`。
     pub fn new(
         theme: &'static dyn Theme,
         title: &str,
         size: Vec2,
         min_size: Vec2,
-        content: impl FnOnce(&mut SceneTree, NodeId),
+        build: impl FnOnce(&mut SceneTree, NodeId, NodeId),
     ) -> Self {
         let close: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let palette = theme.palette();
         let content_ref = NodeRef::new();
+        let footer_ref = NodeRef::new();
+
+        // 标题栏：外框不设 padding，标题只留左边距，关闭按钮贴右，下沿一条细线。
+        let header = Flex::row()
+            .basis(SizeBasis::Px(TITLE_BAR_HEIGHT))
+            .grow(0.0)
+            .align(Align::Center)
+            .padding(Edges::new(TITLE_PADDING_X, 0.0, 0.0, 0.0))
+            .mouse_filter(MouseFilter::Ignore)
+            .foreground(move |ctx, rect, _| {
+                // 标题栏下沿一条细线，把可拖区域画清楚。
+                ctx.draw_line(
+                    Vec2::new(rect.left(), rect.bottom() - 0.5),
+                    Vec2::new(rect.right(), rect.bottom() - 0.5),
+                    1.0,
+                    palette.border_subtle,
+                );
+            })
+            .child(
+                Text::small(title, theme)
+                    .color(palette.foreground)
+                    .grow(1.0),
+            )
+            .child(close_button(theme, close.clone()));
+
+        // 内容区：撑满标题栏与页脚之间的空间。
+        let content = Flex::column()
+            .grow(1.0)
+            .gap(space::LG)
+            .padding(Edges::all(space::LG))
+            .mouse_filter(MouseFilter::Ignore)
+            .ref_(&content_ref);
+
+        // 页脚：操作按钮右对齐，上沿一条细线。
+        let footer = Flex::row()
+            .grow(0.0)
+            .justify(Justify::End)
+            .gap(space::SM)
+            .padding(Edges::symmetric(space::LG, space::MD))
+            .mouse_filter(MouseFilter::Ignore)
+            .foreground(move |ctx, rect, _| {
+                ctx.draw_line(
+                    Vec2::new(rect.left(), rect.top() + 0.5),
+                    Vec2::new(rect.right(), rect.top() + 0.5),
+                    1.0,
+                    palette.border_subtle,
+                );
+            })
+            .ref_(&footer_ref);
 
         let frame = Flex::column()
             .anchors(Edges::ZERO)
@@ -103,37 +157,9 @@ impl Window {
                     .radius(radius::PANEL),
             )
             .mouse_filter(MouseFilter::Ignore)
-            .child(
-                Flex::row()
-                    .basis(SizeBasis::Px(TITLE_BAR_HEIGHT))
-                    .grow(0.0)
-                    .align(Align::Center)
-                    .padding(Edges::symmetric(TITLE_PADDING_X, 0.0))
-                    .mouse_filter(MouseFilter::Ignore)
-                    .foreground(move |ctx, rect, _| {
-                        // 标题栏下沿一条细线，把可拖区域画清楚。
-                        ctx.draw_line(
-                            Vec2::new(rect.left(), rect.bottom() - 0.5),
-                            Vec2::new(rect.right(), rect.bottom() - 0.5),
-                            1.0,
-                            palette.border_subtle,
-                        );
-                    })
-                    .child(
-                        Text::small(title, theme)
-                            .color(palette.foreground)
-                            .grow(1.0),
-                    )
-                    .child(close_button(theme, close.clone())),
-            )
-            .child(
-                Flex::column()
-                    .grow(1.0)
-                    .gap(space::LG)
-                    .padding(Edges::all(space::LG))
-                    .mouse_filter(MouseFilter::Ignore)
-                    .ref_(&content_ref),
-            );
+            .child(header)
+            .child(content)
+            .child(footer);
 
         let mut tree = SceneTree::new();
         let layer = tree.add_child(
@@ -142,7 +168,8 @@ impl Window {
         );
         let frame = tree.add_child(layer, frame);
         let content_id = content_ref.get().expect("内容区已挂载");
-        content(&mut tree, content_id);
+        let footer_id = footer_ref.get().expect("页脚已挂载");
+        build(&mut tree, content_id, footer_id);
 
         Self {
             tree,
@@ -203,11 +230,15 @@ impl Window {
         self.apply_offsets();
         igui_ui::layout(&mut self.tree, viewport);
 
-        // 内容固有尺寸可能把外框撑得比请求的大，以实际外框为准。
+        // 内容固有尺寸可能把外框撑得比请求的大；以实际外框为准，但保持中心不变
+        // （否则窗口会从左上角往下 / 往右长，看起来没居中）。
         if let Some(control) = igui_ui::control(&self.tree, self.frame) {
             let actual = control.rect;
             if actual != self.rect.get() {
-                self.rect.set(actual);
+                let center = self.rect.get().center();
+                let recentered = Rect::from_center_size(center, actual.size);
+                self.rect
+                    .set(clamp_to_viewport(recentered, viewport.logical_size()));
                 self.apply_offsets();
                 igui_ui::layout(&mut self.tree, viewport);
             }
@@ -388,10 +419,10 @@ mod tests {
             "标题",
             Vec2::new(420.0, 320.0),
             Vec2::new(320.0, 240.0),
-            move |tree, parent| {
+            move |tree, content, _footer| {
                 let counter = counter.clone();
                 tree.add_child(
-                    parent,
+                    content,
                     Flex::column().padding(Edges::ZERO).child(
                         Button::secondary("点我", crate::theme::editor_theme(false))
                             .on_click(move |_tree, _id| *counter.borrow_mut() += 1)
@@ -555,11 +586,44 @@ mod tests {
         window.layout(viewport());
         let rect = window.rect();
         let close = Vec2::new(
-            rect.right() - TITLE_PADDING_X - CLOSE_BUTTON / 2.0,
+            rect.right() - CLOSE_BUTTON / 2.0,
             rect.top() + TITLE_BAR_HEIGHT / 2.0,
         );
         click(&mut window, close);
         assert!(window.take_close_request());
+    }
+
+    /// 页脚是标题栏与内容区之外的独立底部区域。
+    #[test]
+    fn the_footer_is_a_separate_bottom_region() {
+        let button_ref = NodeRef::new();
+        let slot = button_ref.clone();
+        let mut window = Window::new(
+            crate::theme::editor_theme(false),
+            "标题",
+            Vec2::new(420.0, 320.0),
+            Vec2::new(320.0, 240.0),
+            move |tree, _content, footer| {
+                tree.add_child(
+                    footer,
+                    Button::primary("确定", crate::theme::editor_theme(false)).ref_(&slot),
+                );
+            },
+        );
+        window.layout(viewport());
+        let rect = window.rect();
+        let button = igui_ui::control(&window.tree, button_ref.get().expect("按钮已挂载"))
+            .map(|control| control.rect)
+            .expect("按钮 rect");
+        assert!(rect.contains(button.center()));
+        assert!(
+            button.top() > rect.top() + TITLE_BAR_HEIGHT,
+            "页脚按钮应在标题栏下方"
+        );
+        assert!(
+            button.bottom() > rect.bottom() - 60.0,
+            "页脚按钮应贴近底边：button={button:?} rect={rect:?}"
+        );
     }
 
     #[test]
