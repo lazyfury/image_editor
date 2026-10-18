@@ -23,7 +23,10 @@ mod file_panel;
 mod gradient_editor;
 mod history_panel;
 mod home;
+mod input;
+mod io;
 mod layer_panel;
+mod layout;
 pub mod menu;
 mod menus;
 mod new_document;
@@ -79,16 +82,13 @@ impl FileRequest {
 pub use workspace_tabs::{WorkspaceTab, WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT};
 
 use std::cell::{Cell, RefCell};
-use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
 use igui_components::{
     set_text, update_control, Component, Divider, Flex, ListState, NodeRef, Overlays, ResizeHandle,
 };
-use igui_core::{
-    Edges, EventResult, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize,
-};
+use igui_core::{Edges, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize};
 use igui_scene::SceneTree;
 use igui_theme::{space, Theme};
 use igui_ui::{MouseFilter, SizeBasis, TextMeasurer};
@@ -96,9 +96,7 @@ use igui_ui::{MouseFilter, SizeBasis, TextMeasurer};
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::app::tool_groups::{group_index, TOOL_GROUPS};
 use crate::canvas::{document_to_pixel, paint_backdrop, screen_to_document, CanvasCamera};
-use crate::document::{
-    AddLayerCommand, CropLayerCommand, Gradient, Layer, LayerId, LayerMetaCommand,
-};
+use crate::document::{CropLayerCommand, Gradient, LayerId, LayerMetaCommand};
 use crate::icons::IconSet;
 use crate::renderer::{CpuRenderer, RenderTarget, Renderer};
 use crate::tools::{
@@ -877,290 +875,6 @@ impl EditorView {
             set_text(&mut self.tree, self.message_label, message);
         }
         self.sync_tabs();
-    }
-
-    /// 把当前文档合成后写成 PNG。
-    pub fn export_png_to(&self, path: &str) -> Result<(), crate::io::IoError> {
-        let state = self.state.borrow();
-        let mut target = RenderTarget::new(0, 0);
-        self.renderer.render(&state.document, &mut target);
-        crate::io::write_png(Path::new(path), &target.pixels)
-    }
-
-    /// 从 PNG 文件导入一个新图层（放在最上面并选中）。
-    pub fn import_png_from(&mut self, path: &str) -> Result<(u32, u32), crate::io::IoError> {
-        let pixels = crate::io::read_png(Path::new(path))?;
-        let size = (pixels.width, pixels.height);
-        let name = crate::io::file_label(Path::new(path));
-        let mut state = self.state.borrow_mut();
-        let index = state.document.layers.len();
-        let before_active = state.document.active_layer;
-        let layer = Layer::new(name, pixels);
-        state.execute(Box::new(AddLayerCommand::new(layer, index, before_active)));
-        drop(state);
-        self.texture_dirty = true;
-        Ok(size)
-    }
-
-    /// 排布整棵树，并把相机同步到文档节点。
-    pub fn layout(&mut self, viewport: ViewportSize) {
-        self.viewport = viewport;
-        self.tree.set_viewport_size(viewport.logical_size());
-        self.clamp_palette_width();
-        self.clamp_sidebar_width();
-        igui_ui::layout(&mut self.tree, viewport);
-        // 面板高度按刚拿到的侧栏矩形钳制一次；变了就再排一遍。
-        if self.clamp_panel_heights() {
-            igui_ui::layout(&mut self.tree, viewport);
-        }
-        // 第一次布局拿到画布区域的真实矩形，才能做适配。
-        if !self.fitted {
-            self.fit_to_canvas();
-            self.fitted = true;
-        }
-        // 图层列表的行池按容器高度算，所以要在 layout 之后 sync；池变了再排一次。
-        if self.layer_state.sync(&mut self.tree) {
-            igui_ui::layout(&mut self.tree, viewport);
-        }
-        if self.history_state.sync(&mut self.tree) {
-            igui_ui::layout(&mut self.tree, viewport);
-        }
-        // 覆盖层用自己的树，必须在主树排完之后定位。
-        self.overlays.layout(&self.tree, viewport);
-        self.tree.update();
-    }
-
-    /// 路由一个后端无关的输入事件。
-    ///
-    /// 工具快捷键、画布缩放 / 平移由视图先处理；其余（点击、指针）交给
-    /// `igui_ui::handle_input`，由它去找带回调的控件。
-    pub fn event(&mut self, event: &InputEvent) -> EventResult {
-        // 覆盖层优先：菜单打开时，Esc / 点击外部由它先处理。
-        // 例外：点的是菜单标题时，先关掉当前菜单、把点击留给主树 —— 这样点
-        // 另一个标题一次就能切换，点同一个标题则是关闭。
-        if let InputEvent::PointerDown { position, .. } = event {
-            if self.menu_open() {
-                if let Some(index) = self.menu_index_at(*position) {
-                    let same = self.open_menu.get() == Some(index);
-                    self.overlays.close_all();
-                    self.open_menu.set(None);
-                    if same {
-                        return EventResult::Handled;
-                    }
-                } else if self.overlays.handle_input(event).is_handled() {
-                    return EventResult::Handled;
-                }
-            } else if self.overlays.handle_input(event).is_handled() {
-                return EventResult::Handled;
-            }
-        } else if self.overlays.handle_input(event).is_handled() {
-            return EventResult::Handled;
-        }
-        // 重命名 / 路径编辑进行中：键盘只编辑文本，不触发工具 / 画布快捷键。
-        if self.renaming.is_some() && self.handle_rename_input(event) {
-            return EventResult::Handled;
-        }
-        match event {
-            InputEvent::KeyDown { key } => {
-                if let Some(tool) = shortcut_tool(*key) {
-                    self.state.borrow_mut().active_tool = tool;
-                    tracing::info!(target: "image_editor", tool = tool.label(), "tool_changed");
-                    return EventResult::Handled;
-                }
-                if let Some(action) = canvas_shortcut(*key) {
-                    self.apply_canvas_action(action);
-                    return EventResult::Handled;
-                }
-                if let Some(delta) = brush_size_shortcut(*key) {
-                    self.adjust_brush_size(delta);
-                    return EventResult::Handled;
-                }
-                if let Some(delta) = brush_opacity_shortcut(*key) {
-                    self.adjust_brush_opacity(delta);
-                    return EventResult::Handled;
-                }
-                if matches!(key, Key::Escape) && self.clear_selection() {
-                    return EventResult::Handled;
-                }
-            }
-            InputEvent::Wheel { position, delta } => {
-                if self.canvas_area_contains(*position) {
-                    let factor = if delta.y < 0.0 {
-                        ZOOM_STEP
-                    } else {
-                        1.0 / ZOOM_STEP
-                    };
-                    self.state.borrow_mut().canvas.zoom_at(*position, factor);
-                    return EventResult::Handled;
-                }
-            }
-            InputEvent::PointerDown {
-                position,
-                button: PointerButton::Left,
-            } => {
-                if self.canvas_area_contains(*position) {
-                    self.begin_tool(*position);
-                    return EventResult::Handled;
-                }
-            }
-            InputEvent::PointerDown {
-                position,
-                button: PointerButton::Middle,
-            } => {
-                if self.canvas_area_contains(*position) {
-                    self.pan_last = Some(*position);
-                    return EventResult::Handled;
-                }
-            }
-            InputEvent::PointerMove { position } => {
-                self.pointer = self.canvas_area_contains(*position).then_some(*position);
-                if let Some(last) = self.pan_last {
-                    let delta = *position - last;
-                    self.pan_last = Some(*position);
-                    self.state.borrow_mut().canvas.pan_by(delta);
-                    return EventResult::Handled;
-                }
-                if self.is_dragging() {
-                    self.continue_tool(*position);
-                    return EventResult::Handled;
-                }
-            }
-            InputEvent::PointerLeave => {
-                self.pointer = None;
-            }
-            InputEvent::PointerUp {
-                position,
-                button: PointerButton::Left,
-            } => {
-                if self.is_dragging() {
-                    self.end_tool(*position);
-                    return EventResult::Handled;
-                }
-            }
-            InputEvent::PointerUp {
-                button: PointerButton::Middle,
-                ..
-            } if self.pan_last.take().is_some() => {
-                return EventResult::Handled;
-            }
-            _ => {}
-        }
-        igui_ui::handle_input(&mut self.tree, event)
-    }
-
-    // -- 画布 ------------------------------------------------------------
-
-    fn apply_canvas_action(&mut self, action: CanvasAction) {
-        match action {
-            CanvasAction::ZoomIn => self.zoom_by(ZOOM_STEP),
-            CanvasAction::ZoomOut => self.zoom_by(1.0 / ZOOM_STEP),
-            CanvasAction::Reset => self.reset_view(),
-            CanvasAction::Fit => self.fit_to_canvas(),
-        }
-    }
-
-    fn zoom_by(&mut self, factor: f32) {
-        let anchor = self
-            .canvas_area_rect()
-            .map(|rect| rect.center())
-            .unwrap_or_else(|| {
-                Rect::from_min_size(Vec2::ZERO, self.viewport.logical_size()).center()
-            });
-        self.state.borrow_mut().canvas.zoom_at(anchor, factor);
-    }
-
-    /// 让文档适配画布区域并居中。
-    pub fn fit_to_canvas(&mut self) {
-        let Some(area) = self.canvas_area_rect() else {
-            return;
-        };
-        let document = self.document_size();
-        let camera = CanvasCamera::fit(
-            area,
-            Size::new(document.0 as f32, document.1 as f32),
-            FIT_PADDING,
-        );
-        self.state.borrow_mut().canvas = camera;
-    }
-
-    /// 100% 且居中。
-    fn reset_view(&mut self) {
-        let Some(area) = self.canvas_area_rect() else {
-            return;
-        };
-        let document = self.document_size();
-        self.state.borrow_mut().canvas =
-            CanvasCamera::centered(area, Size::new(document.0 as f32, document.1 as f32), 1.0);
-    }
-
-    pub(super) fn canvas_area_rect(&self) -> Option<Rect> {
-        igui_ui::control(&self.tree, self.canvas_area).map(|control| control.rect)
-    }
-
-    /// 分隔条只管 `[min, max]`，管不了"窗口变窄了"。那一半在这里：右栏最多
-    /// 占到给画布留 [`CANVAS_MIN`] 为止（`examples/file_browser` 同款）。
-    fn clamp_sidebar_width(&mut self) {
-        let full = self.viewport.logical_size().width;
-        let max =
-            (full - TOOLBAR_WIDTH - self.palette_width.get() - 2.0 * RESIZE_GUTTER - CANVAS_MIN)
-                .max(SIDEBAR_MIN);
-        let current = self.sidebar_width.get();
-        let next = current.clamp(SIDEBAR_MIN, max);
-        if (next - current).abs() > f32::EPSILON {
-            self.sidebar_width.set(next);
-            update_control(&mut self.tree, self.sidebar_node, |data| {
-                data.layout.basis = SizeBasis::Px(next);
-            });
-        }
-    }
-
-    /// 左侧调色盘面板的宽度不能把画布 / 右栏挤没。
-    fn clamp_palette_width(&mut self) {
-        let full = self.viewport.logical_size().width;
-        let max = (full - TOOLBAR_WIDTH - 2.0 * RESIZE_GUTTER - SIDEBAR_MIN - CANVAS_MIN)
-            .clamp(PALETTE_MIN, PALETTE_MAX);
-        let current = self.palette_width.get();
-        let next = current.clamp(PALETTE_MIN, max);
-        if (next - current).abs() > f32::EPSILON {
-            self.palette_width.set(next);
-            update_control(&mut self.tree, self.palette_panel_node, |data| {
-                data.layout.basis = SizeBasis::Px(next);
-            });
-        }
-    }
-
-    /// 保证可拖的标签页面板不会把下面的「图层」面板挤没。
-    /// 返回是否调整过（调用方需要再排一次）。
-    fn clamp_panel_heights(&mut self) -> bool {
-        let Some(sidebar) = igui_ui::control(&self.tree, self.sidebar_node) else {
-            return false;
-        };
-        // 预留：图层最小高度 + 分隔条 + 两个子节点之间的列间距。
-        let overhead = LAYER_PANEL_MIN + RESIZE_GUTTER + space::XXXS;
-        let max = (sidebar.rect.size.height - overhead).clamp(TABS_PANEL_MIN, TABS_PANEL_MAX);
-        let current = self.tabs_height.get();
-        let next = current.clamp(TABS_PANEL_MIN, max);
-        if (next - current).abs() <= f32::EPSILON {
-            return false;
-        }
-        self.tabs_height.set(next);
-        update_control(&mut self.tree, self.tabs_panel_node, |data| {
-            data.layout.basis = SizeBasis::Px(next);
-        });
-        true
-    }
-
-    fn canvas_area_contains(&self, position: Vec2) -> bool {
-        self.canvas_area_rect()
-            .is_some_and(|rect| rect.contains(position))
-    }
-
-    // -- 工具 ------------------------------------------------------------
-
-    /// 屏幕逻辑坐标 -> 文档坐标。
-    pub(super) fn document_position(&self, screen: Vec2) -> Vec2 {
-        let camera = self.state.borrow().canvas;
-        screen_to_document(camera, screen)
     }
 }
 
