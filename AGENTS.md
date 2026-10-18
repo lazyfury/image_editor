@@ -74,6 +74,14 @@ assets/fonts/jinghua-laosong-v3.0.ttf
   the current directory. If missing, igui falls back to its system-font
   candidate list, then the built-in pixel font.
 - To swap the font, replace that file (or change `fonts::BUNDLED_FONT`).
+- **Vertical text centering** lives in `EditorTextMeasurer`
+  (`src/app/application.rs`), not in igui: layout places the baseline at
+  `line_box_top + ascent`, so the app overrides `TextMeasurer::ascent`.
+  The bundled 老宋体 needs `line_height/2 + cap/2` (its glyphs sit low in
+  the em box); system fonts (PingFang SC / SF Pro) are already centred by
+  their native `ascent`, so the cap formula is applied **only when the
+  bundled face is actually used** (`bundled_face().is_some()`). Tune
+  `CAP_HEIGHT_RATIO` there.
 
 ## Hard rules
 

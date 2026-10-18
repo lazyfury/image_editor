@@ -930,29 +930,38 @@ impl LifecycleObserver for EditorTextMeasureLifecycle {
             return;
         };
         let metrics = backend.borrow().text_metrics();
-        let measurer: Rc<dyn TextMeasurer> = Rc::new(EditorTextMeasurer::new(metrics));
+        // 是否在用随包字体：它字形在 em 框里偏下，需要 cap 修正；系统字体
+        // （PingFang SC / SF Pro）用原生 `ascent` 就正好居中。
+        let bundled = crate::fonts::bundled_face().is_some();
+        let measurer: Rc<dyn TextMeasurer> = Rc::new(EditorTextMeasurer::new(metrics, bundled));
         app.services_mut().insert(measurer);
     }
 }
 
 /// 后端字体度量 -> 布局引擎的 `TextMeasurer`。
 ///
-/// 布局的居中公式用的是字体原生 `ascent`，而不同字体的
-/// `ascent / line_height` 分布差别很大；这里覆盖 `ascent` 为
-/// `line_height/2 + cap/2`，让**字形视觉中心**落在行框中心。对度量正常的字体
-/// 这个值和原生 `ascent` 基本一致，只有度量异常的字体（随包的中文老宋体）才会
-/// 被修正。
+/// 布局把文字基线放在 `行框顶 + ascent`；改 `ascent` 就是改文字的**垂直位置**：
+///
+/// - **随包的中文老宋体**：字形在 em 框里偏下，用原生 `ascent` 会看着偏高，
+///   所以覆盖为 `line_height/2 + cap/2`（把视觉中心压到行框中心）。
+/// - **系统字体**（PingFang SC / SF Pro）：原生 `ascent` 已经把 em 框居中，
+///   再套 cap 公式反而会往下偏 ~1px，所以直接用原生值。
+/// - **点阵字体**：`ascent` 自带居中（见 `Font::ascent` 的 Bitmap 分支）。
+///
+/// 换句话说：cap 修正是为随包字体专门调的，不是通用公式。
 struct EditorTextMeasurer {
     metrics: FontMetrics,
+    /// 当前用的是随包字体（而不是系统字体）。
+    bundled: bool,
 }
 
 impl EditorTextMeasurer {
-    fn new(metrics: FontMetrics) -> Self {
-        Self { metrics }
+    fn new(metrics: FontMetrics, bundled: bool) -> Self {
+        Self { metrics, bundled }
     }
 }
 
-/// 大写字高相对字号的比例（约 0.7 em），用来把字形视觉居中到行框。
+/// 大写字高相对字号的比例（约 0.7 em），用来把随包字体的字形视觉居中到行框。
 const CAP_HEIGHT_RATIO: f32 = 0.7;
 
 impl TextMeasurer for EditorTextMeasurer {
@@ -965,10 +974,9 @@ impl TextMeasurer for EditorTextMeasurer {
     }
 
     fn ascent(&self, font_size: f32) -> f32 {
-        if self.metrics.is_system() {
+        if self.bundled && self.metrics.is_system() {
             self.metrics.line_height(font_size) / 2.0 + font_size * CAP_HEIGHT_RATIO / 2.0
         } else {
-            // 点阵字体自带居中（见 `Font::ascent` 的 Bitmap 分支），保持原样。
             self.metrics.ascent(font_size)
         }
     }
@@ -1183,6 +1191,22 @@ mod tests {
             key: Key::Character('o'),
         };
         assert_eq!(file_shortcut(true, false, &o), Some(FileRequest::Open));
+    }
+
+    /// 不用随包字体时应直接用字体原生 `ascent`（cap 公式会把系统字体往下压）。
+    #[test]
+    fn a_non_bundled_measurer_keeps_the_native_ascent() {
+        use igui_font::{FontConfig, FontMetrics, FontServer};
+
+        let metrics = FontMetrics::new(std::rc::Rc::new(FontServer::load_with(
+            FontConfig::default(),
+        )));
+        let native = metrics.ascent(13.0);
+        assert_eq!(
+            EditorTextMeasurer::new(metrics, false).ascent(13.0),
+            native,
+            "系统字体应直接用原生 ascent"
+        );
     }
 
     #[test]
