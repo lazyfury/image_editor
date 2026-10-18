@@ -40,6 +40,10 @@ pub struct WorkspaceTabs {
     request: Rc<Cell<Option<WorkspaceTabAction>>>,
     tabs: Vec<WorkspaceTab>,
     active: usize,
+    /// 标签条节点（判断指针是否落在条上）。
+    bar: Option<NodeId>,
+    /// 这次按下的起点在标签条上（后续 move / up 归标签条）。
+    captured: bool,
     tab_nodes: Vec<NodeId>,
     home_node: Option<NodeId>,
     new_node: Option<NodeId>,
@@ -53,6 +57,8 @@ impl WorkspaceTabs {
             request: Rc::new(Cell::new(None)),
             tabs: Vec::new(),
             active: 0,
+            bar: None,
+            captured: false,
             tab_nodes: Vec::new(),
             home_node: None,
             new_node: None,
@@ -87,8 +93,42 @@ impl WorkspaceTabs {
         self.tree.update();
     }
 
+    /// 路由一个事件。
+    ///
+    /// 只有**落在标签条上**（或从标签条上按下、仍被捕获）的指针事件才算被
+    /// 标签条处理：`igui_ui::handle_input` 对每个 `PointerUp` 都报 `Handled`，
+    /// 不这样过滤会把编辑器的松手事件吞掉，工具按钮就永远不触发。
     pub fn event(&mut self, event: &InputEvent) -> EventResult {
-        igui_ui::handle_input(&mut self.tree, event)
+        if let InputEvent::PointerDown { position, .. } = event {
+            self.captured = self.bar_contains(*position);
+        }
+        let inside = event
+            .position()
+            .is_some_and(|position| self.bar_contains(position));
+        let _ = igui_ui::handle_input(&mut self.tree, event);
+        if let InputEvent::PointerUp { .. } = event {
+            let captured = std::mem::take(&mut self.captured);
+            return if captured || inside {
+                EventResult::Handled
+            } else {
+                EventResult::Ignored
+            };
+        }
+        if event.position().is_some() {
+            return if self.captured || inside {
+                EventResult::Handled
+            } else {
+                EventResult::Ignored
+            };
+        }
+        EventResult::Ignored
+    }
+
+    /// 指针是否落在标签条那条上。
+    fn bar_contains(&self, position: Vec2) -> bool {
+        self.bar
+            .and_then(|id| igui_ui::control(&self.tree, id))
+            .is_some_and(|control| control.rect.contains(position))
     }
 
     pub fn paint(&self, ctx: &mut PaintContext) {
@@ -169,10 +209,11 @@ impl WorkspaceTabs {
         let layer = self
             .tree
             .add_child(root, Flex::column().mouse_filter(MouseFilter::Ignore));
-        self.tree.add_child(layer, bar);
+        let bar = bar.build(&mut self.tree, layer);
 
         self.home_node = home_slot.get();
         self.new_node = new_slot.get();
+        self.bar = Some(bar);
         self.tab_nodes = tab_nodes.iter().filter_map(|slot| slot.get()).collect();
     }
 }
@@ -278,6 +319,36 @@ mod tests {
         let center = tabs.home_center().expect("主页按钮");
         click(&mut tabs, center);
         assert_eq!(tabs.take_request(), Some(WorkspaceTabAction::Home));
+    }
+
+    /// 标签条下方的指针事件必须透传（`igui_ui` 对每个 PointerUp 都报 Handled）。
+    #[test]
+    fn pointer_events_below_the_bar_fall_through() {
+        let mut tabs = WorkspaceTabs::new(crate::theme::editor_theme(false));
+        tabs.set_tabs(
+            &[WorkspaceTab {
+                name: "A".into(),
+                dirty: false,
+            }],
+            0,
+        );
+        tabs.layout(viewport());
+        let below = Vec2::new(20.0, 200.0);
+        assert_eq!(
+            tabs.event(&InputEvent::PointerDown {
+                position: below,
+                button: PointerButton::Left,
+            }),
+            EventResult::Ignored
+        );
+        assert_eq!(
+            tabs.event(&InputEvent::PointerUp {
+                position: below,
+                button: PointerButton::Left,
+            }),
+            EventResult::Ignored,
+            "松手必须透传，否则编辑器的笔画 / 工具按钮永远收不到"
+        );
     }
 
     #[test]

@@ -3093,6 +3093,47 @@ mod tests {
         assert!(center.y < 40.0, "标签条应贴顶，实际 y = {}", center.y);
     }
 
+    /// 标签条下方的点击应透传给编辑器，工具能切换。
+    #[test]
+    fn a_click_on_the_editor_toolbar_reaches_it_through_the_tab_strip() {
+        let theme = crate::theme::editor_theme(false);
+        let mut editor = EditorView::new(theme, AppState::default());
+        editor.set_top_inset(TAB_STRIP_HEIGHT);
+        let mut tabs = WorkspaceTabs::new(theme);
+        tabs.set_tabs(
+            &[WorkspaceTab {
+                name: "A".into(),
+                dirty: false,
+            }],
+            0,
+        );
+        editor.layout(viewport());
+        tabs.layout(viewport());
+        let center = editor
+            .tool_center(ActiveTool::RectangleSelect)
+            .expect("选区组按钮");
+        for event in [
+            InputEvent::PointerDown {
+                position: center,
+                button: PointerButton::Left,
+            },
+            InputEvent::PointerUp {
+                position: center,
+                button: PointerButton::Left,
+            },
+        ] {
+            if !tabs.event(&event).is_handled() {
+                editor.event(&event);
+            }
+        }
+        editor.update();
+        assert_eq!(
+            editor.active_tool(),
+            ActiveTool::RectangleSelect,
+            "标签条下方的点击应到编辑器"
+        );
+    }
+
     /// 顶部预留 32px（工作区标签条）后，编辑器内容仍然绘制。
     #[test]
     fn the_editor_still_paints_after_a_top_inset() {

@@ -295,6 +295,9 @@ impl ImageEditorLogic {
         match request {
             Some(HomeOpenRequest::Workspace(index)) => {
                 self.workspaces.set_active(index);
+                if let Some(workspace) = self.workspaces.active_mut() {
+                    workspace.editor.mark_texture_dirty();
+                }
                 self.screen = Screen::Editor;
                 self.title_dirty = true;
             }
@@ -306,7 +309,15 @@ impl ImageEditorLogic {
     /// 处理标签条请求。
     fn handle_tab_action(&mut self, action: WorkspaceTabAction) {
         match action {
-            WorkspaceTabAction::Switch(index) => self.workspaces.set_active(index),
+            WorkspaceTabAction::Switch(index) => {
+                self.workspaces.set_active(index);
+                // 后端只有一张 DOCUMENT_TEXTURE；切过去时让新工作区重新合成上传，
+                // 否则画布还停在上一个工作区的图像上。
+                if let Some(workspace) = self.workspaces.active_mut() {
+                    workspace.editor.mark_texture_dirty();
+                }
+                self.title_dirty = true;
+            }
             WorkspaceTabAction::Close(index) => {
                 self.workspaces.remove(index);
                 if self.workspaces.is_empty() {
