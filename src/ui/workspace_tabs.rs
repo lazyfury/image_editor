@@ -12,7 +12,7 @@ use igui_core::{Color, Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSiz
 use igui_render::PaintContext;
 use igui_scene::SceneTree;
 use igui_theme::{radius, space, SurfaceLevel, Theme};
-use igui_ui::{Align, MouseFilter, SizeBasis, SurfaceStyle, TextMeasurer};
+use igui_ui::{Align, MouseFilter, SurfaceStyle, TextMeasurer};
 
 /// 标签条高度（逻辑像素）。
 pub const TAB_STRIP_HEIGHT: f32 = 32.0;
@@ -124,8 +124,10 @@ impl WorkspaceTabs {
         let tabs = self.tabs.clone();
 
         let mut bar = Flex::row()
-            .basis(SizeBasis::Px(TAB_STRIP_HEIGHT))
-            .grow(0.0)
+            // 标签条的父节点是根控件，子节点按 **anchors/offsets** 摆（不是 flex），
+            // 所以这里显式把它钉成顶部一条，否则它会撑满整个视口。
+            .anchors(Edges::new(0.0, 0.0, 1.0, 0.0))
+            .offsets(Edges::new(0.0, 0.0, 0.0, TAB_STRIP_HEIGHT))
             .align(Align::Center)
             .gap(space::XXS)
             .padding(Edges::symmetric(space::SM, space::XXS))

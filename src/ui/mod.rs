@@ -171,8 +171,8 @@ pub struct EditorView {
     open_tool_group: Cell<Option<usize>>,
     /// 长按阈值（测试可调，默认 [`LONG_PRESS_MS`]）。
     long_press_threshold: Duration,
-    /// 视图的根 Flex 节点（顶部预留靠它的 `offsets` 实现）。
-    root: NodeId,
+    /// 页面（根 Flex 的子节点，顶部预留靠它的 `offsets` 实现）。
+    page: NodeId,
     /// 顶部预留高度（工作区标签条占的那一条）。
     top_inset: f32,
     /// 图标包（长按浮层打开时还要用它画行图标）。
@@ -564,13 +564,15 @@ impl EditorView {
                 &refs.zoom,
             ));
 
+        let page_ref = NodeRef::new();
         let root_flex = Flex::new()
             .gap(0.0)
             .padding(Edges::ZERO)
             .mouse_filter(MouseFilter::Ignore)
-            .child(page);
+            .child(page.ref_(&page_ref));
         let mut tree = SceneTree::new();
-        let root = tree.add_child(tree.root(), root_flex);
+        tree.add_child(tree.root(), root_flex);
+        let page = page_ref.get().expect("页面已挂载");
 
         let tool_group_nodes: Vec<NodeId> = group_refs
             .iter()
@@ -631,7 +633,7 @@ impl EditorView {
 
         let mut view = Self {
             tree,
-            root,
+            page,
             top_inset: 0.0,
             theme,
             state,
@@ -755,10 +757,12 @@ impl EditorView {
     }
 
     /// 顶部预留 `inset` 逻辑像素（工作区标签条占的那一条）。
+    ///
+    /// 根 Flex 的子节点按 anchors 摆，所以把预留加在**页面**的 offsets 上。
     pub fn set_top_inset(&mut self, inset: f32) {
         self.top_inset = inset;
-        let root = self.root;
-        update_control(&mut self.tree, root, |data| {
+        let page = self.page;
+        update_control(&mut self.tree, page, |data| {
             data.anchors = Edges::new(0.0, 0.0, 1.0, 1.0);
             data.offsets = Edges::new(0.0, inset, 0.0, 0.0);
         });
@@ -3070,6 +3074,42 @@ mod tests {
                 DrawCommand::FillRoundedRect { paint, .. } if paint.color == selection
             )),
             "当前工具的按钮应画出 selection 高亮"
+        );
+    }
+
+    /// 标签条只占顶部一条，不盖住编辑器。
+    #[test]
+    fn the_tab_strip_stays_at_the_top() {
+        let mut tabs = WorkspaceTabs::new(crate::theme::editor_theme(false));
+        tabs.set_tabs(
+            &[WorkspaceTab {
+                name: "A".into(),
+                dirty: false,
+            }],
+            0,
+        );
+        tabs.layout(viewport());
+        let center = tabs.tab_center(0).expect("标签");
+        assert!(center.y < 40.0, "标签条应贴顶，实际 y = {}", center.y);
+    }
+
+    /// 顶部预留 32px（工作区标签条）后，编辑器内容仍然绘制。
+    #[test]
+    fn the_editor_still_paints_after_a_top_inset() {
+        let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        view.set_top_inset(32.0);
+        view.layout(viewport());
+        let mut menu_y = None;
+        for command in paint_commands(&view) {
+            if let DrawCommand::DrawText { text, position, .. } = command {
+                if text == "文件" {
+                    menu_y = Some(position.y);
+                }
+            }
+        }
+        assert!(
+            menu_y.is_some_and(|y| y > 32.0),
+            "页面应下移 32px，菜单 y = {menu_y:?}"
         );
     }
 
