@@ -1,21 +1,25 @@
-//! 「新建文档」模态框：选画布尺寸 / 背景色。
+//! 「新建文档」模态窗口：选画布尺寸 / 背景色。
 //!
-//! 由首页的「新建项目」打开，内容构建进
-//! [`Overlays`](igui_components::Overlays) 的模态框：scrim、居中、边框、Esc /
-//! 点外关闭以及「取消 / 创建」按钮行都由它负责。点「创建」把选择通过共享格交回
-//! 宿主（[`crate::app::application`]），宿主把它变成同一个窗口里的一个新
-//! [`EditorView`](crate::ui::EditorView)。
+//! 由首页的「新建项目」打开。它现在是一扇**模拟桌面的浮动窗口**
+//! （[`crate::ui::window::Window`]）：标题栏可拖动移动，四条边 / 角可拖动缩放，
+//! 右上角关闭按钮，点窗口外或 Esc 取消。窗口在宿主
+//! （[`crate::app::application`]）的底层视图之上 `layout` / `paint`，有它时输入
+//! 全部交给它。点「创建」把选择通过共享格交回宿主，宿主把它变成同一个窗口里的
+//! 一个新 [`EditorView`](crate::ui::EditorView)。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use igui_components::{Button, Component, Flex, NodeRef, OverlayId, Overlays, Text};
-use igui_core::{Color as UiColor, Edges, NodeId, Rect, Size, Vec2};
+use igui_components::{Button, Component, Flex, NodeRef, Text};
+use igui_core::{
+    Color as UiColor, Edges, EventResult, InputEvent, NodeId, Rect, Size, Vec2, ViewportSize,
+};
 use igui_render::PaintContext;
 use igui_scene::SceneTree;
 use igui_theme::{radius, space, TextSize, Theme, Tone};
-use igui_ui::{Align, MouseFilter, SurfaceStyle};
+use igui_ui::{Align, Justify, MouseFilter, SurfaceStyle, TextMeasurer};
 
+use super::window::Window;
 use crate::canvas::{CHECKER_DARK, CHECKER_LIGHT};
 use crate::document::Color;
 
@@ -61,6 +65,10 @@ const BACKGROUNDS: [(&str, Color); 4] = [
     ("红色", Color::RED),
 ];
 
+/// 初始窗口尺寸 / 拖动缩放下限（逻辑像素）。
+const WINDOW_SIZE: Vec2 = Vec2::new(460.0, 420.0);
+const WINDOW_MIN: Vec2 = Vec2::new(380.0, 320.0);
+
 /// 「新建文档」浮层给出的结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NewDocumentResult {
@@ -76,15 +84,15 @@ struct ModalNodes {
     background: Cell<Option<NodeId>>,
     presets: RefCell<Vec<NodeId>>,
     backgrounds: RefCell<Vec<NodeId>>,
+    /// 「创建 / 取消」按钮；测试真的点它们。
+    #[allow(dead_code)]
+    create: Cell<Option<NodeId>>,
+    #[allow(dead_code)]
+    cancel: Cell<Option<NodeId>>,
 }
 
-/// 「新建文档」模态框：把选择控件构建进 [`Overlays`] 的私有覆盖树。
-///
-/// `Overlays::modal` 负责 scrim、居中、边框、Esc / 点外关闭以及「取消 / 创建」
-/// 按钮行；这里只提供尺寸 / 背景色控件，并把「创建」时的选择通过共享格交回宿主
-/// （[`take_result`]）。
+/// 「新建文档」模态窗口：把选择控件构建进一扇浮动 [`Window`]。
 pub struct NewDocumentModal {
-    theme: &'static dyn Theme,
     /// 当前选择（共享格，回调只能往里写）。
     choices: Rc<RefCell<NewDocumentSpec>>,
     /// 有改动、还没同步到标签。
@@ -92,62 +100,78 @@ pub struct NewDocumentModal {
     /// 创建 / 取消的结果；宿主取走一次。
     result: Rc<Cell<Option<NewDocumentResult>>>,
     nodes: Rc<ModalNodes>,
+    window: Window,
 }
 
 impl NewDocumentModal {
     pub fn new(theme: &'static dyn Theme) -> Self {
+        let choices: Rc<RefCell<NewDocumentSpec>> =
+            Rc::new(RefCell::new(NewDocumentSpec::default()));
+        let dirty: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        let result: Rc<Cell<Option<NewDocumentResult>>> = Rc::new(Cell::new(None));
+        let nodes = Rc::new(ModalNodes::default());
+
+        let window = Window::new(theme, "新建文档", WINDOW_SIZE, WINDOW_MIN, {
+            let choices = choices.clone();
+            let dirty = dirty.clone();
+            let result = result.clone();
+            let nodes = nodes.clone();
+            move |tree, parent| {
+                build_content(tree, parent, theme, &choices, &dirty, &result, &nodes);
+            }
+        });
+
         Self {
-            theme,
-            choices: Rc::new(RefCell::new(NewDocumentSpec::default())),
-            dirty: Rc::new(Cell::new(false)),
-            result: Rc::new(Cell::new(None)),
-            nodes: Rc::new(ModalNodes::default()),
+            choices,
+            dirty,
+            result,
+            nodes,
+            window,
         }
     }
 
-    /// 在 `overlays` 上打开模态框，返回它的 id。
-    ///
-    /// 「创建 / 取消」用 `Overlays` 自带的按钮行，回调把结果写进共享格。
-    pub fn open(&self, overlays: &mut Overlays) -> OverlayId {
-        let theme = self.theme;
-        let choices = self.choices.clone();
-        let dirty = self.dirty.clone();
-        let nodes = self.nodes.clone();
-        let id = overlays.modal("新建文档", move |tree, parent| {
-            build_content(tree, parent, theme, &choices, &dirty, &nodes);
-        });
-
-        let confirm_choices = self.choices.clone();
-        let confirm_result = self.result.clone();
-        let cancel_result = self.result.clone();
-        overlays
-            .confirm_label(id, "创建")
-            .cancel_label(id, "取消")
-            .on_confirm(id, move || commit(&confirm_choices, &confirm_result))
-            .on_cancel(id, move || abort(&cancel_result));
-        id
+    /// 用后端真实字体度量排版。
+    pub fn set_text_measurer(&mut self, measurer: Rc<dyn TextMeasurer>) {
+        self.window.set_text_measurer(measurer);
     }
 
     /// 把共享格里的选择写进标签（只在控件改动后）。
-    pub fn sync(&self, overlays: &mut Overlays) {
+    pub fn update(&mut self) {
         if !self.dirty.replace(false) {
             return;
         }
         let spec = *self.choices.borrow();
         if let Some(id) = self.nodes.width.get() {
-            overlays.set_text(id, format!("{} px", spec.width));
+            self.window.set_text(id, format!("{} px", spec.width));
         }
         if let Some(id) = self.nodes.height.get() {
-            overlays.set_text(id, format!("{} px", spec.height));
+            self.window.set_text(id, format!("{} px", spec.height));
         }
         if let Some(id) = self.nodes.background.get() {
-            overlays.set_text(id, format!("背景：{}", background_name(spec.background)));
+            self.window
+                .set_text(id, format!("背景：{}", background_name(spec.background)));
         }
     }
 
-    /// 创建 / 取消的结果；取走一次。
+    /// 创建 / 取消的结果；取走一次。窗口的关闭请求（关闭按钮 / Esc / 点窗口外）
+    /// 在这里折算成取消。
     pub fn take_result(&self) -> Option<NewDocumentResult> {
+        if self.result.get().is_none() && self.window.take_close_request() {
+            self.result.set(Some(NewDocumentResult::Cancel));
+        }
         self.result.take()
+    }
+
+    pub fn event(&mut self, event: &InputEvent) -> EventResult {
+        self.window.event(event)
+    }
+
+    pub fn layout(&mut self, viewport: ViewportSize) {
+        self.window.layout(viewport);
+    }
+
+    pub fn paint(&self, ctx: &mut PaintContext) {
+        self.window.paint(ctx);
     }
 
     /// 当前选择（测试用）。
@@ -158,35 +182,34 @@ impl NewDocumentModal {
 
     #[cfg(test)]
     fn accept(&self) {
-        commit(&self.choices, &self.result);
+        self.result
+            .set(Some(NewDocumentResult::Create(*self.choices.borrow())));
     }
 
     #[cfg(test)]
     fn cancel(&self) {
-        abort(&self.result);
+        self.result.set(Some(NewDocumentResult::Cancel));
     }
 
-    /// 把内容构建到一个外部 `tree`（测试直接铺排 / 点击）。
     #[cfg(test)]
-    fn build_into(&self, tree: &mut SceneTree, parent: NodeId) {
-        build_content(
-            tree,
-            parent,
-            self.theme,
-            &self.choices,
-            &self.dirty,
-            &self.nodes,
-        );
+    fn tree(&self) -> &SceneTree {
+        self.window.tree()
+    }
+
+    #[cfg(test)]
+    fn rect(&self) -> Rect {
+        self.window.rect()
     }
 }
 
-/// 把尺寸 / 背景色选择控件构建到模态框内容里。
+/// 把尺寸 / 背景色选择控件构建到窗口内容区里（含底部「取消 / 创建」行）。
 fn build_content(
     tree: &mut SceneTree,
     parent: NodeId,
     theme: &'static dyn Theme,
     choices: &Rc<RefCell<NewDocumentSpec>>,
     dirty: &Rc<Cell<bool>>,
+    result: &Rc<Cell<Option<NewDocumentResult>>>,
     nodes: &Rc<ModalNodes>,
 ) {
     let width_ref = NodeRef::new();
@@ -262,6 +285,31 @@ fn build_content(
         ));
     }
 
+    let create_slot = NodeRef::new();
+    let cancel_slot = NodeRef::new();
+    let create_result = result.clone();
+    let create_choices = choices.clone();
+    let cancel_result = result.clone();
+    let footer = Flex::row()
+        .justify(Justify::End)
+        .gap(space::SM)
+        .padding(Edges::ZERO)
+        .mouse_filter(MouseFilter::Ignore)
+        .child(
+            Button::secondary("取消", theme)
+                .on_click(move |_tree, _id| {
+                    cancel_result.set(Some(NewDocumentResult::Cancel));
+                })
+                .ref_(&cancel_slot),
+        )
+        .child(
+            Button::primary("创建", theme)
+                .on_click(move |_tree, _id| {
+                    create_result.set(Some(NewDocumentResult::Create(*create_choices.borrow())));
+                })
+                .ref_(&create_slot),
+        );
+
     let page = Flex::column()
         .gap(space::LG)
         .padding(Edges::ZERO)
@@ -279,28 +327,21 @@ fn build_content(
             Text::caption("", theme)
                 .tone(Tone::Muted)
                 .ref_(&background_ref),
-        );
+        )
+        .child(footer);
 
     tree.add_child(parent, page);
 
     nodes.width.set(width_ref.get());
     nodes.height.set(height_ref.get());
     nodes.background.set(background_ref.get());
+    nodes.create.set(create_slot.get());
+    nodes.cancel.set(cancel_slot.get());
     *nodes.presets.borrow_mut() = preset_slots.iter().filter_map(|slot| slot.get()).collect();
     *nodes.backgrounds.borrow_mut() = background_slots
         .iter()
         .filter_map(|slot| slot.get())
         .collect();
-}
-
-/// 「创建」：把当前选择写成结果。
-fn commit(choices: &Rc<RefCell<NewDocumentSpec>>, result: &Rc<Cell<Option<NewDocumentResult>>>) {
-    result.set(Some(NewDocumentResult::Create(*choices.borrow())));
-}
-
-/// 「取消 / Esc / 点外」：只标记取消，宿主据此丢弃浮层。
-fn abort(result: &Rc<Cell<Option<NewDocumentResult>>>) {
-    result.set(Some(NewDocumentResult::Cancel));
 }
 
 /// 背景色的名字（状态行显示用）。
@@ -461,65 +502,59 @@ fn to_ui(color: Color) -> UiColor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use igui_core::{InputEvent, Key, PointerButton, ViewportSize};
+    use igui_core::{PointerButton, Size};
     use igui_render::DrawCommand;
 
     fn viewport() -> ViewportSize {
-        ViewportSize::new(Size::new(560.0, 640.0))
+        ViewportSize::new(Size::new(700.0, 640.0))
     }
 
-    /// 把模态内容构建到一棵独立树里铺排，单测控件本身（不经过 `Overlays`）。
-    fn content_tree(modal: &NewDocumentModal, viewport: ViewportSize) -> SceneTree {
-        let mut tree = SceneTree::new();
-        let root = tree.root();
-        let page = tree.add_child(root, Flex::new().gap(0.0).padding(Edges::ZERO));
-        modal.build_into(&mut tree, page);
-        tree.set_viewport_size(viewport.logical_size());
-        igui_ui::layout(&mut tree, viewport);
-        tree.update();
-        tree
-    }
-
-    fn click(tree: &mut SceneTree, position: Vec2) {
-        igui_ui::handle_input(
-            tree,
-            &InputEvent::PointerDown {
-                position,
-                button: PointerButton::Left,
-            },
-        );
-        igui_ui::handle_input(
-            tree,
-            &InputEvent::PointerUp {
-                position,
-                button: PointerButton::Left,
-            },
-        );
-        tree.update();
-    }
-
-    fn center(tree: &SceneTree, id: NodeId) -> Option<Vec2> {
-        igui_ui::control(tree, id).map(|control| control.rect.center())
-    }
-
-    fn preset_rects(modal: &NewDocumentModal, tree: &SceneTree) -> Vec<Rect> {
+    fn modal() -> NewDocumentModal {
+        let mut modal = NewDocumentModal::new(crate::theme::editor_theme(false));
+        modal.layout(viewport());
         modal
-            .nodes
-            .presets
-            .borrow()
+    }
+
+    fn click(modal: &mut NewDocumentModal, position: Vec2) {
+        modal.event(&InputEvent::PointerDown {
+            position,
+            button: PointerButton::Left,
+        });
+        modal.event(&InputEvent::PointerUp {
+            position,
+            button: PointerButton::Left,
+        });
+        modal.update();
+        modal.layout(viewport());
+    }
+
+    fn center(modal: &NewDocumentModal, id: NodeId) -> Option<Vec2> {
+        igui_ui::control(modal.tree(), id).map(|control| control.rect.center())
+    }
+
+    fn rects(modal: &NewDocumentModal, ids: &RefCell<Vec<NodeId>>) -> Vec<Rect> {
+        ids.borrow()
             .iter()
-            .filter_map(|id| igui_ui::control(tree, *id).map(|control| control.rect))
+            .filter_map(|id| igui_ui::control(modal.tree(), *id).map(|control| control.rect))
             .collect()
     }
 
-    fn background_rects(modal: &NewDocumentModal, tree: &SceneTree) -> Vec<Rect> {
-        modal
-            .nodes
-            .backgrounds
-            .borrow()
-            .iter()
-            .filter_map(|id| igui_ui::control(tree, *id).map(|control| control.rect))
-            .collect()
+    /// 拖动右边，把窗口缩到最小宽度，用来逼出预设换行。
+    fn resize_to_min(modal: &mut NewDocumentModal) {
+        let rect = modal.rect();
+        let grab = Vec2::new(rect.right() - 2.0, rect.center().y);
+        modal.event(&InputEvent::PointerDown {
+            position: grab,
+            button: PointerButton::Left,
+        });
+        modal.event(&InputEvent::PointerMove {
+            position: grab - Vec2::new(10_000.0, 0.0),
+        });
+        modal.event(&InputEvent::PointerUp {
+            position: grab - Vec2::new(10_000.0, 0.0),
+            button: PointerButton::Left,
+        });
+        modal.layout(viewport());
     }
 
     #[test]
@@ -535,18 +570,55 @@ mod tests {
     }
 
     #[test]
-    fn a_wrapped_preset_row_grows_and_does_not_overlap_the_background_row() {
-        let modal = NewDocumentModal::new(crate::theme::editor_theme(false));
-        // 窄窗口：预设必然换行。
-        let tree = content_tree(&modal, ViewportSize::new(Size::new(260.0, 420.0)));
+    fn the_window_is_centered_and_keeps_a_minimum_size() {
+        let modal = modal();
+        let rect = modal.rect();
+        let offset = rect.center() - viewport().logical_rect().center();
+        assert!(
+            offset.x.abs() < 2.0 && offset.y.abs() < 2.0,
+            "窗口应大致居中：{offset:?}"
+        );
+        assert!(rect.size.width >= WINDOW_MIN.x, "rect = {rect:?}");
+        assert!(rect.size.height >= WINDOW_MIN.y, "rect = {rect:?}");
+    }
 
-        let presets = preset_rects(&modal, &tree);
+    /// 拖动标题栏能移动窗口，且内容不会被挪出窗口。
+    #[test]
+    fn dragging_the_title_bar_moves_the_modal() {
+        let mut modal = modal();
+        let before = modal.rect();
+        let grab = Vec2::new(before.center().x, before.top() + 10.0);
+        modal.event(&InputEvent::PointerDown {
+            position: grab,
+            button: PointerButton::Left,
+        });
+        modal.event(&InputEvent::PointerMove {
+            position: grab + Vec2::new(-60.0, 40.0),
+        });
+        modal.event(&InputEvent::PointerUp {
+            position: grab + Vec2::new(-60.0, 40.0),
+            button: PointerButton::Left,
+        });
+        modal.layout(viewport());
+
+        let after = modal.rect();
+        assert_eq!(after.origin, before.origin + Vec2::new(-60.0, 40.0));
+        assert_eq!(after.size, before.size);
+    }
+
+    /// 缩到最小后，预设换行且不压住背景色那一行。
+    #[test]
+    fn a_wrapped_preset_row_does_not_overlap_the_background_row() {
+        let mut modal = modal();
+        resize_to_min(&mut modal);
+
+        let presets = rects(&modal, &modal.nodes.presets);
         let first_row = presets.first().map(|rect| rect.top()).unwrap_or(0.0);
         let rows = presets
             .iter()
             .filter(|rect| (rect.top() - first_row).abs() > 0.5)
             .count();
-        assert!(rows >= 1, "预设应在窄窗口里换行：{presets:?}");
+        assert!(rows >= 1, "最小宽度下预设应换行：{presets:?}");
         for (i, a) in presets.iter().enumerate() {
             for b in &presets[i + 1..] {
                 assert!(a.intersection(*b).is_none(), "预设不应重叠：{a:?} vs {b:?}");
@@ -557,7 +629,7 @@ mod tests {
             .iter()
             .map(|rect| rect.bottom())
             .fold(0.0f32, f32::max);
-        let background_top = background_rects(&modal, &tree)
+        let background_top = rects(&modal, &modal.nodes.backgrounds)
             .iter()
             .map(|rect| rect.top())
             .fold(f32::INFINITY, f32::min);
@@ -570,13 +642,11 @@ mod tests {
     /// 透明背景在色块里用棋盘格预览，而不是一片空白。
     #[test]
     fn the_transparent_swatch_previews_a_checkerboard() {
-        let modal = NewDocumentModal::new(crate::theme::editor_theme(false));
-        let tree = content_tree(&modal, viewport());
+        let modal = modal();
         let mut ctx = PaintContext::new();
-        tree.paint(&mut ctx);
-        igui_ui::paint(&tree, &mut ctx);
+        modal.paint(&mut ctx);
         let commands = ctx.into_draw_list().commands().to_vec();
-        let swatch = background_rects(&modal, &tree)[0];
+        let swatch = rects(&modal, &modal.nodes.backgrounds)[0];
 
         let fills = |color: UiColor| {
             commands.iter().any(|command| {
@@ -590,13 +660,12 @@ mod tests {
 
     #[test]
     fn a_preset_then_create_returns_that_spec() {
-        let modal = NewDocumentModal::new(crate::theme::editor_theme(false));
-        let mut tree = content_tree(&modal, viewport());
+        let mut modal = modal();
         let index = PRESETS.len() - 1;
         let (width, height) = PRESETS[index];
         let id = modal.nodes.presets.borrow()[index];
-        let position = center(&tree, id).expect("预设按钮");
-        click(&mut tree, position);
+        let position = center(&modal, id).expect("预设按钮");
+        click(&mut modal, position);
         assert_eq!(modal.spec().width, width);
         assert_eq!(modal.spec().height, height);
 
@@ -614,11 +683,10 @@ mod tests {
 
     #[test]
     fn choosing_a_background_then_create_returns_it() {
-        let modal = NewDocumentModal::new(crate::theme::editor_theme(false));
-        let mut tree = content_tree(&modal, viewport());
+        let mut modal = modal();
         let id = modal.nodes.backgrounds.borrow()[0];
-        let position = center(&tree, id).expect("透明色块");
-        click(&mut tree, position);
+        let position = center(&modal, id).expect("透明色块");
+        click(&mut modal, position);
         assert_eq!(modal.spec().background, Color::TRANSPARENT);
 
         modal.accept();
@@ -632,45 +700,46 @@ mod tests {
         );
     }
 
+    /// 点「创建」按钮本身（不是测试后门）也产出结果。
+    #[test]
+    fn clicking_the_create_button_returns_the_spec() {
+        let mut modal = modal();
+        let id = modal.nodes.create.get().expect("创建按钮");
+        let position = center(&modal, id).expect("创建按钮 rect");
+        click(&mut modal, position);
+        assert_eq!(
+            modal.take_result(),
+            Some(NewDocumentResult::Create(NewDocumentSpec::default()))
+        );
+    }
+
     #[test]
     fn cancel_reports_cancel() {
-        let modal = NewDocumentModal::new(crate::theme::editor_theme(false));
+        let modal = modal();
         modal.cancel();
         assert_eq!(modal.take_result(), Some(NewDocumentResult::Cancel));
     }
 
-    /// `Overlays` 的模态框已居中、带边框，并吞掉底层输入。
+    /// Esc 关掉窗口，取结果时折算成取消。
     #[test]
-    fn the_overlay_modal_is_centered_and_swallows_input() {
-        let theme = crate::theme::editor_theme(false);
-        let modal = NewDocumentModal::new(theme);
-        let mut overlays = Overlays::new(theme);
-        let id = modal.open(&mut overlays);
-        let host = SceneTree::new();
-        overlays.layout(&host, viewport());
-
-        let rect = overlays.rect(id).expect("模态 rect");
-        assert!(rect.size.width >= 360.0, "模态应有最小宽度：{rect:?}");
-
-        let event = InputEvent::PointerMove {
-            position: Vec2::new(4.0, 4.0),
-        };
-        assert!(overlays.handle_input(&event).is_handled());
+    fn escape_marks_the_modal_cancelled() {
+        let mut modal = modal();
+        modal.event(&InputEvent::KeyDown {
+            key: igui_core::Key::Escape,
+        });
+        assert_eq!(modal.take_result(), Some(NewDocumentResult::Cancel));
     }
 
-    /// Esc 关掉模态但没有创建结果（宿主视为取消）。
+    /// 点窗口外（遮罩）也折算成取消。
     #[test]
-    fn escape_closes_the_modal_without_a_result() {
-        let theme = crate::theme::editor_theme(false);
-        let modal = NewDocumentModal::new(theme);
-        let mut overlays = Overlays::new(theme);
-        let id = modal.open(&mut overlays);
-        let host = SceneTree::new();
-        overlays.layout(&host, viewport());
-
-        let event = InputEvent::KeyDown { key: Key::Escape };
-        assert!(overlays.handle_input(&event).is_handled());
-        assert!(!overlays.is_open(id));
-        assert_eq!(modal.take_result(), None);
+    fn a_click_outside_marks_the_modal_cancelled() {
+        let mut modal = modal();
+        let outside = Vec2::new(2.0, 2.0);
+        assert!(!modal.rect().contains(outside));
+        modal.event(&InputEvent::PointerDown {
+            position: outside,
+            button: PointerButton::Left,
+        });
+        assert_eq!(modal.take_result(), Some(NewDocumentResult::Cancel));
     }
 }

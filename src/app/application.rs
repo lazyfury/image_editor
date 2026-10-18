@@ -7,10 +7,10 @@
 //! winit events -> InputEvent -> AppLogic -> view -> DrawList -> WgpuPresenter -> surface
 //! ```
 //!
-//! **单窗口 + 应用内模态框**：首屏是主页；点「新建项目」不再开第二个原生窗口
-//! （macOS 15 上多 surface 会崩），而是用 `igui_components::Overlays` 在主窗口里
-//! 弹出「新建文档」模态框 —— scrim、居中、边框、Esc / 点外关闭以及输入吞掉都由
-//! `Overlays` 负责。
+//! **单窗口 + 应用内模态窗口**：首屏是主页；点「新建项目」不再开第二个原生
+//! 窗口（macOS 15 上多 surface 会崩），而是在主窗口里弹出一扇模拟桌面的浮动
+//! 窗口（[`crate::ui::window::Window`]）：标题栏可拖动移动，四条边 / 角可拖动
+//! 缩放，带关闭按钮与遮罩，Esc / 点窗口外取消，输入全被它吞掉。
 //!
 //! `--frames N` 由 [`FrameLimitPlugin`] 在 N 帧后结束进程，让真实渲染管线能在
 //! 无头环境里被验证。
@@ -22,7 +22,6 @@ use igui_app::{
     LifecycleObserver, Plugin,
 };
 use igui_backend_wgpu::{FontConfig, FontMetrics, FontMode, TextureFilter};
-use igui_components::{OverlayId, Overlays};
 use igui_core::{Color, EventResult, InputEvent, Key, Modifiers};
 use igui_render::{DrawList, PaintContext};
 use igui_theme::{SurfaceLevel, Theme};
@@ -107,9 +106,8 @@ struct ImageEditorLogic {
     /// 后端真实字体度量（`init` 时从服务里取；模态 / 新编辑器共享）。
     measurer: Option<Rc<dyn TextMeasurer>>,
     screen: Screen,
-    /// 覆盖层：承载「新建文档」模态框（编辑器自己的菜单是它内部的另一套）。
-    overlays: Overlays,
-    modal: Option<ActiveModal>,
+    /// 「新建文档」模态窗口；有它时输入全交给它（编辑器自己的菜单是另一套）。
+    modal: Option<NewDocumentModal>,
     modifiers: Modifiers,
     /// 文档换了标题，下一帧写回原生窗口。
     title_dirty: bool,
@@ -121,19 +119,12 @@ enum Screen {
     Editor(EditorView),
 }
 
-/// 一个打开中的「新建文档」模态框：`Overlays` 里的条目 + 它的内容 / 结果句柄。
-struct ActiveModal {
-    id: OverlayId,
-    modal: NewDocumentModal,
-}
-
 impl ImageEditorLogic {
     fn new(theme: &'static dyn Theme) -> Self {
         Self {
             theme,
             measurer: None,
             screen: Screen::Home(HomeView::new(theme)),
-            overlays: Overlays::new(theme),
             modal: None,
             modifiers: Modifiers::NONE,
             title_dirty: false,
@@ -155,32 +146,31 @@ impl ImageEditorLogic {
         if !requested {
             return;
         }
-        let modal = NewDocumentModal::new(self.theme);
-        let id = modal.open(&mut self.overlays);
-        self.modal = Some(ActiveModal { id, modal });
+        let mut modal = NewDocumentModal::new(self.theme);
+        if let Some(measurer) = self.measurer.clone() {
+            modal.set_text_measurer(measurer);
+        }
+        self.modal = Some(modal);
         tracing::info!(target: "image_editor", "new_document_modal_opened");
     }
 
     /// 把模态里的选择变化同步到它的标签。
     fn sync_modal(&mut self) {
-        if let Some(active) = self.modal.as_ref() {
-            active.modal.sync(&mut self.overlays);
+        if let Some(modal) = self.modal.as_mut() {
+            modal.update();
         }
     }
 
     /// 模态出结果（创建）或被动关闭（Esc / 点外）后收尾。
     fn finish_modal(&mut self, ctx: &FrameContext<'_>) {
-        let Some(active) = self.modal.as_ref() else {
+        let Some(modal) = self.modal.as_ref() else {
             return;
         };
-        let id = active.id;
-        let result = active.modal.take_result();
-        if result.is_none() && self.overlays.is_open(id) {
+        let Some(result) = modal.take_result() else {
             return;
-        }
+        };
         self.modal = None;
-        self.overlays.close(id);
-        if let Some(NewDocumentResult::Create(spec)) = result {
+        if let NewDocumentResult::Create(spec) = result {
             self.open_editor(ctx, spec);
         }
     }
@@ -234,7 +224,6 @@ impl AppLogic for ImageEditorLogic {
         // 度量插件已经在 `resumed` 时把度量放进服务。
         self.measurer = ctx.service::<Rc<dyn TextMeasurer>>().cloned();
         if let Some(measurer) = self.measurer.clone() {
-            self.overlays.set_text_measurer(measurer.clone());
             match &mut self.screen {
                 Screen::Home(home) => home.set_text_measurer(measurer),
                 Screen::Editor(editor) => editor.set_text_measurer(measurer),
@@ -247,8 +236,9 @@ impl AppLogic for ImageEditorLogic {
             self.modifiers = *modifiers;
         }
 
-        // 覆盖层优先：模态在时它吞掉全部输入，底层 UI 收不到。
-        if self.overlays.handle_input(event).is_handled() {
+        // 模态窗口优先：在时它吞掉全部输入，底层 UI 收不到。
+        if let Some(modal) = self.modal.as_mut() {
+            modal.event(event);
             return EventResult::Handled;
         }
 
@@ -295,11 +285,9 @@ impl AppLogic for ImageEditorLogic {
             Screen::Home(home) => home.layout(viewport),
             Screen::Editor(editor) => editor.layout(viewport),
         }
-        let host = match &self.screen {
-            Screen::Home(home) => home.tree(),
-            Screen::Editor(editor) => editor.tree(),
-        };
-        self.overlays.layout(host, viewport);
+        if let Some(modal) = self.modal.as_mut() {
+            modal.layout(viewport);
+        }
     }
 
     fn paint(&mut self, _ctx: &FrameContext<'_>, paint: &mut PaintContext) {
@@ -307,7 +295,9 @@ impl AppLogic for ImageEditorLogic {
             Screen::Home(home) => home.paint(paint),
             Screen::Editor(editor) => editor.paint(paint),
         }
-        self.overlays.paint(paint);
+        if let Some(modal) = self.modal.as_ref() {
+            modal.paint(paint);
+        }
     }
 }
 

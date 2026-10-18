@@ -119,11 +119,6 @@ impl HomeView {
         igui_ui::set_text_measurer(&mut self.tree, measurer);
     }
 
-    /// 宿主 `Overlays` 解析锚点用的底层树。
-    pub fn tree(&self) -> &SceneTree {
-        &self.tree
-    }
-
     /// 这一帧有没有点过「新建项目」；取走后清掉，宿主据此打开模态浮层。
     pub fn take_new_document_request(&self) -> bool {
         self.new_document.replace(false)

@@ -25,11 +25,12 @@ cargo run -- --pixel-font
 
 启动先进**主页**（`src/ui/home.rs` 的 `HomeView`）：
 
-- 「新建项目」：用 `igui_components::Overlays` 在主窗口里弹出**应用内模态框**
-  （`src/ui/new_document.rs` 的 `NewDocumentModal`）选画布尺寸和背景色 —— 不再开
-  第二个原生窗口（macOS 15 上多 surface 会崩）。scrim、居中、边框、Esc / 点外
-  关闭、输入吞掉都由 `Overlays` 负责。点「创建」后，编辑器出现在**同一个窗口**
-  里（从主页切到 `EditorView`），模态框关闭；点「取消」或 Esc 就放弃。
+- 「新建项目」：在主窗口里弹出一扇**模拟桌面的浮动窗口**（`src/ui/window.rs`
+  的 `Window` + `src/ui/new_document.rs` 的 `NewDocumentModal`）选画布尺寸和背景色
+  —— 不再开第二个原生窗口（macOS 15 上多 surface 会崩）。窗口带标题栏（拖动
+  移动）、四条边 / 角（拖动缩放）、关闭按钮和遮罩；Esc / 点窗口外取消，输入
+  全被它吞掉。点「创建」后，编辑器出现在**同一个窗口**里（从主页切到
+  `EditorView`），窗口关闭；点「取消」或 Esc 就放弃。
 - 「画廊」：占位（一张 `EmptyState`），以后放最近打开的文档。
 
 宿主（`src/app/application.rs`）不再是手写的 winit `ApplicationHandler`，而是用
