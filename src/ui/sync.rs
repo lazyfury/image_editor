@@ -1,0 +1,239 @@
+//! 把 [`AppState`] / 工具状态同步进控件树（标签 / 列表 / 属性 / 选项栏）。
+//!
+//! 全是「读状态 -> `set_text` / `update_control` / 可见性」的幂等同步；`update`
+//! 每帧按需调用。
+
+use crate::app::state::ActiveTool;
+
+use super::*;
+
+impl EditorView {
+    /// 标签页切换：只让当前内容参与布局与绘制（隐藏内容不可见，也不命中）。
+    /// 激活页没变时是空操作，避免每帧重排。
+    pub(super) fn sync_tabs(&mut self) {
+        let active = self.active_tab.get();
+        if self.shown_tab == Some(active) {
+            return;
+        }
+        self.shown_tab = Some(active);
+        tabs::show_active(
+            &mut self.tree,
+            self.tabs_panel_node,
+            active,
+            &self.tab_contents,
+        );
+    }
+
+    /// 工具 / 缩放 / 指针像素 -> 状态栏。
+    pub(super) fn sync_status(&mut self) {
+        let (tool, zoom, width, height, camera) = {
+            let state = self.state.borrow();
+            (
+                state.active_tool,
+                state.canvas.zoom,
+                state.document.width,
+                state.document.height,
+                state.canvas,
+            )
+        };
+        // 指针在画布区域里时，状态栏顺便报一下文档像素坐标（§12 的坐标转换）。
+        let pixel = self
+            .pointer
+            .and_then(|point| document_to_pixel(screen_to_document(camera, point), width, height));
+        let shown = (tool, zoom, width, height, pixel);
+        if self.shown != Some(shown) {
+            set_text(&mut self.tree, self.tool_label, tool.label());
+            let coords = match pixel {
+                Some((x, y)) => format!("  ·  ({x}, {y})"),
+                None => String::new(),
+            };
+            set_text(
+                &mut self.tree,
+                self.zoom_label,
+                format!("{width} × {height}  ·  {:.0}%{coords}", zoom * 100.0),
+            );
+            self.shown = Some(shown);
+        }
+    }
+
+    /// 文档改动后：更新列表行数与选中行，并让已挂载的行重新读数据。
+    pub(super) fn refresh_layers(&mut self) {
+        let count = self.state.borrow().document.layers.len();
+        self.layer_count.set(count);
+        self.layer_selected.set(self.active_list_index());
+        self.layer_state.invalidate();
+    }
+
+    /// 历史长度变化后刷新历史面板的行数。
+    pub(super) fn refresh_history(&mut self) {
+        let (undo, redo) = {
+            let state = self.state.borrow();
+            (state.history.undo_len(), state.history.redo_len())
+        };
+        self.history_count.set(undo + 1 + redo);
+        self.history_state.invalidate();
+    }
+
+    /// 当前图层在“最上面为 0”的列表里的下标。
+    pub(super) fn active_list_index(&self) -> Option<usize> {
+        let state = self.state.borrow();
+        let document = &state.document;
+        document
+            .active_layer
+            .and_then(|id| document.layer_index(id))
+            .map(|index| document.layers.len() - 1 - index)
+    }
+
+    /// 当前图层 -> 属性面板。
+    pub(super) fn sync_properties(&mut self) {
+        let (name, detail, geometry) = {
+            let state = self.state.borrow();
+            match state.document.active_layer() {
+                Some(layer) => (
+                    layer.name.clone(),
+                    format!("不透明度 {:.0}%  ·  Normal", layer.opacity * 100.0),
+                    format!(
+                        "偏移 ({}, {})  ·  缓冲 {}×{}",
+                        layer.position.x, layer.position.y, layer.pixels.width, layer.pixels.height
+                    ),
+                ),
+                None => (
+                    "无图层".to_string(),
+                    "点「+ 图层」新建一层".to_string(),
+                    String::new(),
+                ),
+            }
+        };
+        set_text(&mut self.tree, self.props_name, name);
+        set_text(&mut self.tree, self.props_detail, detail);
+        set_text(&mut self.tree, self.props_geometry, geometry);
+    }
+
+    pub(super) fn begin_rename(&mut self) {
+        let (id, name) = {
+            let state = self.state.borrow();
+            match state.document.active_layer() {
+                Some(layer) => (layer.id, layer.name.clone()),
+                None => return,
+            }
+        };
+        self.renaming = Some(Rename { id, buffer: name });
+    }
+
+    pub(super) fn cancel_rename(&mut self) {
+        self.renaming = None;
+        set_text(&mut self.tree, self.message_label, "");
+    }
+
+    pub(super) fn commit_rename(&mut self) {
+        let Some(rename) = self.renaming.take() else {
+            return;
+        };
+        let name = rename.buffer.trim().to_string();
+        if !name.is_empty() {
+            let mut state = self.state.borrow_mut();
+            let before = LayerMetaCommand::capture(&state.document);
+            state.document.rename_layer(rename.id, name);
+            let after = LayerMetaCommand::capture(&state.document);
+            state.execute(Box::new(LayerMetaCommand::new(before, after, "重命名图层")));
+        }
+        set_text(&mut self.tree, self.message_label, "");
+    }
+
+    pub(super) fn sync_rename_status(&mut self) {
+        if let Some(rename) = &self.renaming {
+            let text = format!("重命名图层：{}▌  （Enter 确认 · Esc 取消）", rename.buffer);
+            set_text(&mut self.tree, self.message_label, text);
+        }
+    }
+
+    /// 重命名编辑中的按键 / 文本输入；返回是否消费了事件。
+    pub(super) fn handle_rename_input(&mut self, event: &InputEvent) -> bool {
+        match event {
+            InputEvent::KeyDown { key: Key::Escape } => {
+                self.cancel_rename();
+                true
+            }
+            InputEvent::KeyDown { key: Key::Enter } => {
+                self.commit_rename();
+                true
+            }
+            InputEvent::KeyDown {
+                key: Key::Backspace,
+            } => {
+                if let Some(rename) = &mut self.renaming {
+                    rename.buffer.pop();
+                }
+                true
+            }
+            InputEvent::TextInput { text } => {
+                if let Some(rename) = &mut self.renaming {
+                    rename
+                        .buffer
+                        .extend(text.chars().filter(|ch| !ch.is_control()));
+                }
+                true
+            }
+            // 其余按键也吞掉：重命名时按字母不该触发工具 / 画布快捷键。
+            InputEvent::KeyDown { .. } => true,
+            _ => false,
+        }
+    }
+
+    // -- 文件 / 路径（Phase 7） ------------------------------------------
+
+    /// 工作区文件路径每帧同步（只读展示）。
+    pub(super) fn sync_path(&mut self) {
+        let display = match &*self.workspace_path.borrow() {
+            Some(path) => path.display().to_string(),
+            None => "未保存（⌘S 保存）".to_string(),
+        };
+        if self.shown_path.as_deref() != Some(display.as_str()) {
+            set_text(&mut self.tree, self.path_label, display.clone());
+            self.shown_path = Some(display);
+        }
+    }
+
+    /// 工具选项栏：工具名 / 提示 / 笔刷配置，按当前工具显示。
+    pub(super) fn sync_options(&mut self) {
+        let tool = self.state.borrow().active_tool;
+        set_text(&mut self.tree, self.options_tool, tool.label());
+        set_text(
+            &mut self.tree,
+            self.options_size,
+            format!("{:.0}px", self.brush.size),
+        );
+        set_text(
+            &mut self.tree,
+            self.options_opacity,
+            format!("{:.0}%", self.brush.opacity * 100.0),
+        );
+        set_text(&mut self.tree, self.options_hint, options_hint(tool));
+        set_text(
+            &mut self.tree,
+            self.options_tolerance,
+            format!("{}", self.paint_bucket.tolerance),
+        );
+        set_text(
+            &mut self.tree,
+            self.gradient_kind_label,
+            self.gradient_kind.label(),
+        );
+
+        let show_brush = tool_has_brush(tool);
+        if self.tree.is_visible(self.options_brush) != Some(show_brush) {
+            self.tree.set_visible(self.options_brush, show_brush);
+            igui_ui::mark_dirty(&mut self.tree, self.options_brush);
+        }
+        let show_bucket = tool == ActiveTool::PaintBucket;
+        if self.tree.is_visible(self.options_bucket) != Some(show_bucket) {
+            self.tree.set_visible(self.options_bucket, show_bucket);
+            igui_ui::mark_dirty(&mut self.tree, self.options_bucket);
+        }
+        let show_gradient = tool == ActiveTool::Gradient;
+        if self.tree.is_visible(self.options_gradient) != Some(show_gradient) {
+            self.tree.set_visible(self.options_gradient, show_gradient);
+            igui_ui::mark_dirty(&mut self.tree, self.options_gradient);
+        }
+    }
+}
