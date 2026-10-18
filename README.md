@@ -6,7 +6,7 @@
 
 这是一个独立项目（自己的 git 仓库），通过 **git 依赖**引用上游的 igui
 （`Cargo.toml` 里的 `https://github.com/lazyfury/igui`，按 `release.md` 记录
-的 release tag 固定，当前 `v0.2.0`）—— 不再需要相邻的路径 checkout。图标用
+的 release tag 固定，当前 `v0.3.0`）—— 不再需要相邻的路径 checkout。图标用
 核心的 `igui_svg`（零外部依赖）；PNG 编解码用 `png` crate；结构化日志用
 `tracing`。
 
@@ -203,6 +203,7 @@ Phase 11），README 只留功能说明。要点：
 assets/icons/            # vendor 的 11 个 Lucide 图标（工具栏用）+ ISC LICENSE
 src/
 ├── main.rs              # 参数解析
+├── fonts.rs             # 随包字体定位（assets/fonts/，见 AGENTS.md）
 ├── app/
 │   ├── state.rs         # ActiveTool / CanvasCamera / AppState（纯数据）
 │   ├── tool_groups.rs   # 工具栏分组（组内工具 + 默认脸）
@@ -378,6 +379,10 @@ Phase 6 起还做一次**真实的撤销 / 重做往返**：画笔一笔 → 点
 变黑；拖出框选 → 选区存在；移动拖动 → 当前图层位置改变。附加的图标包也会断言：
 索引覆盖工具栏的工具与撤销 / 重做，且帧里确实有图标描出来的 `FillCircle`。同一套
 断言在 `cargo test` 里跑。
+
+这些步骤（`fmt` / `clippy -D warnings` / `test` / `--selfcheck`）也在
+`.github/workflows/ci.yml` 里自动跑；本地按 AGENTS.md 的「per-change gate」
+一次跑完即可。
 
 ## 图标（Lucide，附加）
 

@@ -1,0 +1,43 @@
+# 持续集成：把 AGENTS.md 的「每改动门禁」自动化。
+#
+#   cargo fmt --all -- --check
+#   cargo clippy --all-targets -- -D warnings
+#   cargo test
+#   cargo run -- --selfcheck        # 无头自检（录 DrawList + 体检 + 断言）
+#
+# 跑在 macOS 上：AppKit 原生对话框、winit/wgpu 都按主平台验证；`--selfcheck`
+# 本身无头，不弹窗。缓存由 rust-cache 处理。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Rust（stable + rustfmt + clippy）
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 格式
+        run: cargo fmt --all -- --check
+
+      - name: Lint（clippy 零容忍）
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: 单元测试
+        run: cargo test
+
+      - name: 无头自检
+        run: cargo run -- --selfcheck

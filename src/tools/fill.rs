@@ -24,6 +24,8 @@ fn within_tolerance(a: Color, b: Color, tolerance: u8) -> bool {
 /// `offset` 是图层缓冲区原点（文档坐标，`ensure_layer_covers_document` 之后
 /// `<= 0`），`document` 是文档尺寸（限制填充范围），`clip` 是文档坐标的选区。
 /// 返回是否有像素变化。
+// 低层填充 API：缓冲区 + 几何 + 填充参数 + 裁剪，就是它的全部输入。
+#[allow(clippy::too_many_arguments)]
 pub fn flood_fill(
     buffer: &mut PixelBuffer,
     offset: Point,
@@ -198,7 +200,6 @@ pub struct PaintBucketTool {
 }
 
 impl PaintBucketTool {
-    pub const MAX_TOLERANCE: u8 = 255;
     /// 容差步进。
     pub const TOLERANCE_STEP: u8 = 8;
 

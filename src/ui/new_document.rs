@@ -205,6 +205,8 @@ impl NewDocumentModal {
 }
 
 /// 把尺寸 / 背景色选择控件构建到窗口内容区里（含底部「取消 / 创建」行）。
+// 构建函数：控件树 + 内容 / 底部区 + 主题 + 模态共享状态。
+#[allow(clippy::too_many_arguments)]
 fn build_content(
     tree: &mut SceneTree,
     parent: NodeId,

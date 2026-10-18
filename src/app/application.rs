@@ -105,7 +105,7 @@ fn build_app(options: Options) -> App {
         builder = builder.plugin(FrameLimitPlugin { frames });
     }
 
-    let dialog: Rc<dyn FileDialog> = Rc::new(NativeFileDialog::default());
+    let dialog: Rc<dyn FileDialog> = Rc::new(NativeFileDialog);
     builder.logic(ImageEditorLogic::new(theme, dialog)).build()
 }
 

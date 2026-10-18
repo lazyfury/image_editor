@@ -1652,8 +1652,7 @@ impl EditorView {
     fn clamp_palette_width(&mut self) {
         let full = self.viewport.logical_size().width;
         let max = (full - TOOLBAR_WIDTH - 2.0 * RESIZE_GUTTER - SIDEBAR_MIN - CANVAS_MIN)
-            .min(PALETTE_MAX)
-            .max(PALETTE_MIN);
+            .clamp(PALETTE_MIN, PALETTE_MAX);
         let current = self.palette_width.get();
         let next = current.clamp(PALETTE_MIN, max);
         if (next - current).abs() > f32::EPSILON {
@@ -2037,9 +2036,8 @@ impl EditorView {
                 *tolerance = tolerance.saturating_sub(PaintBucketTool::TOLERANCE_STEP);
             }
             BucketAdjust::ToleranceUp => {
-                *tolerance = tolerance
-                    .saturating_add(PaintBucketTool::TOLERANCE_STEP)
-                    .min(PaintBucketTool::MAX_TOLERANCE);
+                // `u8` 的容差封顶就是 255，`saturating_add` 已经处理。
+                *tolerance = tolerance.saturating_add(PaintBucketTool::TOLERANCE_STEP);
             }
         }
     }

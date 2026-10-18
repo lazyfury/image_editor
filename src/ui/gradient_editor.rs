@@ -74,6 +74,8 @@ pub fn paint_gradient_bar(ctx: &mut PaintContext, rect: Rect, gradient: &Gradien
 }
 
 /// 编辑器内容：色带 + 节点操作行。返回内容根节点。
+// 构建函数：控件树 + 主题 + 共享状态 + 引用槽，参数天然多。
+#[allow(clippy::too_many_arguments)]
 pub fn gradient_editor_content(
     tree: &mut SceneTree,
     root: NodeId,

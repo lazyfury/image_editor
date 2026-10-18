@@ -288,10 +288,10 @@ impl Window {
                     return EventResult::Handled;
                 }
             }
-            InputEvent::PointerDown { position, button } if *button == PointerButton::Left => {
-                if self.begin_gesture(*position) {
-                    return EventResult::Handled;
-                }
+            InputEvent::PointerDown { position, button }
+                if *button == PointerButton::Left && self.begin_gesture(*position) =>
+            {
+                return EventResult::Handled;
             }
             _ => {}
         }

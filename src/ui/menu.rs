@@ -70,6 +70,8 @@ pub fn menu_bar(
 }
 
 /// 构建第 `index` 个菜单的内容，挂到 `root`（覆盖层给的定位节点）下。
+// 构建函数：控件树 + 主题 + 菜单下标 + 共享请求槽 + 三个状态位。
+#[allow(clippy::too_many_arguments)]
 pub fn menu_content(
     tree: &mut SceneTree,
     root: igui_core::NodeId,

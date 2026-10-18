@@ -44,7 +44,7 @@ plugins; the app implements one `AppLogic`.
 This project consumes the **igui** UI stack from the upstream GitHub repo in
 **git dependency mode** — every `igui_*` crate in `Cargo.toml` points at
 `https://github.com/lazyfury/igui`, pinned to the release tag documented in that
-repo's `release.md` (currently `v0.2.0`). No sibling path checkout is required;
+repo's `release.md` (currently `v0.3.0`). No sibling path checkout is required;
 Cargo fetches the repo once for all crates. Do **not** vendor or fork the igui
 crates here; shared UI-layer changes belong in the igui repo and must keep its
 own gate green. To upgrade, bump the tag here and follow `release.md`'s
@@ -123,7 +123,9 @@ cargo run -- --frames 120       # render N frames then exit
 cargo run -- --light            # light theme
 cargo run -- --pixel-font       # built-in bitmap font (no CJK)
 cargo test                      # unit tests
-cargo fmt -- --check && cargo check && cargo test   # per-change gate
+cargo clippy --all-targets -- -D warnings           # lints (must stay clean)
+# per-change gate (the same steps CI runs, see .github/workflows/ci.yml):
+cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test
 ./package-macos.sh              # macOS .app bundle in dist/ (copies the font)
 ./package-macos.sh --open       # ... and launch it
 ```

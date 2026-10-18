@@ -2,9 +2,9 @@
 name = "image_editor"
 version = "0.1.0"
 edition = "2021"
-# `winit` / `wgpu` (pulled in by `igui_backend_wgpu`) need newer Rust than the
-# workspace default, exactly like `examples/wgpu_demo`.
-rust-version = "1.76"
+# 真实最低版本：`theme.rs` 用了 `LazyLock`（1.80 稳定）；依赖侧 winit 0.30 要
+# 1.70、wgpu 24 要 1.76、objc2 0.6 要 1.71（igui 自己声明 1.75）。
+rust-version = "1.80"
 publish = false
 
 [[bin]]
@@ -17,7 +17,7 @@ path = "src/main.rs"
 #
 # Crates come from the upstream GitHub repo in *git dependency mode* rather than
 # a sibling path checkout, pinned to the release tag documented in the repo's
-# `release.md` (v0.2.0). All crates share one repo, so Cargo fetches it once.
+# `release.md` (v0.3.0). All crates share one repo, so Cargo fetches it once.
 igui_core = { git = "https://github.com/lazyfury/igui", tag = "v0.3.0" }
 igui_render = { git = "https://github.com/lazyfury/igui", tag = "v0.3.0" }
 igui_scene = { git = "https://github.com/lazyfury/igui", tag = "v0.3.0" }
@@ -65,6 +65,12 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSString",
     "NSURL",
 ] }
+
+# 发布构建（`package-macos.sh` 用）：LTO + 单 codegen unit 换更小 / 更快的 .app。
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
 
 # 独立的桌面应用示例：不加入主 workspace，避免 winit/wgpu 影响
 # `cargo check --workspace`（跟 `examples/file_browser` 同样的取舍）。
