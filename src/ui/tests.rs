@@ -1,6 +1,7 @@
 use super::*;
 use crate::canvas::DOCUMENT_TEXTURE;
 use crate::document::{Color, PixelBuffer, Point};
+use crate::renderer::sample_pixel;
 use igui_core::{InputEvent, Key, NodeId, PointerButton, Size, Vec2, ViewportSize};
 use igui_render::{DrawCommand, PaintContext};
 
