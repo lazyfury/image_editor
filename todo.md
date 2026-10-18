@@ -80,8 +80,9 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - [ ] **拆 `selfcheck::check()`（约 500 行）**：各段串行共享 `view` 状态，
   拆成吃 `&mut EditorView` 的 `check_*` 时要注意顺序依赖。
 - [ ] **拆 `ui/new_document.rs`（508 行代码）/ `document/history.rs`（485）**。
-- [ ] **测试辅助去重**：`viewport()` / `click()` 在 6~7 个文件里各写一份；
-  收敛到 `#[cfg(test)]` 的 `test_support`。
+- [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
+  `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
+  不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。
 - [ ] **`docs/upstream.md`**：集中记「需要改 igui 才能做」的两件事（图层右键菜单
   要 `igui_ui` 右键回调 + `Overlays` 指针锚点；退出守卫要 `igui_winit` 的
   `CloseRequested` 钩子）与 tag 升级步骤。
