@@ -45,6 +45,9 @@ const CLOSE_HOVER: Color = Color::new(0.86, 0.22, 0.20, 1.0);
 pub const FOOTER_BUTTON_MIN_WIDTH: f32 = 72.0;
 /// 模态遮罩。
 const SCRIM: Color = Color::new(0.0, 0.0, 0.0, 0.35);
+/// 窗口底色。用**最底层**而不是 `Raised`：`Button` 的 secondary / ghost 填充
+/// 就是 `surface_raised`，窗口也是 `Raised` 的话按钮只剩描边、看着比实心按钮小。
+const WINDOW_SURFACE: SurfaceLevel = SurfaceLevel::Base;
 
 /// 指针按下的窗口手势。
 #[derive(Clone, Copy, Default, PartialEq, Debug)]
@@ -167,7 +170,7 @@ impl Window {
             .padding(Edges::ZERO)
             .gap(0.0)
             .surface(
-                SurfaceStyle::new(theme.surface(SurfaceLevel::Floating))
+                SurfaceStyle::new(theme.surface(WINDOW_SURFACE))
                     .border(palette.border)
                     .radius(radius::PANEL),
             )
@@ -613,7 +616,19 @@ mod tests {
         assert!(window.take_close_request());
     }
 
-    /// 页脚是标题栏与内容区之外的独立底部区域。
+    /// 窗口底色必须与 secondary / ghost 按钮的填充不同，否则按钮只剩描边，
+    /// 看起来比实心按钮小一圈。
+    #[test]
+    fn the_window_surface_differs_from_the_button_fill() {
+        let theme = crate::theme::editor_theme(false);
+        assert_ne!(
+            theme.surface(WINDOW_SURFACE),
+            theme.palette().surface_raised,
+            "对话框底色不能和按钮填充一样"
+        );
+    }
+
+    /// 内容区紧贴标题栏下沿与外框两边（外框不能自带 padding）。
     #[test]
     fn the_content_is_flush_with_the_header_and_the_frame() {
         let (mut window, _, _) = window_with_button();
