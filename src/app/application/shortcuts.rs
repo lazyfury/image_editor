@@ -37,10 +37,11 @@ pub(super) fn file_shortcut(command: bool, shift: bool, event: &InputEvent) -> O
     }
 }
 
-/// Ctrl/Cmd+X / C / V：剪切 / 复制 / 粘贴选区内容；命中返回 `true`。
+/// Ctrl/Cmd+X / C / V（Shift 时「粘贴为新图层」）：剪切 / 复制 / 粘贴；命中返回 `true`。
 pub(super) fn clipboard_shortcut(
     editor: &mut EditorView,
     command: bool,
+    shift: bool,
     event: &InputEvent,
 ) -> bool {
     if !command {
@@ -56,6 +57,10 @@ pub(super) fn clipboard_shortcut(
         }
         'c' => {
             editor.copy_selection();
+            true
+        }
+        'v' if shift => {
+            editor.paste_as_new_layer();
             true
         }
         'v' => {

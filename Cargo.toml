@@ -56,12 +56,14 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSOpenPanel",
     "NSSavePanel",
     "NSPanel",
+    "NSPasteboard",
     "NSResponder",
     "NSWindow",
 ] }
 objc2-foundation = { version = "0.3", default-features = false, features = [
     "std",
     "NSArray",
+    "NSData",
     "NSString",
     "NSURL",
 ] }

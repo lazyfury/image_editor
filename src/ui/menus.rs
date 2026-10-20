@@ -208,6 +208,9 @@ impl EditorView {
             menu::MenuAction::Paste => {
                 self.paste_clipboard();
             }
+            menu::MenuAction::PasteAsLayer => {
+                self.paste_as_new_layer();
+            }
             menu::MenuAction::ClearSelection => {
                 self.clear_selection();
             }

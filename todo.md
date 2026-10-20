@@ -221,8 +221,16 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   undo 且重复删不加 / 空选区空剪贴板是 no-op / 换选区粘贴被裁）、宿主
   `clipboard_shortcuts_cut_copy_and_paste`、UI「编辑菜单真的能剪切复制粘贴」、
   `--selfcheck::check_clipboard`。
-- 已知：剪贴板只在**进程内**（没有接系统剪贴板，跨 App 复制粘贴要平台 FFI，
-  和 `io/dialog.rs` 同一类工作）；粘贴进当前图层而不是新图层。
+- [x] **粘贴为新图层**：`EditorView::paste_as_new_layer`（`AddLayerCommand`，位置 =
+  剪贴板原点，一步 undo，不动当前图层），「编辑」菜单「粘贴为新图层」+
+  `Shift+Ctrl/Cmd+V`。
+- [x] **系统剪贴板（macOS `NSPasteboard`）**：`src/io/clipboard.rs` —— 复制时
+  `write_image` 把选区写成 `public.png`（失败只记 debug 日志），粘贴时进程内没有
+  内容就去 `read_image` 要一张 PNG（`NSPasteboardTypePNG`），外来图片放选区左上角 /
+  文档左上角（`foreign_origin`）。Cargo 加了 `NSPasteboard` / `NSData` feature。
+  其它平台是空实现（写返回 `Invalid`、读 `None`）。
+- 已知：只认 PNG（系统剪贴板里只有 TIFF 的 App 读不到，要再补 `CGImageSource`）；
+  内存剪贴板和系统剪贴板是两份（复制会同时写，粘贴优先用内存里的）。
 
 ## 3. 紧接着
 

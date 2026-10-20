@@ -379,6 +379,14 @@ fn check_clipboard(failures: &mut Vec<String>) {
     if view.history_len().0 != before + 2 {
         failures.push("粘贴应只加一步 undo".to_string());
     }
+
+    // 粘贴为新图层：多一层、不动原图层、同样一步 undo。
+    let layers = view.layer_count();
+    if !view.paste_as_new_layer() {
+        failures.push("粘贴为新图层失败".to_string());
+    } else if view.layer_count() != layers + 1 {
+        failures.push("粘贴为新图层应多一层".to_string());
+    }
 }
 
 /// 选区加选 / 减选：Shift 框一块并进旧选区，Alt 再框掉它。

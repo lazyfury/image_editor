@@ -46,6 +46,8 @@ pub enum MenuAction {
     Copy,
     /// 粘贴剪贴板。
     Paste,
+    /// 粘贴为新图层（不动当前图层）。
+    PasteAsLayer,
     ClearSelection,
     /// 把当前图层裁到文档大小（丢掉画布外像素）。
     CropLayerToDocument,
@@ -151,6 +153,16 @@ pub fn menu_content(
                 .item(
                     menu_item("粘贴", Some("Ctrl+V"), theme, &action, MenuAction::Paste)
                         .disabled(!can_paste),
+                )
+                .item(
+                    menu_item(
+                        "粘贴为新图层",
+                        Some("Shift+Ctrl+V"),
+                        theme,
+                        &action,
+                        MenuAction::PasteAsLayer,
+                    )
+                    .disabled(!can_paste),
                 );
         }
         2 => {

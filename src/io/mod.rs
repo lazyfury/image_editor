@@ -9,6 +9,7 @@
 //!
 //! [`PixelBuffer`]: crate::document::PixelBuffer
 
+mod clipboard;
 mod codec;
 mod dialog;
 mod file;
@@ -16,6 +17,7 @@ mod preferences;
 mod recent;
 mod workspace;
 
+pub use clipboard::{read_image as read_clipboard_image, write_image as write_clipboard_image};
 pub use codec::{decode_png, encode_png};
 pub use dialog::{DialogOptions, FileDialog, FileFilter, NativeFileDialog};
 pub use file::{file_label, read_png, write_png};

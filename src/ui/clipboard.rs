@@ -12,7 +12,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use crate::app::state::AppState;
-use crate::document::{Layer, PaintCommand, PixelRegion};
+use crate::canvas::Selection;
+use crate::document::{AddLayerCommand, Layer, PaintCommand, PixelRegion, Point};
 use crate::tools::PixelClipboard;
 
 use super::EditorView;
@@ -50,6 +51,10 @@ impl EditorView {
             return false;
         };
         let (width, height) = clipboard.size();
+        // 顺手写一份到系统剪贴板（跨 App 粘贴）；失败只记日志，不影响进程内复制。
+        if let Err(error) = crate::io::write_clipboard_image(&clipboard.to_buffer()) {
+            tracing::debug!(target: "image_editor", %error, "system_clipboard_write_failed");
+        }
         *self.image_clipboard.borrow_mut() = Some(clipboard);
         *self.message.borrow_mut() = Some(format!("已复制 {width} × {height}"));
         true
@@ -70,7 +75,7 @@ impl EditorView {
 
     /// 粘贴：把剪贴板贴回原位置，按当前选区的覆盖率裁剪（一步 undo）。
     pub fn paste_clipboard(&mut self) -> bool {
-        let Some(clipboard) = self.image_clipboard.borrow().clone() else {
+        let Some(clipboard) = self.clipboard_source() else {
             *self.message.borrow_mut() = Some("剪贴板是空的".to_string());
             return false;
         };
@@ -88,6 +93,46 @@ impl EditorView {
             ));
         }
         changed
+    }
+
+    /// 粘贴为**新图层**：把剪贴板（或系统剪贴板里的图）放到它原来的位置。
+    ///
+    /// 和 [`Self::paste_clipboard`] 的区别是不动当前图层的像素、也不受选区裁剪 ——
+    /// 换来的是一条 `AddLayerCommand`（一步 undo），可以随便移动 / 隐藏。
+    pub fn paste_as_new_layer(&mut self) -> bool {
+        let Some(clipboard) = self.clipboard_source() else {
+            *self.message.borrow_mut() = Some("剪贴板是空的".to_string());
+            return false;
+        };
+        let (width, height) = (clipboard.origin.width, clipboard.origin.height);
+        let mut layer = Layer::new("粘贴", clipboard.to_buffer());
+        layer.position = Point::new(clipboard.origin.x as i32, clipboard.origin.y as i32);
+        let mut state = self.state.borrow_mut();
+        let index = state.document.layers.len();
+        let before_active = state.document.active_layer;
+        state.execute(Box::new(AddLayerCommand::new(layer, index, before_active)));
+        drop(state);
+        self.mark_texture_dirty();
+        *self.message.borrow_mut() = Some(format!("已粘贴为新图层 {width} × {height}"));
+        true
+    }
+
+    /// 取一份可粘贴的内容：进程内剪贴板优先，没有就去系统剪贴板要一张图
+    /// （外来图片放在选区左上角，没有选区就放文档左上角）。
+    fn clipboard_source(&mut self) -> Option<PixelClipboard> {
+        if let Some(clipboard) = self.image_clipboard.borrow().clone() {
+            return Some(clipboard);
+        }
+        let pixels = crate::io::read_clipboard_image()?;
+        let selection = self.state.borrow().selection.clone();
+        let origin = foreign_origin(selection.as_deref(), (pixels.width, pixels.height));
+        let colors = (0..pixels.height)
+            .flat_map(|y| (0..pixels.width).map(move |x| (x, y)))
+            .map(|(x, y)| pixels.get_pixel(x, y))
+            .collect();
+        let clipboard = PixelClipboard::from_pixels(origin, colors);
+        *self.image_clipboard.borrow_mut() = Some(clipboard.clone());
+        Some(clipboard)
     }
 
     /// 删除选区内容（`Delete` / `Backspace`）：把选区里的 alpha 按覆盖率清掉。
@@ -156,6 +201,15 @@ impl EditorView {
         }
         changed
     }
+}
+
+/// 外来图片（系统剪贴板）贴到哪：有选区就对齐选区左上角，否则文档左上角。
+fn foreign_origin(selection: Option<&Selection>, size: (u32, u32)) -> PixelRegion {
+    let (x, y) = selection
+        .and_then(|selection| selection.bounds())
+        .map(|bounds| (bounds.x, bounds.y))
+        .unwrap_or((0, 0));
+    PixelRegion::new(x, y, size.0, size.1)
 }
 
 #[cfg(test)]
@@ -242,6 +296,52 @@ mod tests {
         assert!(!view.copy_selection(), "没有选区时复制是 no-op");
         assert!(!view.paste_clipboard(), "剪贴板空时粘贴是 no-op");
         assert!(!view.has_clipboard());
+    }
+
+    #[test]
+    fn pasting_as_a_layer_adds_one_layer_and_keeps_the_current_pixels() {
+        let mut view = view();
+        let region = PixelRegion::new(4, 4, 2, 2);
+        paint_rect(&mut view, region, Color::RED);
+        select(&mut view, region);
+        assert!(view.copy_selection());
+        let layers_before = view.state.borrow().document.layers.len();
+        let before_undo = view.history_len().0;
+        let original = view.state.borrow().document.active_layer().unwrap().id;
+
+        assert!(view.paste_as_new_layer());
+        assert_eq!(
+            view.state.borrow().document.layers.len(),
+            layers_before + 1,
+            "粘贴为新图层 = 多一层"
+        );
+        assert_eq!(view.history_len().0, before_undo + 1, "一步 undo");
+        // 新图层在原位置，像素是复制出来的那些。
+        let state = view.state.borrow();
+        let layer = state.document.active_layer().unwrap();
+        assert_eq!((layer.position.x, layer.position.y), (4, 4));
+        assert_eq!(layer.pixels.get_pixel(0, 0), Color::RED);
+        // 原图层的像素没被动过（按 id 读，活动图层这时已经是新粘贴的那一层）。
+        let untouched = state
+            .document
+            .layer(original)
+            .unwrap()
+            .pixels
+            .get_pixel(4, 4);
+        assert_eq!(untouched, Color::RED);
+    }
+
+    #[test]
+    fn a_foreign_image_lands_at_the_selection_origin_or_the_document_origin() {
+        let selection = crate::canvas::Selection::rect(
+            crate::document::PixelRegion::new(20, 30, 4, 4),
+            (128, 128),
+        );
+        assert_eq!(
+            foreign_origin(Some(&selection), (8, 6)),
+            PixelRegion::new(20, 30, 8, 6)
+        );
+        assert_eq!(foreign_origin(None, (8, 6)), PixelRegion::new(0, 0, 8, 6));
     }
 
     #[test]

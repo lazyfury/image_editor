@@ -52,6 +52,26 @@ impl PixelClipboard {
         Some(Self { origin, pixels })
     }
 
+    /// 从「一块像素 + 它的文档位置」建剪贴板（系统剪贴板 / 粘贴为新图层用）。
+    ///
+    /// `pixels` 行优先，长度必须等于 `origin.area()`（多余 / 不足都按透明补齐）。
+    pub fn from_pixels(origin: PixelRegion, pixels: Vec<Color>) -> Self {
+        let mut pixels = pixels;
+        pixels.resize(origin.area(), Color::TRANSPARENT);
+        Self { origin, pixels }
+    }
+
+    /// 导出成一块像素缓冲区（写系统剪贴板 / 建新图层用）。
+    pub fn to_buffer(&self) -> crate::document::PixelBuffer {
+        let mut buffer = crate::document::PixelBuffer::new(self.origin.width, self.origin.height);
+        for (index, color) in self.pixels.iter().enumerate() {
+            let x = index as u32 % self.origin.width.max(1);
+            let y = index as u32 / self.origin.width.max(1);
+            buffer.set_pixel(x, y, *color);
+        }
+        buffer
+    }
+
     /// 剪贴板的尺寸（像素）。
     pub fn size(&self) -> (u32, u32) {
         (self.origin.width, self.origin.height)
@@ -212,6 +232,22 @@ mod tests {
         let mut layer = layer_with(&[]);
         assert!(clipboard.paste(&mut layer, Some(&over)));
         assert_eq!(at(&layer, 2, 3), Color::RED);
+    }
+
+    #[test]
+    fn a_clipboard_round_trips_through_a_pixel_buffer() {
+        let pixels = vec![
+            Color::RED,
+            Color::TRANSPARENT,
+            Color::rgb(0, 0, 255),
+            Color::new(1, 2, 3, 4),
+        ];
+        let clipboard = PixelClipboard::from_pixels(PixelRegion::new(5, 6, 2, 2), pixels.clone());
+        assert_eq!(clipboard.pixels, pixels, "不足的按透明补齐之后仍是原样");
+        let buffer = clipboard.to_buffer();
+        assert_eq!((buffer.width, buffer.height), (2, 2));
+        assert_eq!(buffer.get_pixel(0, 0), Color::RED);
+        assert_eq!(buffer.get_pixel(1, 1), Color::new(1, 2, 3, 4));
     }
 
     #[test]

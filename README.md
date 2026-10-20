@@ -143,10 +143,12 @@ cargo run -- --pixel-font
   框选拖出选区（`canvas::pixel_selection` 把两个角点
   裁剪成整数 `PixelRegion`，存在 `AppState.selection`），**按住 Shift 加选、Alt 减选**
   （框选 / 套索 / 魔棒都一样，`Selection::{union, subtract}` + `MergeMode`），
-  **Ctrl/Cmd+X / C / V** 剪切 / 复制 / 粘贴选区内容、**Delete** 清空选区内容
+  **Ctrl/Cmd+X / C / V** 剪切 / 复制 / 粘贴选区内容、**Shift+Ctrl/Cmd+V** 粘贴为
+  新图层、**Delete** 清空选区内容
   （`tools/clipboard.rs` 的 `PixelClipboard`：按选区包围盒抓一块像素、alpha 已乘
   覆盖率，贴回原位置并按当前选区裁剪；每次操作一步 undo，宿主跨工作区共享一块
-  进程内剪贴板），
+  进程内剪贴板；macOS 上复制还会写一份 PNG 到**系统剪贴板**，进程内没有内容时粘贴会
+  去系统剪贴板找一张图，放在选区左上角 / 文档左上角），
   画笔落笔按选区裁剪，
   选中时画一圈黑白相间的「马赛克线段」描边（`ui/selection.rs`，亮底 / 暗底都
   看得见），Esc 清空；「选择」菜单里「全选」/「反选」/「羽化」分别走 `Selection::all` /

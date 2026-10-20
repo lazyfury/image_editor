@@ -434,7 +434,7 @@ impl AppLogic for ImageEditorLogic {
                     if selection_shortcut(&mut workspace.editor, command, shift, event) {
                         return EventResult::Handled;
                     }
-                    if clipboard_shortcut(&mut workspace.editor, command, event) {
+                    if clipboard_shortcut(&mut workspace.editor, command, shift, event) {
                         return EventResult::Handled;
                     }
                     if let Some(request) = file_shortcut(command, shift, event) {
@@ -883,18 +883,29 @@ mod tests {
         };
         // 没有选区 / 剪贴板时仍是 handled（别把字符漏给输入框），但不改像素。
         assert!(
-            !clipboard_shortcut(&mut editor, false, &key('c')),
+            !clipboard_shortcut(&mut editor, false, false, &key('c')),
             "没 Ctrl/Cmd 不算"
         );
-        assert!(clipboard_shortcut(&mut editor, true, &key('c')));
+        assert!(clipboard_shortcut(&mut editor, true, false, &key('c')));
         assert!(!editor.has_clipboard());
 
         // 选区 + 复制 -> 剪贴板有内容，粘贴后能贴回去。
         editor.select_all();
-        assert!(clipboard_shortcut(&mut editor, true, &key('c')));
+        assert!(clipboard_shortcut(&mut editor, true, false, &key('c')));
         assert!(editor.has_clipboard());
-        assert!(clipboard_shortcut(&mut editor, true, &key('x')), "剪切");
-        assert!(clipboard_shortcut(&mut editor, true, &key('v')), "粘贴");
+        assert!(
+            clipboard_shortcut(&mut editor, true, false, &key('x')),
+            "剪切"
+        );
+        assert!(
+            clipboard_shortcut(&mut editor, true, false, &key('v')),
+            "粘贴"
+        );
+        assert!(
+            clipboard_shortcut(&mut editor, true, true, &key('v')),
+            "Shift+粘贴 = 粘贴为新图层"
+        );
+        assert_eq!(editor.layer_count(), 2, "粘贴为新图层多一层");
     }
 
     #[test]
