@@ -213,7 +213,7 @@ impl EditorView {
         set_text(
             &mut self.tree,
             self.options_preset_label,
-            self.presets.label(&self.brush, &self.brush_textures),
+            crate::tools::brush::preset::label(crate::tools::brush::preset::PRESETS, &self.brush),
         );
         set_text(
             &mut self.tree,

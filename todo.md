@@ -71,7 +71,12 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   在 `layout` 里才建出来，自检里点完必须再 layout 一帧才能读帧。
 
 已知取舍：不透明度现在按「一笔封顶」，所以低不透明度笔画比以前**明显变淡**（那是
-正确的）；没有 flow（笔内累积）与压感 —— 鼠标没有压感源，笔尖也没有纹理格式。
+正确的）；没有 flow（笔内累积）与压感 —— 鼠标没有压感源。
+
+**笔画系统只保留基础印章笔**（纹理 / 颗粒 / 散布 / 素材目录 / 预设文件 / 定义画笔
+预设 / 湿画 全部移除，2026-02）：`BrushTool` 只剩 直径 / 不透明度 / 硬度 / 像素·
+方形 / 对称 / 平滑 / 间距，预设退化成 6 条纯参数组合（`preset::PRESETS`），
+`preferences` 只存这些外观字段。要恢复高级笔刷得先重新讨论需求。
 
 ### 1.y 钢笔 / 路径（已完成）
 
@@ -135,120 +140,6 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   - 验收：`io::preferences` 4 条（默认值 = 像素硬笔、round-trip、坏行/越界、
     文件不存在）+ `ui::preferences` 4 条（新视图无可写快照、应用后开关同步、
     改一次只报一次、对称码 round-trip）。
-
-### 第 1 批补充：纹理笔尖（已完成 P1 + P2）
-
-- [x] **P1 纹理笔尖**（`tools/brush/texture.rs`）：`BrushTexture` 只存 u8 覆盖率
-  （PNG 有 alpha 取 alpha、整张不透明取亮度），`sample(u, v, linear)` 最近邻 / 双线性；
-  `BrushTextures` 按名字懒加载 + `Rc` 缓存（crate 根 → 可执行文件旁 → cwd，缺文件
-  返回 `None` 并退回程序化笔尖）。`Tip::cover` 里 `coverage × texture`，其余
-  （选区 / 羽化 / 对称 / 每笔不透明度 / undo / 脏矩形）全部自动复用。
-  素材：`examples/gen_brushes.rs` 生成 `ink` / `bristle` / `grass`（128²，共 ~50 KB，
-  `assets/brushes/LICENSE` 记 CC0）。
-- [x] **P2 纹理映射与旋转**：`TexturePlacement::{Tip{angle}, AlongStroke{direction, distance}}`
-  —— 固定角度按笔尖旋转；跟笔模式把纹理铺在**笔迹坐标系**（横向 = 垂直笔迹、
-  纵向 = 沿笔迹滚动 `fract`），`BrushTool` 记 `stroke_distance` / `last_dab_direction`，
-  所以毛笔 / 刷子的毛是连续的（之前每个 dab 重贴一张图，毛会被下一个 dab 填平）。
-  预设「毛笔」（间距 12%）/「鬃刷」（间距 10%）走 `AngleMode::AlongStroke`。
-- 验收：`texture` 5 条（alpha / 亮度、越界为 0、双线性、PNG 往返、真素材加载）、
-  `tip` 3 条（形状 × 纹理、旋转 90° 换半、沿笔迹滚动随距离平移）、`brush` 1 条
-  （纹理笔画出 ≥8 档深浅 + 空隙）、`preset` 1 条（两个纹理预设挂上 128² 笔尖且
-  间距更密）、`--selfcheck::check_textured_brush`（真点预设菜单选「鬃刷」→ 画一笔 →
-  多档深浅 + 毛束之间的空隙 + 报「128×128 笔尖」）。
-- [x] **起笔方向**：第一个采样点落笔时先**不压**，等第二个点到了再压（这时方向已知），
-  所以「第一笔永远朝右」的问题没了；只点一下不拖的情况在 `finish_stroke` 里补一个 dab。
-  第一个 dab 的方向用 lookahead（这个 → 下一个），`last_dab_direction` 改成 `Option`。
-- [x] **素材更密**（避免「点分布太散」）：鬃刷 26 → 40 根毛、加一层 `0.28` 的底色湿痕；
-  毛笔的细毛调制从 0.72~1.0 收到 0.86~1.0。实测中心行覆盖 160/160（无空洞）。
-- [x] **用户素材 / 配置**：`IMAGE_EDITOR_BRUSH_DIR` 覆盖素材目录；同目录
-  `presets.txt`（`名字 | 纹理 | 直径 | 不透明度 | 硬度 | 间距 | 角度`，`along` =
-  跟笔）解析成额外预设（坏行跳过），`PresetLibrary` = 内置 + 用户，启动时建一次；
-  `preferences` 增存 `texture / angle / angle_mode / spacing`，重启后当前笔刷还在。
-  `assets/brushes/presets.example.txt` 是模板。
-- [x] **目录里的 PNG 自动成预设**：`PresetLibrary::load` = 内置 + `presets.txt` +
-  目录中**没被引用**的 PNG（名字 = 文件名，64px / 间距 10% / 跟笔 / `hard=false`，
-  最多 24 张）。之前只读 `presets.txt`，所以「把 PNG 丢进目录」没有任何反应。
-- [x] **选项栏「间距 −/+」**（2%~100%，步进 2%）：纹理笔连不上时自己调密；默认 25%
-  保持不变。`--selfcheck` 也核对了它。
-- 实测（用户给的 1192×824 全不透明 PNG，当亮度蒙版 + 间距 10% + 跟笔）：中心行
-  覆盖 220/220、最长空洞 0px —— 之前的「不连续」是那张图**根本没被加载**。
-### 第 1 批补充 2：笔刷 2.0（形状 / 颗粒 / 渲染）— 计划
-
-**依据（调查结论，省得以后重查）**
-
-- **Photoshop ABR**：`brushPreset` 描述符 59 项**固定顺序**（抄自
-  `katrinaau97-eng/brushset-to-abr/MAPPING.md`，顺序错了 PS 直接忽略动态）；笔尖是 8bit
-  灰度蒙版（黑 = 透明），容器分 v1/v2 与 v6/v10 两代（`scurest/abrupng` 是干净的 Rust 参考）；
-  每个动态项 = `{bVTy 控制源, jitter, Mnm 下限, fStp 渐隐}` —— **只有线性斜坡 + 抖动，没有曲线**。
-- **Procreate 画笔工作室** 14 组（官方手册 5.4）：描边路径 / 稳定性 / 锥度 / 形状 / 颗粒 /
-  渲染 / 湿混 / 颜色动态 / 动态 / Apple Pencil / 其他属性 / 材质 / 预览 / 关于。
-  核心模型：**笔刷 = 形状（轮廓）+ 颗粒（形状内的纹理）**，"笔迹 = 沿着路径拖动形状和颗粒"。
-  三件我们现在缺的东西：
-  1. **颗粒三态映射**：每站重贴 / `纹理化`（钉在**画布**坐标，一整条笔迹共享一片连续纹理）/
-     `动态`（随笔迹被拖走 → 条纹涂抹）。"一片区域描边"的观感来自钉画布那一态。
-  2. **形状散布**：每站最多印 16 个图章、各自随机旋转（散布）、横向 / 线性抖动；
-     颗粒有 `深度 / 最小深度 / 比例 / 偏移抖动`。
-  3. **湿混（晕染）**：每笔一个"颜料携带"缓冲 —— 拾取（稀释/支付/攻击）、拖长、模糊，
-     抬笔=重新蘸色。这才是"晕染"，不是每个 dab 混一点。
-- 落地模型：`Dab = { center, size, angle, roundness, distance, direction, offset }`，
-  `coverage = shape(local) × grain(uv)`，`uv` 由映射决定；`count` 个图章各自散布。
-
-**P0 形状 / 颗粒（已完成）**
-
-- [x] **P0a 随机数**（新 `tools/brush/rng.rs`）：XorShift128 + splitmix 播种，
-  `Rng::new(seed)`（种子**每笔一次**，`begin_stroke` 里取）、`unit / signed / range / unit_disc`。
-  验证：固定种子序列可复现；`unit_disc` 打 10k 点全在圆内且四象限都有（不乱偏）。
-- [x] **P0b 颗粒模型**（新 `tools/brush/grain.rs`）：`GrainMapping::{Stamp, CanvasLocked, Dragged}`、
-  `Grain { texture, mapping, angle, scale, depth, min_depth }`、
-  `DabFrame { center, size, angle, direction, distance, offset, hard }`、
-  `Grain::coverage(frame, local)`（`depth` 做 `mix(1, tex, depth)`、`min_depth` 抬底下限，
-  `scale` = 一块纹理覆盖几个直径，0 以下夹住）。
-  验证：同一张图三种映射落点不同；`depth=0` 等于没有纹理；`min_depth` 抬高最暗处；
-  `scale` 变小 → 平铺更密（同一行采样跳变次数变多）。
-- [x] **P0c 接线**（`tip.rs` / `mod.rs` / 预设 / 配置 / 选项栏）：`Tip.texture + angle + angle_mode`
-  → `Tip.grain: Option<Grain>`，`TexturePlacement` → `DabFrame`。
-  验证：**现有 texture / tip / brush / preset 测试全部不改行为地通过**（P0c 的硬要求）。
-- [x] **P0d 形状散布**（`mod.rs::paint_dabs`）：`count`(1..=16)、`scatter`（每图章随机
-  旋转 + 圆盘偏移，相对直径）、`jitter_x / jitter_y`（横向 / 线性抖动）。
-  验证：`count=4` 的覆盖像素数 > `count=1`；偏移不超出设定半径；同种子两次落笔像素完全一致。
-- [x] **P0e 预设 / 文档**：内置加「纹理化刷」（`CanvasLocked` + `depth 0.7`）和「干刷」
-  （`count 3` + 散布）；`presets.txt` 支持可选后缀 `| 深度 | 颗粒比例 | 映射`；
-  README 补"颗粒三态"和参数含义。
-- 验收（P0 整体）：`--selfcheck` 选「鬃刷」画一笔 → 多档深浅 + 毛束空隙，预设库里
-  毛笔 / 鬃刷 / 纹理化刷 / 干刷 / 草 都在；单测 4 条锁行为 ——
-  `a_bigger_grain_scale_is_what_breaks_the_repetition`（重复周期 = 颗粒比例 × 直径）、
-  `a_canvas_locked_grain_is_pinned_to_the_document`（钉画布的纹路随文档位置变、跟笔不随）、
-  `extra_stamps_scatter_around_the_path_without_leaving_it`（散布不出界）、
-  `the_same_seed_paints_exactly_the_same_scattered_stroke`（同种子同像素）。
-- [x] **修「慢速笔迹纹理不滚动」**（真 bug）：`paint_dabs` 的弧长累计只在**同一批
-  dab** 内做，慢速拖动时每个光标事件只有 1 个落笔点 -> 滚动量永远停在 0，整条笔迹
-  是同一小块纹理反复贴（看着"平滑、符合预期"）；快笔反而真的在滚（于是露出素材
-  本身的稀疏，看着"分散"）。现在上一落点跨事件保留（`last_dab`），回归测试
-  `a_slow_stroke_scrolls_the_grain_exactly_like_a_fast_one`。
-- [x] **自动预设改成"在留底色的前提下铺纹理"**：`深度 0.8 + 最小深度 0.3 + 对比 1.5`。
-  用户素材常是"一根笔触"（实测 `未命名.png`：1920×1080、均值 0.151、**79% 全透明**），
-  按纯颗粒铺会断成虚线；留 30% 底线就永远连续，纹理浮在上面。
-- 落地补记：`BrushTexture` 多了 `mean()`（颗粒的对比 / 亮度以素材均值为轴，偏白的图
-  才拉得开）；`presets.txt` 的可选后缀扩到 `| 深度 | 颗粒比例 | 个数 | 散布 | 对比`；
-  配置里多存 5 个颗粒键。实测（用户那张 1192×824 全不透明 PNG）：覆盖 324/324、
-  无空洞，单靠"均值" 229 偏淡 —— 所以自动预设默认 `对比 2.5`。
-
-**P1 锥度 / 掉落**（`stroke.rs` + `mod.rs`）：沿弧长（起 / 收，可调长度）的 size / opacity
-斜坡 + `掉落`（越画越淡）。验证：首尾 10% 的笔宽单调变化且中间不变。
-
-**P2 动态**（新 `tools/brush/dynamics.rs`）：`Control { source, amount, min, max }`，
-源 = 关 / 速度 / 方向 / 抖动 / 渐隐，驱动 size / opacity / spacing。压力源留接口
-（macOS 触控板没有压感，winit 不透传，需要原生 `NSEvent` 才能做）。
-
-**P3 湿混 / 涂抹**（新 `tools/brush/wet.rs`）：`BrushMode::Smudge` + `carry` 缓冲
-（拾取 / 攻击 / 拖长 / 模糊），要**每 dab 写回**的合成路径（与"每笔不透明度上限"冲突，
-按模式分支）。验证：在灰度渐变上涂抹 → 中心行单调性被破坏但均值守恒（能量不凭空增加）。
-
-**P4 区域描边**（新 `tools/brush/region.rs`）：把一笔的 coverage 当区域，做距离场，
-只有边缘带乘颗粒 —— 真正"一片区域描边"，不是每站重贴。
-
-**P5 ABR 导入**（新 `io/abr.rs`）：读 v6/v10 的采样笔尖 + `Nm/Dmtr/Spcn/Angl/Rndn`
-+ `szVr/opVr` 线性斜坡，映射成 `BrushPreset`。验证：用仓库里生成的两个 ABR 样本往返。
 
 ### 第 2 批：选区（绘画的"边界"）
 

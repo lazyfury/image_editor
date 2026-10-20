@@ -163,7 +163,7 @@ pub fn menu_content(
                         MenuAction::PasteAsLayer,
                     )
                     .disabled(!can_paste),
-                );
+                )
         }
         2 => {
             menu = menu

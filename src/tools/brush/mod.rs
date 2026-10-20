@@ -1,9 +1,9 @@
-//! 画笔 / 橡皮：同一个引擎，只有 [`BrushMode`] 不同（§11）。
+//! 画笔 / 橡皮：同一个引擎，只有 [`BrushMode`] 不同。
 //!
 //! 一次 stroke 的入口是 `on_pointer_down`，持续在 `on_pointer_move`，在
 //! `on_pointer_up` 结束。每次 move 只往当前图层的 `PixelBuffer` 写像素；
-//! 落笔时先快照整层，抬笔时用 [`PixelRegion::diff`] 抓出差异区域，
-//! 提交成**一条** [`PaintCommand`] —— 一笔 = 一步 undo。
+//! 落笔时先快照整层，抬笔时用这一笔的脏矩形抓出差异，提交成**一条**
+//! [`PaintCommand`] —— 一笔 = 一步 undo。
 //!
 //! 责任划分：
 //! - [`tip`]：笔尖几何（形状 / 直径 / 硬度 -> 一个 stamp 的覆盖率）。
@@ -14,11 +14,8 @@
 //!
 //! [`PixelRegion::diff`]: crate::document::PixelRegion::diff
 
-pub mod grain;
 pub mod mask;
 pub mod preset;
-pub mod rng;
-pub mod texture;
 pub mod tip;
 
 use std::rc::Rc;
@@ -30,12 +27,9 @@ use super::tool::{PointerEvent, Tool, ToolContext};
 use crate::canvas::Selection;
 use crate::document::{Color, Document, LayerId, PaintCommand, PixelBuffer, PixelRegion};
 
-pub use grain::{DabFrame, Grain, GrainMapping};
-pub use texture::BrushTextures;
 pub use tip::{BrushShape, Symmetry};
 
 use mask::{StrokeMask, Writer};
-use rng::Rng;
 use tip::Tip;
 
 /// 画笔模式。擦除复用同一套 stamp / 插值逻辑。
@@ -67,7 +61,7 @@ pub struct BrushTool {
     pub smooth: f32,
     pub color: Color,
     pub mode: BrushMode,
-    /// 可选选区：只有落在里面的像素会被写（Phase 8 / 12 的选区裁剪）。
+    /// 可选选区：只有落在里面的像素会被写（选区的裁剪 / 羽化）。
     /// 视图在落笔前从编辑器状态同步过来；`Rc` 共享，克隆便宜。
     pub clip: Option<Rc<Selection>>,
     /// 像素模式：边缘不做抗锯齿（`coverage` 只有 0 / 1）。
@@ -76,29 +70,8 @@ pub struct BrushTool {
     pub shape: BrushShape,
     /// 对称绘画（镜像轴 = 文档中线）。
     pub symmetry: Symmetry,
-    /// 颗粒（覆盖率蒙版 + 映射方式）：`None` = 纯程序化笔尖。
-    pub grain: Option<Grain>,
     /// 落笔间距相对直径的比例（默认 0.25）。
     pub spacing_ratio: f32,
-    /// 每个采样点压几个图章（1..=16，Procreate 的「个数」）。
-    pub count: u32,
-    /// 图章的随机偏移幅度（相对直径）：0 = 精确落在笔迹上。
-    pub scatter: f32,
-    /// 图章的随机旋转幅度（0..=1：1 = 0..360° 全随机，Procreate 的「散布」）。
-    pub scatter_rotation: f32,
-    /// 上一个 dab 的笔迹方向（`AngleMode::AlongStroke` 用；跨事件保留）。
-    /// `None` = 这一笔还没方向（起笔）。
-    last_dab_direction: Option<Vec2>,
-    /// 这一笔已经走过的距离（纹理沿笔迹滚动的滚动量）。
-    stroke_distance: f32,
-    /// 上一个**落笔点**（跨事件保留：慢速拖动一个事件只有一个 dab，弧长要接得上）。
-    last_dab: Option<Vec2>,
-    /// 这一笔的随机偏移（钉画布的颗粒用它错开两笔的纹路）。
-    stroke_offset: Vec2,
-    /// 这一笔的随机数发生器（`begin_stroke` 重新播种）。
-    rng: Rng,
-    /// 播种计数：每落一笔 +1，保证连画两笔的散布不一样、测试又能复现。
-    seed: u64,
     drawing: bool,
     /// 采样器状态：上一个 / 上上个光标点（见 [`stroke`]）。
     last: Option<Vec2>,
@@ -114,9 +87,6 @@ pub struct BrushTool {
     /// 当前笔触落笔时的图层快照；不在笔画中时为 `None`。
     pending: Option<PendingStroke>,
 }
-
-/// 一个采样点最多压几个图章（Procreate 的「个数」上限也是 16）。
-pub const MAX_STAMPS: u32 = 16;
 
 impl BrushTool {
     pub const MIN_SIZE: f32 = Tip::MIN_SIZE;
@@ -137,17 +107,7 @@ impl BrushTool {
             hard: true,
             shape: BrushShape::Square,
             symmetry: Symmetry::Off,
-            grain: None,
             spacing_ratio: 0.25,
-            count: 1,
-            scatter: 0.0,
-            scatter_rotation: 0.0,
-            last_dab_direction: None,
-            stroke_distance: 0.0,
-            last_dab: None,
-            stroke_offset: Vec2::new(0.0, 0.0),
-            rng: Rng::new(1),
-            seed: 1,
             drawing: false,
             last: None,
             previous: None,
@@ -195,7 +155,6 @@ impl BrushTool {
             hardness: self.hardness,
             shape: self.shape,
             hard: self.hard,
-            grain: self.grain.clone(),
             spacing_ratio: self.spacing_ratio,
         }
     }
@@ -246,8 +205,6 @@ impl BrushTool {
     /// 最多落后光标半个事件段，抬笔时由 [`Self::finish_stroke`] 补完。
     fn extend_path(&mut self, to: Vec2, out: &mut Vec<Vec2>) {
         let Some(last) = self.last else {
-            // 第一个点先**不压**：纹理笔尖要按笔迹方向铺，等第二个点到了才知道方向。
-            // （只点一下不拖的情况在 `finish_stroke` 里补一个 dab。）
             self.last = Some(to);
             return;
         };
@@ -262,8 +219,7 @@ impl BrushTool {
             stroke::midpoint(previous, last).lerp(last, ease)
         });
         if self.previous.is_none() {
-            // 起笔那个点现在才压（落笔时先不压，等方向确定）：`paint_dabs` 会用
-            // 「它 → 下一个采样点」的方向去铺纹理。
+            // 起笔那个点现在才压，这样第一个 dab 正好落在按下的位置。
             out.push(from);
         }
         let end = stroke::midpoint(last, to).lerp(to, ease);
@@ -278,86 +234,22 @@ impl BrushTool {
     /// 所以这里只走一遍采样点。
     fn paint_dabs(&mut self, document: &mut Document, dabs: &mut Vec<Vec2>) {
         let tip = self.tip();
-        let fixed_angle = self.grain.as_ref().map_or(0.0, |grain| grain.angle);
-        let count = self.count.clamp(1, MAX_STAMPS);
-        let scatter = self.scatter.clamp(0.0, 4.0);
-        let scatter_rotation = self.scatter_rotation.clamp(0.0, 1.0);
-        // 随机数要跨事件连续（散布不能每个光标事件都从同一个数开始）。
-        // 先换出来（`writer` 要独占 `self`），循环完再放回。
-        let mut rng = std::mem::replace(&mut self.rng, Rng::new(0));
-        let stroke_offset = self.stroke_offset;
-        let mut last_direction = self.last_dab_direction;
-        // 这一笔已经走过的距离（纹理「沿笔迹滚动」的滚动量），跨事件累积。
-        let mut distance = self.stroke_distance;
-        // 上一笔落点跨批次保留：慢速拖动时每个事件只有一个 dab，如果只在本批内
-        // 累计弧长，纹理的滚动量就永远停在 0（纹理不滚动，观感全错）。
-        let mut previous: Option<Vec2> = self.last_dab;
         // 1px 像素笔走 Bresenham：采样点之间可能斜向隔开，连线才不会断。
         let pixel_line = self.hard && self.size <= 1.0;
         let mut painted = self.painted;
         let Some(mut writer) = self.writer(document) else {
-            self.rng = rng;
             return;
         };
-        for (index, point) in dabs.iter().copied().enumerate() {
-            // 笔迹方向：「上一个 dab → 这个」；第一个 dab 没有上一个，就用
-            // 「这个 → 下一个」（lookahead），所以起笔的方向也是对的。
-            let delta = match previous {
-                Some(previous) => Some(point - previous),
-                None => dabs.get(index + 1).map(|next| *next - point),
-            };
-            if let Some(delta) = delta {
-                if delta.length() > 1e-4 {
-                    last_direction = Some(delta);
-                }
-                if let Some(previous) = previous {
-                    distance += (point - previous).length();
-                }
-            }
-            previous = Some(point);
-            let direction = last_direction.unwrap_or(Vec2::new(1.0, 0.0));
+        for point in dabs.iter().copied() {
             if pixel_line {
                 painted = stroke_pixels(&mut writer, painted, point);
-                // 散布对 1px 像素笔没意义（图章只有一个像素）。
-                continue;
-            }
-            let frame = DabFrame {
-                center: point,
-                size: tip.size,
-                angle: fixed_angle,
-                direction,
-                distance,
-                offset: stroke_offset,
-            };
-            // 第 0 个图章**精确落在笔迹上**，其余按「散布 / 个数」撒开：
-            // 这样加了散布的笔也始终是连续的一条，不会断成珠子。
-            tip.cover(frame, |x, y, coverage| writer.put(x, y, coverage));
-            for _ in 1..count {
-                let jitter = if scatter > 0.0 {
-                    rng.unit_disc() * (scatter * tip.size)
-                } else {
-                    Vec2::new(0.0, 0.0)
-                };
-                let spin = if scatter_rotation > 0.0 {
-                    rng.range(0.0, std::f32::consts::TAU * scatter_rotation)
-                } else {
-                    0.0
-                };
-                let extra = DabFrame {
-                    center: point + jitter,
-                    angle: fixed_angle + spin,
-                    ..frame
-                };
-                tip.cover(extra, |x, y, coverage| writer.put(x, y, coverage));
+            } else {
+                tip.cover(point, |x, y, coverage| writer.put(x, y, coverage));
             }
         }
         let dirty = writer.dirty();
-        // 先放掉 `writer`（它借着 `self`），再把随机数状态写回。
         drop(writer);
-        self.rng = rng;
         self.painted = painted;
-        self.last_dab_direction = last_direction;
-        self.stroke_distance = distance;
         if let Some(region) = dirty {
             self.stroke_dirty = Some(self.stroke_dirty.map_or(region, |old| old.union(region)));
             self.dirty_since_take = Some(
@@ -403,20 +295,6 @@ impl BrushTool {
         self.reset_sampling();
         self.stroke_dirty = None;
         self.dirty_since_take = None;
-        self.stroke_distance = 0.0;
-        self.last_dab = None;
-        self.last_dab_direction = None;
-        // 每笔重新播种：连画两笔的散布不同，但同一个种子画出来的像素完全一样（可测）。
-        self.seed = self
-            .seed
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1);
-        self.rng = Rng::new(self.seed);
-        self.stroke_offset = if self.grain.as_ref().is_some() {
-            Vec2::new(self.rng.unit() * 1024.0, self.rng.unit() * 1024.0)
-        } else {
-            Vec2::new(0.0, 0.0)
-        };
         if let Some(id) = ctx.document.active_layer().map(|layer| layer.id) {
             let (dx, dy) = ctx.document.ensure_layer_covers_document(id);
             ctx.history.translate_layer(id, dx, dy);
@@ -485,7 +363,6 @@ impl BrushTool {
         self.commit_stroke(ctx);
     }
 
-    /// 清掉一条笔触的采样状态。
     /// 清掉采样器状态（**不动** `stroke_dirty`：抬笔前还要用它提交撤销区域）。
     fn reset_sampling(&mut self) {
         self.last = None;

@@ -448,11 +448,22 @@ const SELECT_MENU: usize = 4;
 
 /// 打开「选择」菜单并按文字点里面的某一项。
 fn pick_select_menu(view: &mut EditorView, label: &str, failures: &mut Vec<String>) -> bool {
-    let Some(title) = view.menu_center(SELECT_MENU) else {
-        failures.push("找不到「选择」菜单标题".to_string());
+    pick_menu(view, SELECT_MENU, "选择", label, failures)
+}
+
+/// 点开第 `index` 个菜单，再点里面 `label` 这一项。
+fn pick_menu(
+    view: &mut EditorView,
+    index: usize,
+    title: &str,
+    label: &str,
+    failures: &mut Vec<String>,
+) -> bool {
+    let Some(title_center) = view.menu_center(index) else {
+        failures.push(format!("找不到「{title}」菜单标题"));
         return false;
     };
-    click_at(view, title);
+    click_at(view, title_center);
     view.update();
     view.layout(viewport());
     let frame = paint_frame(view);
@@ -463,7 +474,7 @@ fn pick_select_menu(view: &mut EditorView, label: &str, failures: &mut Vec<Strin
             true
         }
         None => {
-            failures.push(format!("「选择」菜单里找不到「{label}」"));
+            failures.push(format!("「{title}」菜单里找不到「{label}」"));
             false
         }
     }
@@ -615,108 +626,6 @@ fn check_symmetry(failures: &mut Vec<String>) {
         .unwrap_or(Color::TRANSPARENT);
     if mirrored != Color::BLACK {
         failures.push(format!("垂直对称的镜像位置没有落笔：{mirrored:?}"));
-    }
-}
-
-/// 纹理笔（鬃刷）：预设菜单里选「鬃刷」，画一笔应有明显深浅和空隙。
-fn check_textured_brush(failures: &mut Vec<String>) {
-    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
-    let presets = view.brush_preset_names();
-    // 颗粒三态 + 散布各自都有代表预设。
-    for expected in ["毛笔", "鬃刷", "纹理化刷", "干刷", "草"] {
-        if !presets.iter().any(|name| name == expected) {
-            failures.push(format!("预设库应含「{expected}」：{presets:?}"));
-        }
-    }
-    let tips = view.brush_tip_names();
-    if !tips.iter().any(|tip| tip == "ink") || !tips.iter().any(|tip| tip == "bristle") {
-        failures.push(format!("assets/brushes 里应有 ink / bristle：{tips:?}"));
-    }
-    view.layout(viewport());
-    view.event(&InputEvent::KeyDown {
-        key: Key::Character('b'),
-    });
-    view.update();
-    view.layout(viewport());
-
-    // 打开预设下拉，点「毛笔」。
-    let Some(anchor) = view.brush_preset_center() else {
-        failures.push("找不到选项栏的「预设」按钮".to_string());
-        return;
-    };
-    click_at(&mut view, anchor);
-    view.update();
-    view.layout(viewport());
-    let frame = paint_frame(&view);
-    match text_center(&frame, "鬃刷") {
-        Some(item) => {
-            click_at(&mut view, item);
-            view.update();
-        }
-        None => {
-            failures.push("预设下拉里没有「鬃刷」".to_string());
-            return;
-        }
-    }
-    view.layout(viewport());
-    if !contains(&paint_frame(&view), "128×128 笔尖") {
-        failures.push("选项栏没报告鬃刷的笔尖纹理".to_string());
-    }
-    // 点菜单项时松手可能又落回选项栏把下拉点开：先关掉所有浮层再画。
-    for _ in 0..2 {
-        view.event(&InputEvent::KeyDown { key: Key::Escape });
-        view.update();
-    }
-
-    // 画一小段：笔尖纹理应该带来多档深浅 + 没压到的空隙。
-    let camera = view.canvas_camera();
-    let from = camera.document_to_screen(Vec2::new(40.0, 64.0));
-    let to = camera.document_to_screen(Vec2::new(88.0, 64.0));
-    for event in [
-        InputEvent::PointerDown {
-            position: from,
-            button: PointerButton::Left,
-        },
-        InputEvent::PointerMove { position: to },
-        InputEvent::PointerUp {
-            position: to,
-            button: PointerButton::Left,
-        },
-    ] {
-        view.event(&event);
-    }
-    view.update();
-
-    let snapshot = view.document_snapshot();
-    let Some(layer) = snapshot.active_layer() else {
-        failures.push("没有活动图层".to_string());
-        return;
-    };
-    // 画在白色背景层上：用「红通道」当深浅（255 = 没压到）。
-    let mut shades = std::collections::BTreeSet::new();
-    let mut holes = 0;
-    let mut painted = 0;
-    for y in 44..84 {
-        for x in 40..88 {
-            let red = layer.pixels.get_pixel(x, y).r;
-            if red == 255 {
-                holes += 1;
-            } else {
-                painted += 1;
-                shades.insert(red);
-            }
-        }
-    }
-    if painted == 0 {
-        failures.push("鬃刷没有画出任何像素".to_string());
-    } else if shades.len() < 8 {
-        failures.push(format!(
-            "鬃刷笔尖纹理没有生效：只有 {} 档深浅",
-            shades.len()
-        ));
-    }
-    if holes == 0 {
-        failures.push("鬃刷笔尖应该有没压到的空隙（毛束之间）".to_string());
     }
 }
 
@@ -1331,7 +1240,6 @@ pub fn check() -> (usize, String) {
     }
     check_pixel_mode_edges(&mut failures);
     check_brush_presets(&mut failures);
-    check_textured_brush(&mut failures);
     check_pen(&mut failures);
     check_brush_cursor(&mut failures);
     check_brush_smooth(&mut failures);

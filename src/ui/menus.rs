@@ -66,8 +66,8 @@ impl EditorView {
         self.open_tool_group.set(None);
         let theme = self.theme;
         let request = self.brush_preset_request.clone();
-        let current = self.presets.matching(&self.brush, &self.brush_textures);
-        let presets = self.presets.all().to_vec();
+        let presets = crate::tools::brush::preset::PRESETS;
+        let current = crate::tools::brush::preset::matching(presets, &self.brush);
         self.overlays.menu(anchor, move |tree, root| {
             let mut menu = Menu::new(theme);
             for (index, item) in presets.iter().enumerate() {

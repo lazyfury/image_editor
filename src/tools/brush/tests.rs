@@ -1,7 +1,5 @@
-//! 画笔 / 橡皮的单元测试（从 `mod.rs` 拆出来：那边只留实现）。
-//!
-//! 这里的每一条都对应一条规则：采样密度、像素完美连线、选区裁剪、每笔不透明度
-//! 上限、脏矩形、撤销区域、对称镜像、颗粒映射与散布。
+//! 画笔测试：几何（硬边 / 软边 / 像素吸附）、笔触采样（等距、平滑、事件率无关）、
+//! 合成（每笔不透明度上限、脏矩形、撤销区域、对称镜像）、预设与 undo。
 
 use super::*;
 use crate::document::{History, PixelRegion};
@@ -112,211 +110,6 @@ fn the_soft_brush_keeps_anti_aliased_edges() {
 /// 一条横笔的 alpha 行（用来比较纹理的周期性）。
 fn alpha_row(document: &Document, y: u32, from: u32, to: u32) -> Vec<u8> {
     (from..to).map(|x| at(document, x, y).a).collect()
-}
-
-/// 周期 `period` 上有多相似（1 = 完全一样）。
-fn periodicity(row: &[u8], period: usize) -> f32 {
-    if row.len() <= period {
-        return 0.0;
-    }
-    let mut same = 0.0;
-    let mut count = 0.0;
-    for x in 0..row.len() - period {
-        let delta = (f32::from(row[x]) - f32::from(row[x + period])).abs();
-        same += 1.0 - delta / 255.0;
-        count += 1.0;
-    }
-    if count == 0.0 {
-        0.0
-    } else {
-        same / count
-    }
-}
-
-/// 用给定映射 + 颗粒比例画一条横笔，返回中心行的 alpha。
-fn stroke_row(mapping: GrainMapping, size: f32, scale: f32) -> Vec<u8> {
-    let textures = crate::tools::BrushTextures::default();
-    let mut document = Document::with_background("d", 240, 96, Color::TRANSPARENT);
-    let mut brush = BrushTool::paint().with_color(Color::BLACK);
-    brush.size = size;
-    brush.hard = false;
-    brush.hardness = 1.0;
-    brush.shape = BrushShape::Round;
-    brush.spacing_ratio = 0.08;
-    brush.grain = textures
-        .get("ink")
-        .map(|texture| Grain::new(texture).with_mapping(mapping).with_scale(scale));
-    assert!(brush.grain.is_some(), "应该加载到 ink.png");
-    stroke(
-        &mut brush,
-        &mut document,
-        &[Vec2::new(20.0, 48.0), Vec2::new(220.0, 48.0)],
-    );
-    alpha_row(&document, 48, 20, 220)
-}
-
-#[test]
-fn a_bigger_grain_scale_is_what_breaks_the_repetition() {
-    // 纹理的重复周期 = `颗粒比例 × 直径`（两种映射都一样）。所以"一整片区域不重复"
-    // 靠的是把比例调大：跟笔的默认比例 1 = 每个直径重复一次（毛刷要的就是它）。
-    let size = 40.0;
-    let tight = stroke_row(GrainMapping::Dragged, size, 1.0);
-    let loose = stroke_row(GrainMapping::CanvasLocked, size, 8.0);
-    let period = size as usize;
-    let repeated = periodicity(&tight, period);
-    let not_repeated = periodicity(&loose, period);
-    assert!(repeated > 0.9, "比例 1 应该每个直径重复一次：{repeated}");
-    assert!(
-        not_repeated < repeated - 0.2,
-        "比例 8 的纹理不该按直径重复：{not_repeated} vs {repeated}"
-    );
-}
-
-#[test]
-fn a_canvas_locked_grain_is_pinned_to_the_document() {
-    // 钉画布：纹理坐标来自文档坐标，所以往旁边挪 3px 再画，纹路跟着挪
-    // （跟笔的纹路只跟弧长走，横向挪动纹路不变）。
-    let row_at = |mapping: GrainMapping, y: f32| {
-        let textures = crate::tools::BrushTextures::default();
-        let mut document = Document::with_background("d", 160, 120, Color::TRANSPARENT);
-        let mut brush = BrushTool::paint().with_color(Color::BLACK);
-        brush.size = 40.0;
-        brush.hard = false;
-        brush.hardness = 1.0;
-        brush.spacing_ratio = 0.08;
-        brush.grain = textures
-            .get("ink")
-            .map(|texture| Grain::new(texture).with_mapping(mapping));
-        stroke(
-            &mut brush,
-            &mut document,
-            &[Vec2::new(20.0, y), Vec2::new(140.0, y)],
-        );
-        alpha_row(&document, y as u32, 20, 140)
-    };
-    let dragged_a = row_at(GrainMapping::Dragged, 40.0);
-    let dragged_b = row_at(GrainMapping::Dragged, 43.0);
-    let locked_a = row_at(GrainMapping::CanvasLocked, 40.0);
-    let locked_b = row_at(GrainMapping::CanvasLocked, 43.0);
-    assert!(
-        periodicity(&dragged_a, 1) > 0.0,
-        "两条笔迹都应该画出来（前提检查）"
-    );
-    let same = |a: &[u8], b: &[u8]| {
-        a.len() == b.len()
-            && a.iter()
-                .zip(b)
-                .all(|(x, y)| (*x as i32 - *y as i32).abs() <= 2)
-    };
-    assert!(same(&dragged_a, &dragged_b), "跟笔的纹路与横向位置无关");
-    assert!(!same(&locked_a, &locked_b), "钉画布的纹路要随文档位置变");
-}
-
-#[test]
-fn extra_stamps_scatter_around_the_path_without_leaving_it() {
-    // 「个数 + 散布」：多出来的图章撒在笔迹两侧，但不该跑出 散布 × 直径 之外。
-    let mut document = Document::with_background("d", 200, 120, Color::TRANSPARENT);
-    let mut brush = BrushTool::paint().with_color(Color::BLACK);
-    brush.size = 20.0;
-    brush.hard = false;
-    brush.hardness = 1.0;
-    brush.shape = BrushShape::Round;
-    brush.count = 6;
-    brush.scatter = 0.5;
-    brush.scatter_rotation = 1.0;
-    brush.opacity = 0.2;
-    stroke(
-        &mut brush,
-        &mut document,
-        &[Vec2::new(40.0, 60.0), Vec2::new(160.0, 60.0)],
-    );
-    let pixels = &document.active_layer().unwrap().pixels;
-    let mut above = 0;
-    let mut below = 0;
-    let mut stray = 0;
-    for y in 0..pixels.height {
-        for x in 0..pixels.width {
-            if at(&document, x, y).a == 0 {
-                continue;
-            }
-            let offset = y as f32 - 60.0;
-            if offset > 1.0 {
-                above += 1;
-            } else if offset < -1.0 {
-                below += 1;
-            }
-            // 散布 0.5 × 直径 20 = 10px，再加半个笔尖 = 20px。
-            if offset.abs() > brush.size * 0.5 + brush.scatter * brush.size + 1.0 {
-                stray += 1;
-            }
-        }
-    }
-    assert!(above > 0 && below > 0, "散布应该撒到笔迹两侧");
-    assert_eq!(stray, 0, "散布飞出范围了：{stray} 个像素");
-    let _ = (above, below);
-}
-
-#[test]
-fn the_same_seed_paints_exactly_the_same_scattered_stroke() {
-    // 散布靠随机数，但同种子必须同像素（不然测试没法断言，用户也没法复现）。
-    let render = || {
-        let mut document = Document::with_background("d", 120, 80, Color::TRANSPARENT);
-        let mut brush = BrushTool::paint().with_color(Color::BLACK);
-        brush.size = 12.0;
-        brush.hard = false;
-        brush.count = 4;
-        brush.scatter = 0.6;
-        brush.scatter_rotation = 1.0;
-        stroke(
-            &mut brush,
-            &mut document,
-            &[Vec2::new(20.0, 40.0), Vec2::new(100.0, 40.0)],
-        );
-        painted(&document)
-    };
-    assert_eq!(render(), render(), "同种子的两笔应该完全一样");
-}
-
-#[test]
-fn a_textured_brush_leaves_a_non_uniform_impression() {
-    // 毛笔预设的笔尖纹理有毛束 / 湿边：同一笔里应该有明显深浅，还有「没压到」的
-    // 空隙（纯程序化笔尖只会有中心深、边缘一圈渐变）。
-    let mut document = Document::with_background("d", 160, 96, Color::TRANSPARENT);
-    let textures = crate::tools::BrushTextures::default();
-    let mut brush = BrushTool::paint().with_color(Color::BLACK);
-    brush.size = 48.0;
-    brush.hard = false;
-    brush.hardness = 1.0;
-    brush.shape = BrushShape::Round;
-    brush.grain = textures
-        .get("ink")
-        .map(|texture| Grain::new(texture).with_mapping(GrainMapping::Dragged));
-    brush.spacing_ratio = 0.12;
-    assert!(brush.grain.is_some(), "应该加载到 ink.png");
-    stroke(
-        &mut brush,
-        &mut document,
-        &[Vec2::new(40.0, 48.0), Vec2::new(120.0, 48.0)],
-    );
-
-    let mut alphas = std::collections::BTreeSet::new();
-    let mut holes = 0;
-    for y in 20..76 {
-        for x in 30..130 {
-            let alpha = at(&document, x, y).a;
-            if alpha > 0 {
-                alphas.insert(alpha);
-            } else if (x as i32 - 80).abs() < 20 {
-                holes += 1;
-            }
-        }
-    }
-    assert!(
-        alphas.len() >= 8,
-        "纹理笔应该画出多档深浅，实际 {} 档",
-        alphas.len()
-    );
-    assert!(holes > 20, "笔尖纹理里应该有没压到的空隙，实际 {holes}");
 }
 
 #[test]
@@ -794,25 +587,6 @@ fn a_clip_region_confines_the_stroke() {
 }
 
 #[test]
-#[ignore = "perf probe: --ignored --nocapture"]
-fn probe_stroke_cost() {
-    use std::time::Instant;
-    let mut document = Document::new("d", 800, 600);
-    let mut brush = BrushTool::paint().with_color(Color::RED);
-    let n = 200;
-    let timer = Instant::now();
-    for _ in 0..n {
-        stroke(
-            &mut brush,
-            &mut document,
-            &[Vec2::new(100.0, 100.0), Vec2::new(700.0, 500.0)],
-        );
-    }
-    let ms = timer.elapsed().as_secs_f64() / n as f64 * 1000.0;
-    eprintln!("stroke (600px, size 1) {ms:.3} ms");
-}
-
-#[test]
 fn a_full_stroke_begin_to_end_toggles_drawing() {
     let mut document = document();
     let mut history = History::new();
@@ -891,4 +665,36 @@ fn a_stroke_with_no_pixel_change_pushes_no_command() {
         left(Vec2::new(-100.0, -100.0)),
     );
     assert!(!history.can_undo());
+}
+
+/// 预设闸门：内置预设画出来必须是**连续**的一条笔迹（不能是一串点）。
+///
+/// 半透明的「喷枪」不在规则内（它本来就淡、也不该被切成点以外的东西），
+/// 判据只看中心行有没有 alpha == 0 的空洞。
+#[test]
+fn every_opaque_preset_paints_an_unbroken_stroke() {
+    let mut broken = Vec::new();
+    for preset in crate::tools::brush::preset::PRESETS {
+        if preset.opacity < 0.99 {
+            continue;
+        }
+        let mut document = Document::with_background("d", 320, 96, Color::TRANSPARENT);
+        let mut brush = BrushTool::paint().with_color(Color::BLACK);
+        preset.apply(&mut brush);
+        stroke(
+            &mut brush,
+            &mut document,
+            &[Vec2::new(24.0, 48.0), Vec2::new(296.0, 48.0)],
+        );
+        let row = alpha_row(&document, 48, 24, 296);
+        let longest = row
+            .split(|alpha| *alpha != 0)
+            .map(<[u8]>::len)
+            .max()
+            .unwrap_or(0);
+        if longest > 1 {
+            broken.push(format!("{}: 最长空洞 {longest}px", preset.name));
+        }
+    }
+    assert!(broken.is_empty(), "笔迹被切断：\n{}", broken.join("\n"));
 }

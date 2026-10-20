@@ -331,21 +331,7 @@ impl EditorView {
 
     /// 选项栏显示的笔刷预设名（命中不到预设时是「自定义」）。
     pub fn brush_preset_label(&self) -> String {
-        self.presets.label(&self.brush, &self.brush_textures)
-    }
-
-    /// 预设库里的名字（自检核对用户预设有没有加载进来）。
-    pub fn brush_preset_names(&self) -> Vec<String> {
-        self.presets
-            .all()
-            .iter()
-            .map(|preset| preset.name.to_string())
-            .collect()
-    }
-
-    /// 加载到的笔尖素材名（自检核对素材目录找得到）。
-    pub fn brush_tip_names(&self) -> Vec<String> {
-        self.brush_textures.names()
+        crate::tools::brush::preset::label(crate::tools::brush::preset::PRESETS, &self.brush)
     }
 
     /// 画笔当前的硬边状态（像素模式同步后的结果）。

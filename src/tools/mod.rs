@@ -15,7 +15,7 @@ mod shape_fill;
 mod stroke;
 mod tool;
 
-pub use brush::{BrushMode, BrushShape, BrushTextures, BrushTool, Symmetry};
+pub use brush::{BrushMode, BrushShape, BrushTool, Symmetry};
 pub use clipboard::PixelClipboard;
 pub use fill::{fill_selection, magic_wand_region, PaintBucketTool};
 pub use gradient::{GradientKind, GradientTool};

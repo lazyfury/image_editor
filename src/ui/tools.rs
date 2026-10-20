@@ -559,22 +559,13 @@ impl EditorView {
     /// 选项栏的「像素 / 方形」开关是**显示源**，`update` 每帧把它们写进画笔，
     /// 所以预设改了这两项之后必须回写共享状态，否则下一帧就被覆盖回去。
     pub(super) fn apply_brush_preset(&mut self, index: usize) {
-        let Some(preset) = self.presets.get(index) else {
+        let Some(preset) = crate::tools::brush::preset::PRESETS.get(index) else {
             return;
         };
-        preset.apply(&mut self.brush, &self.brush_textures);
+        preset.apply(&mut self.brush);
         self.pixel_mode.set(self.brush.hard);
         self.square_mode.set(self.brush.shape == BrushShape::Square);
-        let tip = self
-            .brush
-            .grain
-            .as_ref()
-            .map(|grain| {
-                let (width, height) = grain.texture().size();
-                format!(" · {width}×{height} 笔尖")
-            })
-            .unwrap_or_default();
-        *self.message.borrow_mut() = Some(format!("笔刷预设 {}{tip}", preset.name));
+        *self.message.borrow_mut() = Some(format!("笔刷预设 {}", preset.name));
     }
 
     /// 油漆桶选项栏的「容差 −/+」。

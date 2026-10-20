@@ -1,7 +1,0 @@
-笔尖素材（ink.png / bristle.png / grass.png）
-
-由本仓库的 `examples/gen_brushes.rs` 用确定性伪随机程序生成
-（`cargo run --example gen_brushes` 可重新生成，产物逐字节一致）。
-
-以 CC0 1.0（公共领域贡献）发布：可自由使用、修改、再分发。
-它们只是覆盖率蒙版（RGB 全白 + alpha 表示厚薄），颜色由使用时的前景色决定。
