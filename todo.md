@@ -229,8 +229,15 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   内容就去 `read_image` 要一张 PNG（`NSPasteboardTypePNG`），外来图片放选区左上角 /
   文档左上角（`foreign_origin`）。Cargo 加了 `NSPasteboard` / `NSData` feature。
   其它平台是空实现（写返回 `Invalid`、读 `None`）。
-- 已知：只认 PNG（系统剪贴板里只有 TIFF 的 App 读不到，要再补 `CGImageSource`）；
-  内存剪贴板和系统剪贴板是两份（复制会同时写，粘贴优先用内存里的）。
+- [x] **TIFF 兜底**：`read_image` 先取 `public.png`（项目自己的解码器），没有再取
+  `public.tiff` 交给 AppKit 的 `NSBitmapImageRep` 解出来、重新编码成 PNG 走同一条
+  解码路径（`decode_pasteboard_image`）。Cargo 加了 `NSBitmapImageRep` +
+  `NSImageRep` feature（类型要求两个 feature 同时开）。
+  测试：`a_tiff_only_clipboard_image_is_decoded` —— 用 AppKit 把 PNG 转成 TIFF
+  造数据，只喂 TIFF 也能读出正确的像素。
+- 已知：只问 PNG / TIFF 两种类型（JPEG / GIF only 的 App 读不到，要的话按
+  `pasteboard.types()` 遍历 + `NSBitmapImageRep` 逐个试）；内存剪贴板和系统剪贴板
+  是两份（复制会同时写，粘贴优先用内存里的）。
 
 ## 3. 紧接着
 

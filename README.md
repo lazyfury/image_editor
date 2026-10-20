@@ -148,7 +148,8 @@ cargo run -- --pixel-font
   （`tools/clipboard.rs` 的 `PixelClipboard`：按选区包围盒抓一块像素、alpha 已乘
   覆盖率，贴回原位置并按当前选区裁剪；每次操作一步 undo，宿主跨工作区共享一块
   进程内剪贴板；macOS 上复制还会写一份 PNG 到**系统剪贴板**，进程内没有内容时粘贴会
-  去系统剪贴板找一张图，放在选区左上角 / 文档左上角），
+  去系统剪贴板找一张图（先 PNG、再 TIFF —— TIFF 交给 AppKit 的
+  `NSBitmapImageRep` 转成 PNG 再解码），放在选区左上角 / 文档左上角），
   画笔落笔按选区裁剪，
   选中时画一圈黑白相间的「马赛克线段」描边（`ui/selection.rs`，亮底 / 暗底都
   看得见），Esc 清空；「选择」菜单里「全选」/「反选」/「羽化」分别走 `Selection::all` /

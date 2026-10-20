@@ -26,8 +26,12 @@ pub fn read_image() -> Option<PixelBuffer> {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use objc2_app_kit::{NSPasteboard, NSPasteboardTypePNG};
-    use objc2_foundation::NSData;
+    use objc2::AnyThread;
+    use objc2_app_kit::{
+        NSBitmapImageFileType, NSBitmapImageRep, NSPasteboard, NSPasteboardTypePNG,
+        NSPasteboardTypeTIFF,
+    };
+    use objc2_foundation::{NSData, NSDictionary};
 
     use super::{IoError, PixelBuffer};
     use crate::io::{decode_png, encode_png};
@@ -49,15 +53,65 @@ mod platform {
     pub(super) fn read_image() -> Option<PixelBuffer> {
         let pasteboard = NSPasteboard::generalPasteboard();
         // SAFETY: 同上，静态 UTI 常量。
-        let data = pasteboard.dataForType(unsafe { NSPasteboardTypePNG })?;
-        let bytes = data.to_vec();
-        decode_png(&bytes).ok()
+        let png = pasteboard.dataForType(unsafe { NSPasteboardTypePNG });
+        let tiff = pasteboard.dataForType(unsafe { NSPasteboardTypeTIFF });
+        decode_pasteboard_image(png.as_deref(), tiff.as_deref())
+    }
+
+    /// 先试 PNG（直接解码），再试 TIFF —— 不少 App 只往剪贴板放 TIFF。
+    ///
+    /// TIFF 交给 AppKit 的 `NSBitmapImageRep` 解出来再重新编码成 PNG，这样整个
+    /// 项目只维护 `png` 一条解码路径（也顺带兼容 AppKit 认识的其它格式）。
+    fn decode_pasteboard_image(png: Option<&NSData>, tiff: Option<&NSData>) -> Option<PixelBuffer> {
+        if let Some(png) = png {
+            if let Ok(pixels) = decode_png(&png.to_vec()) {
+                return Some(pixels);
+            }
+        }
+        let tiff = tiff?;
+        let png = tiff_to_png(tiff)?;
+        decode_png(&png).ok()
+    }
+
+    /// AppKit 解码图片数据（TIFF / PNG / …）再编码成 PNG 字节。
+    fn tiff_to_png(data: &NSData) -> Option<Vec<u8>> {
+        let rep = NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(), data)?;
+        let properties =
+            NSDictionary::<objc2_foundation::NSString, objc2::runtime::AnyObject>::new();
+        // SAFETY: 传的是 AppKit 自己支持的 PNG 类型，属性字典是空的。
+        let png = unsafe {
+            rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
+        }?;
+        Some(png.to_vec())
     }
 
     #[cfg(test)]
     mod tests {
         use super::*;
         use crate::document::{Color, PixelBuffer};
+
+        /// 只有 TIFF 的剪贴板内容也要能读出来（用 AppKit 把 PNG 转成 TIFF 造数据）。
+        #[test]
+        fn a_tiff_only_clipboard_image_is_decoded() {
+            let mut pixels = PixelBuffer::filled(5, 4, Color::RED);
+            pixels.set_pixel(2, 1, Color::rgb(0, 0, 255));
+            let png = encode_png(&pixels).expect("编码 PNG");
+            let png_data = NSData::with_bytes(&png);
+            let rep =
+                NSBitmapImageRep::initWithData(NSBitmapImageRep::alloc(), &png_data).expect("解码");
+            let properties =
+                NSDictionary::<objc2_foundation::NSString, objc2::runtime::AnyObject>::new();
+            let tiff = unsafe {
+                rep.representationUsingType_properties(NSBitmapImageFileType::TIFF, &properties)
+            }
+            .expect("编码 TIFF");
+
+            // 只给 TIFF（PNG 缺失），走兜底路径。
+            let decoded = decode_pasteboard_image(None, Some(&tiff)).expect("TIFF 应该能读");
+            assert_eq!((decoded.width, decoded.height), (5, 4));
+            assert_eq!(decoded.get_pixel(2, 1), Color::rgb(0, 0, 255));
+            assert_eq!(decoded.get_pixel(0, 0), Color::RED);
+        }
 
         /// 手动跑：`cargo test -- --ignored clipboard_round_trip`。
         /// 它会**覆盖**系统剪贴板，所以默认不跑。
