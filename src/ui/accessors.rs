@@ -234,6 +234,26 @@ impl EditorView {
         self.brush.size
     }
 
+    /// 当前笔刷硬度（0..=1）。
+    pub fn brush_hardness(&self) -> f32 {
+        self.brush.hardness
+    }
+
+    /// 当前笔刷不透明度（0..=1）。
+    pub fn brush_opacity(&self) -> f32 {
+        self.brush.opacity
+    }
+
+    /// 选项栏「预设」触发按钮的中心点（测试与自检点击用）。
+    pub fn brush_preset_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.options_preset).map(|control| control.rect.center())
+    }
+
+    /// 选项栏显示的笔刷预设名（命中不到预设时是「自定义」）。
+    pub fn brush_preset_label(&self) -> String {
+        crate::tools::brush::preset::label(&self.brush).to_string()
+    }
+
     /// 画笔当前的硬边状态（像素模式同步后的结果）。
     pub fn brush_hard(&self) -> bool {
         self.brush.hard

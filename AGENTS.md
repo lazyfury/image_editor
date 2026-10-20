@@ -30,9 +30,12 @@ src/ui/         views + project-local components: home (recent gallery),
                 tree.rs (panels + scene tree), assemble.rs (NodeRef -> EditorView).
 src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + commands
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
-src/tools/      Brush/Eraser, Move, Paint-bucket flood fill, Magic wand
-                (tolerance region -> selection), Gradient (multi-stop ramp),
-                Rectangle/Free fill
+src/tools/      Brush/Eraser (in `brush/`: mod = tool + stroke, tip = brush-tip
+                geometry/hardness, mask = per-stroke coverage mask + compositing,
+                preset = named parameter sets), Move, Paint-bucket flood fill,
+                Magic wand (tolerance region -> selection), Gradient (multi-stop
+                ramp), Rectangle/Free fill; `stroke.rs` = smoothing + fixed-distance
+                sampling
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
                 Selection (pixel mask + outline: rect / lasso)
 src/io/         PNG encode/decode + `.igui` workspace files + recent list +

@@ -3,8 +3,10 @@
 //! `update` 轮询这里的请求（[`EditorView::open_menu`] / `poll_long_press`），
 //! `event` 命中标题时调 [`EditorView::menu_index_at`]。
 
-use igui_components::Placement;
-use igui_core::Vec2;
+use igui_components::{Component, Menu, MenuItem, Placement};
+use igui_core::{NodeId, Vec2};
+
+use crate::tools::brush::preset;
 
 use super::*;
 
@@ -52,6 +54,32 @@ impl EditorView {
             );
         });
         self.open_menu.set(Some(index));
+    }
+
+    /// 打开选项栏的笔刷预设下拉（锚在「预设」触发按钮下）。
+    ///
+    /// 当前参数命中的预设前面打「✓」；选中只写请求格，`update` 应用并关闭下拉
+    /// （和菜单栏一个套路）。
+    pub(super) fn open_brush_presets(&mut self, anchor: NodeId) {
+        self.overlays.close_all();
+        self.open_menu.set(None);
+        self.open_tool_group.set(None);
+        let theme = self.theme;
+        let request = self.brush_preset_request.clone();
+        let current = preset::matching(&self.brush);
+        self.overlays.menu(anchor, move |tree, root| {
+            let mut menu = Menu::new(theme);
+            for (index, item) in preset::PRESETS.iter().enumerate() {
+                let request = request.clone();
+                let checked = if current == Some(index) { "✓" } else { " " };
+                menu = menu.item(
+                    MenuItem::new(format!("{checked} {}", item.name), theme)
+                        .shortcut(format!("{:.0}px · {:.0}%", item.size, item.opacity * 100.0))
+                        .on_click(move |_tree, _id| request.set(Some(index))),
+                );
+            }
+            menu.build(tree, root);
+        });
     }
 
     /// 长按到阈值就展开对应组的工具浮层。

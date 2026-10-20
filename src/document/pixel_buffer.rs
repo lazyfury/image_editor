@@ -141,6 +141,30 @@ impl PixelBuffer {
         self.set_pixel(x, y, dst.with_alpha(a));
     }
 
+    /// 以 `base` 为底色，把 `source` 按 `alpha` source-over 合成到 `(x, y)`。
+    ///
+    /// 和 [`Self::blend_pixel`] 的区别是**底**由调用方提供：画笔按「这一笔的
+    /// 覆盖率」反复重算同一个像素时，始终从落笔前的快照出发，所以不会越叠
+    /// 越深。越界是 no-op。
+    pub fn blend_from(&mut self, x: u32, y: u32, base: Color, source: Color, alpha: f32) {
+        let Some(index) = self.index(x, y) else {
+            return;
+        };
+        let mut dst = base.to_rgba8();
+        blend_over(&mut dst, &source.to_rgba8(), alpha);
+        self.data[index..index + 4].copy_from_slice(&dst);
+    }
+
+    /// 以 `base` 为起点按 `alpha` 降低不透明度（\[`Self::blend_from`\] 的橡皮版）。
+    pub fn erase_from(&mut self, x: u32, y: u32, base: Color, alpha: f32) {
+        let t = alpha.clamp(0.0, 1.0);
+        if t <= 0.0 {
+            return;
+        }
+        let a = (base.a as f32 * (1.0 - t)).round() as u8;
+        self.set_pixel(x, y, base.with_alpha(a));
+    }
+
     /// 把所有像素刷成 `color`。
     pub fn clear(&mut self, color: Color) {
         let rgba = color.to_rgba8();
@@ -371,5 +395,30 @@ mod tests {
         buffer.erase_pixel(9, 9, 1.0);
         // 没 panic，也没动到边界内。
         assert_eq!(buffer.get_pixel(0, 0), Color::TRANSPARENT);
+    }
+
+    #[test]
+    fn blend_from_always_recomposes_the_same_base() {
+        // 一笔里同一个像素被压多次：每次都从落笔前的白色重算，所以 50% 还是 50%，
+        // 不会因为压了两次就变成 75%。
+        let base = Color::WHITE;
+        let mut buffer = PixelBuffer::filled(1, 1, base);
+        for _ in 0..4 {
+            buffer.blend_from(0, 0, base, Color::BLACK, 0.5);
+        }
+        let color = buffer.get_pixel(0, 0);
+        assert!((color.r as i32 - 128).abs() <= 1, "r = {}", color.r);
+    }
+
+    #[test]
+    fn erase_from_always_recomposes_the_same_base() {
+        let base = Color::RED;
+        let mut buffer = PixelBuffer::filled(1, 1, base);
+        for _ in 0..4 {
+            buffer.erase_from(0, 0, base, 0.5);
+        }
+        let color = buffer.get_pixel(0, 0);
+        assert_eq!((color.r, color.g, color.b), (255, 0, 0), "RGB 不变");
+        assert!((color.a as i32 - 128).abs() <= 1, "a = {}", color.a);
     }
 }

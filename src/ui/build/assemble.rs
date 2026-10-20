@@ -29,6 +29,7 @@ pub(super) fn finish(
         rename_request,
         history_count,
         brush_request,
+        brush_preset_open,
         pixel_mode,
         square_mode,
         bucket_request,
@@ -145,12 +146,20 @@ pub(super) fn finish(
         options_tool: options.tool.get().expect("options tool mounted"),
         options_brush: options.brush.get().expect("options brush mounted"),
         options_size: options.size.get().expect("options size mounted"),
+        options_hardness: options.hardness.get().expect("options hardness mounted"),
+        options_preset: options
+            .preset_button
+            .get()
+            .expect("options preset button mounted"),
+        options_preset_label: options.preset.get().expect("options preset label mounted"),
         options_opacity: options.opacity.get().expect("options opacity mounted"),
         options_bucket: options.bucket.get().expect("options bucket mounted"),
         options_gradient: options.gradient.get().expect("options gradient mounted"),
         options_tolerance: options.tolerance.get().expect("options tolerance mounted"),
         options_hint: options.hint.get().expect("options hint mounted"),
         brush_request,
+        brush_preset_open,
+        brush_preset_request: Rc::new(Cell::new(None)),
         brush_buttons,
         pixel_mode,
         square_mode,

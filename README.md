@@ -71,8 +71,21 @@ cargo run -- --pixel-font
   左键拖动即在当前图层绘制 / 擦除，实时重合成。默认是**像素模式**
   （`hard = true` + `BrushShape::Square`）：任意尺寸圆心都吸附到像素网格、
   `coverage` 二值（边缘不抗锯齿），适合画像素图；工具选项栏可切换「像素」
-  与「方形」两个开关。关掉像素模式后，圆形笔走 1px 抗锯齿、方形笔走切比雪夫
-  距离的软边。1px 硬边笔走 Bresenham 连线（每个像素只压一次，斜线不会加粗）；
+  与「方形」两个开关。关掉像素模式后，圆形笔走抗锯齿、方形笔走切比雪夫距离的
+  软边，**硬度**（`brush.hardness`，选项栏 −/+）决定实心核心到边缘的过渡带宽度：
+  1 = 只有 1px 抗锯齿边（旧版观感），0 = 从中心一路渐变到边缘。
+  **不透明度按「一笔」封顶**：落笔开一张覆盖率蒙版（`tools/brush/mask.rs`），
+  密集重叠的 stamp 只按最大覆盖率从落笔前快照重算一次，所以 50% 就是 50%、
+  沿笔迹不变深，两笔相交才叠到 75%。
+  选项栏的「预设 ▾」下拉列出 6 个内置预设（像素硬笔 / 像素方块 / 硬圆笔 /
+  柔边圆笔 / 喷枪 / 柔方块，`tools/brush/preset.rs`），当前项打 `✓`，参数不命中
+  任何预设时显示「自定义」。
+  1px 硬边笔走 Bresenham 连线（每个像素只压一次，斜线不会加粗）。
+  落笔点由 `tools::stroke` 采样器给出：光标输入先被「二次中点平滑」成曲线
+  （三点一组，控制点取中间那个点，端点是相邻两点的中点 —— 不过冲，折角被
+  抹圆），再按**固定距离**（直径的 1/4，像素笔至少 1px）取点，所以快速拖动
+  （系统给的事件很稀）画出来的也是圆滑曲线，落笔密度不随速度变化。
+  代价是画的过程中笔迹末端最多落后光标半个事件段，抬笔时补完最后半段。
   像素模式 + `zoom >= 6` 时在画布上叠加屏幕空间的像素网格。`[`/`]` 调大小，
   `,`/`.` 调不透明度。
   “一笔 = 一次 Undo”：抬笔时提交成一条 [`PaintCommand`]，由 Phase 6 的历史栈接管。
@@ -251,7 +264,11 @@ src/
 ├── tools/               # Phase 5/8：工具系统
 │   ├── mod.rs
 │   ├── tool.rs          # Tool trait + PointerEvent + ToolContext（含 History）
-│   ├── brush.rs         # BrushTool + BrushMode（画笔 / 橡皮，抬笔提交一笔）
+│   ├── brush/           # 画笔：mod（BrushTool + 笔触 + 抬笔提交一笔）
+│   │   ├── tip.rs       #   BrushShape + Tip：直径 / 硬度 -> 一个 stamp 的覆盖率
+│   │   ├── mask.rs      #   一笔的覆盖率蒙版 + 按蒙版从快照合成（每笔不透明度）
+│   │   └── preset.rs    #   BrushPreset + 内置预设（选项栏「预设」菜单）
+│   ├── stroke.rs        # 笔触采样：二次中点平滑 + 按固定距离取点
 │   ├── fill.rs          # 洪水填充 flood_fill + PaintBucketTool + magic_wand_region
 │   ├── gradient.rs      # GradientKind / gradient_fill / GradientTool（多节点渐变）
 │   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）

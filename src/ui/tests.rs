@@ -313,6 +313,72 @@ fn the_pixel_mode_toggles_flip_the_brush() {
     assert!(view.pixel_mode() && view.square_mode());
 }
 
+/// 点一下选项栏的 `−` / `+` 并 `update`。
+fn click_adjust(view: &mut EditorView, adjust: BrushAdjust) {
+    let center = view.brush_adjust_center(adjust).expect("adjust button");
+    view.event(&InputEvent::PointerDown {
+        position: center,
+        button: PointerButton::Left,
+    });
+    view.event(&InputEvent::PointerUp {
+        position: center,
+        button: PointerButton::Left,
+    });
+    view.update();
+}
+
+/// 一个切到画笔、选项栏已排好版的新视图。
+fn brush_view() -> EditorView {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('b'),
+    });
+    view.update();
+    view.layout(viewport());
+    view
+}
+
+#[test]
+fn the_options_bar_hardness_buttons_step_the_hardness() {
+    let mut view = brush_view();
+    let before = view.brush_hardness();
+    click_adjust(&mut view, BrushAdjust::HardnessDown);
+    assert!((view.brush_hardness() - (before - 0.05)).abs() < 1e-4);
+    // 两头都夹住：不会变成 0（那样笔就没了）也不会超过 100%。
+    for _ in 0..40 {
+        click_adjust(&mut view, BrushAdjust::HardnessUp);
+    }
+    assert_eq!(view.brush_hardness(), 1.0);
+    for _ in 0..40 {
+        click_adjust(&mut view, BrushAdjust::HardnessDown);
+    }
+    assert_eq!(view.brush_hardness(), 0.05);
+}
+
+#[test]
+fn picking_a_preset_sets_the_brush_and_the_options_bar_toggles() {
+    let mut view = brush_view();
+    // 柔边圆笔 = 24px / 100% / 硬度 35% / 圆头 / 关掉像素模式。
+    let preset = crate::tools::brush::preset::PRESETS[3];
+    view.brush_preset_request.set(Some(3));
+    view.update();
+    assert_eq!(view.brush_size(), preset.size);
+    assert!((view.brush_hardness() - preset.hardness).abs() < 1e-4);
+    assert!((view.brush_opacity() - preset.opacity).abs() < 1e-4);
+    assert_eq!(view.brush_shape(), BrushShape::Round);
+    // 选项栏的开关是显示源，预设必须回写它，否则下一帧就被覆盖回去。
+    assert!(!view.pixel_mode() && !view.square_mode());
+    assert_eq!(label_text(&view, view.options_preset_label), preset.name);
+}
+
+#[test]
+fn the_preset_label_falls_back_to_custom() {
+    let mut view = brush_view();
+    click_adjust(&mut view, BrushAdjust::HardnessDown);
+    assert_eq!(label_text(&view, view.options_preset_label), "自定义");
+}
+
 fn click_toggle(view: &mut EditorView, toggle: BrushToggle) {
     let center = view.brush_toggle_center(toggle).expect("toggle button");
     view.event(&InputEvent::PointerDown {

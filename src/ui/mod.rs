@@ -220,6 +220,10 @@ pub struct EditorView {
     options_tool: NodeId,
     options_brush: NodeId,
     options_size: NodeId,
+    options_hardness: NodeId,
+    /// 「预设」触发按钮 / 它的值标签。
+    options_preset: NodeId,
+    options_preset_label: NodeId,
     options_opacity: NodeId,
     options_bucket: NodeId,
     options_gradient: NodeId,
@@ -235,6 +239,10 @@ pub struct EditorView {
     square_mode: Rc<Cell<bool>>,
     /// 开关按钮节点（测试 / 自检点击用）。
     brush_toggles: Vec<(BrushToggle, NodeId)>,
+    /// 点了「预设」触发按钮后写入它的节点 id；`update` 取走开下拉。
+    brush_preset_open: Rc<Cell<Option<NodeId>>>,
+    /// 下拉里选了第几个预设；`update` 取走应用。
+    brush_preset_request: Rc<Cell<Option<usize>>>,
     /// 油漆桶选项栏的请求 / 开关 / 按钮节点。
     bucket_request: Rc<Cell<Option<BucketAdjust>>>,
     bucket_buttons: Vec<(BucketAdjust, NodeId)>,
@@ -382,6 +390,13 @@ impl EditorView {
         self.sync_path();
         if let Some(adjust) = self.brush_request.take() {
             self.apply_brush_adjust(adjust);
+        }
+        if let Some(anchor) = self.brush_preset_open.take() {
+            self.open_brush_presets(anchor);
+        }
+        if let Some(index) = self.brush_preset_request.take() {
+            self.overlays.close_all();
+            self.apply_brush_preset(index);
         }
         if let Some(adjust) = self.bucket_request.take() {
             self.apply_bucket_adjust(adjust);

@@ -10,8 +10,10 @@ use igui_core::Vec2;
 use crate::app::state::{ActiveTool, AppState};
 use crate::canvas::{document_to_pixel, pixel_selection, Selection};
 use crate::renderer::sample_pixel;
+use crate::tools::brush::preset;
 use crate::tools::{
-    fill_selection, magic_wand_region, BrushMode, BrushTool, PaintBucketTool, Tool, ToolContext,
+    fill_selection, magic_wand_region, BrushMode, BrushShape, BrushTool, PaintBucketTool, Tool,
+    ToolContext,
 };
 
 use super::{left_pointer, BrushAdjust, BucketAdjust, EditorView};
@@ -366,6 +368,11 @@ impl EditorView {
         *self.message.borrow_mut() = Some(format!("笔刷大小 {:.0}px", self.brush.size));
     }
 
+    pub(super) fn adjust_brush_hardness(&mut self, delta: f32) {
+        self.brush.hardness = (self.brush.hardness + delta).clamp(0.05, 1.0);
+        *self.message.borrow_mut() = Some(format!("笔刷硬度 {:.0}%", self.brush.hardness * 100.0));
+    }
+
     pub(super) fn adjust_brush_opacity(&mut self, delta: f32) {
         self.brush.opacity = (self.brush.opacity + delta).clamp(0.05, 1.0);
         *self.message.borrow_mut() =
@@ -377,9 +384,25 @@ impl EditorView {
         match adjust {
             BrushAdjust::SizeDown => self.adjust_brush_size(-1.0),
             BrushAdjust::SizeUp => self.adjust_brush_size(1.0),
+            BrushAdjust::HardnessDown => self.adjust_brush_hardness(-0.05),
+            BrushAdjust::HardnessUp => self.adjust_brush_hardness(0.05),
             BrushAdjust::OpacityDown => self.adjust_brush_opacity(-0.05),
             BrushAdjust::OpacityUp => self.adjust_brush_opacity(0.05),
         }
+    }
+
+    /// 应用选项栏选中的一个笔刷预设。
+    ///
+    /// 选项栏的「像素 / 方形」开关是**显示源**，`update` 每帧把它们写进画笔，
+    /// 所以预设改了这两项之后必须回写共享状态，否则下一帧就被覆盖回去。
+    pub(super) fn apply_brush_preset(&mut self, index: usize) {
+        let Some(preset) = preset::PRESETS.get(index) else {
+            return;
+        };
+        preset.apply(&mut self.brush);
+        self.pixel_mode.set(self.brush.hard);
+        self.square_mode.set(self.brush.shape == BrushShape::Square);
+        *self.message.borrow_mut() = Some(format!("笔刷预设 {}", preset.name));
     }
 
     /// 油漆桶选项栏的「容差 −/+」。

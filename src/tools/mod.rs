@@ -5,11 +5,12 @@
 //! 像素，视图直接用 [`crate::canvas::pixel_selection`] 与
 //! [`crate::renderer::sample_pixel`] 完成。
 
-mod brush;
+pub mod brush;
 mod fill;
 mod gradient;
 mod move_tool;
 mod shape_fill;
+mod stroke;
 mod tool;
 
 pub use brush::{BrushMode, BrushShape, BrushTool};

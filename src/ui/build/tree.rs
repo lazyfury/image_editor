@@ -71,6 +71,8 @@ pub(super) fn build_tree(
     let options = OptionsRefs::default();
     let brush_request: Rc<Cell<Option<BrushAdjust>>> = Rc::new(Cell::new(None));
     let mut brush_refs: Vec<(BrushAdjust, NodeRef)> = Vec::new();
+    // 「预设」触发按钮只发节点 id；下拉由 `update` 打开（回调拿不到 `&mut self`）。
+    let brush_preset_open: Rc<Cell<Option<NodeId>>> = Rc::new(Cell::new(None));
     let pixel_mode = Rc::new(Cell::new(true));
     let square_mode = Rc::new(Cell::new(true));
     let mut toggle_refs: Vec<(BrushToggle, NodeRef)> = Vec::new();
@@ -134,6 +136,8 @@ pub(super) fn build_tree(
         .child(options_bar(
             theme,
             brush_request.clone(),
+            brush_preset_open.clone(),
+            crate::tools::brush::preset::label(&BrushTool::paint()),
             pixel_mode.clone(),
             square_mode.clone(),
             bucket_request.clone(),
@@ -264,6 +268,7 @@ pub(super) fn build_tree(
         rename_request,
         history_count,
         brush_request,
+        brush_preset_open,
         pixel_mode,
         square_mode,
         bucket_request,

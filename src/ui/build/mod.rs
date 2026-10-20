@@ -64,6 +64,7 @@ struct Wiring {
     rename_request: Rc<Cell<Option<NodeId>>>,
     history_count: Rc<Cell<usize>>,
     brush_request: Rc<Cell<Option<BrushAdjust>>>,
+    brush_preset_open: Rc<Cell<Option<NodeId>>>,
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,
     bucket_request: Rc<Cell<Option<BucketAdjust>>>,

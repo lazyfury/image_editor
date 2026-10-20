@@ -88,6 +88,90 @@ fn click_toggle(view: &mut EditorView, toggle: crate::ui::BrushToggle) {
     view.update();
 }
 
+/// 笔刷预设 + 硬度：下拉里能点、选中后参数 / 开关 / 标签都跟着变，硬度 − 生效。
+fn check_brush_presets(failures: &mut Vec<String>) {
+    use crate::tools::brush::preset;
+
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('b'),
+    });
+    view.update();
+    view.layout(viewport());
+
+    if view.brush_preset_label() != preset::PRESETS[0].name {
+        failures.push(format!("默认预设标签不对：{}", view.brush_preset_label()));
+    }
+
+    // 点「预设」触发按钮应打开下拉，帧里能看到所有预设名。
+    match view.brush_preset_center() {
+        Some(center) => {
+            click_at(&mut view, center);
+            view.update();
+            // 覆盖层的内容在 layout 里才建出来（菜单栏下拉也是这个套路）。
+            view.layout(viewport());
+            let frame = paint_frame(&view);
+            for item in preset::PRESETS {
+                if !contains(&frame, item.name) {
+                    failures.push(format!("预设下拉缺少「{}」", item.name));
+                    break;
+                }
+            }
+            let target = preset::PRESETS[3];
+            match text_center(&frame, target.name) {
+                Some(item_center) => {
+                    click_at(&mut view, item_center);
+                    view.update();
+                }
+                None => failures.push(format!("预设下拉里点不到「{}」", target.name)),
+            }
+        }
+        None => failures.push("找不到选项栏的「预设」按钮".to_string()),
+    }
+
+    let target = preset::PRESETS[3];
+    if view.brush_size() != target.size
+        || (view.brush_hardness() - target.hardness).abs() > 1e-4
+        || (view.brush_opacity() - target.opacity).abs() > 1e-4
+    {
+        failures.push(format!(
+            "选预设没改到画笔：{}px / 硬度 {:.0}% / 不透明度 {:.0}%",
+            view.brush_size(),
+            view.brush_hardness() * 100.0,
+            view.brush_opacity() * 100.0
+        ));
+    }
+    if view.pixel_mode() {
+        failures.push("柔边预设应关掉像素模式".to_string());
+    }
+    if view.brush_shape() != crate::tools::BrushShape::Round {
+        failures.push("柔边预设应是圆头".to_string());
+    }
+    if view.brush_preset_label() != target.name {
+        failures.push(format!(
+            "选预设后标签应是「{}」，实际「{}」",
+            target.name,
+            view.brush_preset_label()
+        ));
+    }
+
+    // 硬度 −：35% -> 30%。
+    match view.brush_adjust_center(crate::ui::BrushAdjust::HardnessDown) {
+        Some(center) => {
+            click_at(&mut view, center);
+            view.update();
+        }
+        None => failures.push("找不到选项栏的「硬度 −」按钮".to_string()),
+    }
+    if (view.brush_hardness() - target.hardness + 0.05).abs() > 1e-4 {
+        failures.push(format!(
+            "选项栏「硬度 −」没生效：{:.0}%",
+            view.brush_hardness() * 100.0
+        ));
+    }
+}
+
 /// 在一个新视图上验证像素模式：size 3 硬边无灰边，关掉后软边（圆头）有灰边。
 fn check_pixel_mode_edges(failures: &mut Vec<String>) {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
@@ -608,6 +692,7 @@ pub fn check() -> (usize, String) {
         }
     }
     check_pixel_mode_edges(&mut failures);
+    check_brush_presets(&mut failures);
     check_bucket(&mut failures);
     check_gradient(&mut failures);
     check_magic_wand(&mut failures);

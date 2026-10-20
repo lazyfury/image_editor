@@ -1,7 +1,7 @@
 //! 工具选项栏：菜单栏下面的一行，显示当前工具的配置。
 //!
-//! 画笔 / 橡皮显示笔刷大小与不透明度（`−` / `+` 按钮）；其余工具显示一句操作
-//! 提示。按钮只写一个共享请求格（[`BrushAdjust`]），真正的改动由
+//! 画笔 / 橡皮显示笔刷预设、大小、硬度、不透明度（`−` / `+` 按钮）；其余工具
+//! 显示一句操作提示。按钮只写一个共享请求格（[`BrushAdjust`]），真正的改动由
 //! [`EditorView::update`](crate::ui::EditorView) 统一执行 —— 回调拿不到
 //! `&mut self`，和菜单 / 文件面板一个套路。
 
@@ -22,6 +22,8 @@ use crate::ui::gradient_editor;
 pub enum BrushAdjust {
     SizeDown,
     SizeUp,
+    HardnessDown,
+    HardnessUp,
     OpacityDown,
     OpacityUp,
 }
@@ -32,6 +34,8 @@ impl BrushAdjust {
         match self {
             Self::SizeDown => "笔刷大小 −",
             Self::SizeUp => "笔刷大小 +",
+            Self::HardnessDown => "笔刷硬度 −",
+            Self::HardnessUp => "笔刷硬度 +",
             Self::OpacityDown => "不透明度 −",
             Self::OpacityUp => "不透明度 +",
         }
@@ -100,7 +104,12 @@ pub struct GradientOptions {
 pub struct OptionsRefs {
     pub tool: NodeRef,
     pub brush: NodeRef,
+    /// 「预设」触发按钮的值标签（`sync` 写当前预设名）。
+    pub preset: NodeRef,
+    /// 「预设」触发按钮本身（测试点击 / 下拉锚点）。
+    pub preset_button: NodeRef,
     pub size: NodeRef,
+    pub hardness: NodeRef,
     pub opacity: NodeRef,
     pub bucket: NodeRef,
     pub tolerance: NodeRef,
@@ -117,6 +126,9 @@ pub struct OptionsRefs {
 pub fn options_bar(
     theme: &'static dyn Theme,
     request: Rc<Cell<Option<BrushAdjust>>>,
+    // 点了「预设」触发按钮：写入按钮节点 id，`update` 取走后开下拉。
+    preset_open: Rc<Cell<Option<igui_core::NodeId>>>,
+    preset_label: &str,
     hard_state: Rc<Cell<bool>>,
     square_state: Rc<Cell<bool>>,
     bucket_request: Rc<Cell<Option<BucketAdjust>>>,
@@ -134,6 +146,12 @@ pub fn options_bar(
         .gap(space::XS)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore)
+        .child(
+            Button::ghost("预设 ▾", theme)
+                .on_click(move |_tree, id| preset_open.set(Some(id)))
+                .ref_(&refs.preset_button),
+        )
+        .child(Text::small(preset_label, theme).ref_(&refs.preset))
         .child(Text::caption("大小", theme).tone(Tone::Muted))
         .child(step_button(
             theme,
@@ -148,6 +166,22 @@ pub fn options_bar(
             "+",
             request.clone(),
             BrushAdjust::SizeUp,
+            buttons,
+        ))
+        .child(Text::caption("硬度", theme).tone(Tone::Muted))
+        .child(step_button(
+            theme,
+            "−",
+            request.clone(),
+            BrushAdjust::HardnessDown,
+            buttons,
+        ))
+        .child(Text::small("", theme).ref_(&refs.hardness))
+        .child(step_button(
+            theme,
+            "+",
+            request.clone(),
+            BrushAdjust::HardnessUp,
             buttons,
         ))
         .child(Text::caption("不透明度", theme).tone(Tone::Muted))

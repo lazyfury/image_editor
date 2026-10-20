@@ -6,6 +6,7 @@
 use igui_components::Placement;
 
 use crate::app::state::ActiveTool;
+use crate::tools::brush::preset;
 
 use super::*;
 
@@ -193,6 +194,17 @@ impl EditorView {
             &mut self.tree,
             self.options_size,
             format!("{:.0}px", self.brush.size),
+        );
+        set_text(
+            &mut self.tree,
+            self.options_hardness,
+            format!("{:.0}%", self.brush.hardness * 100.0),
+        );
+        // 参数不命中任何预设时显示「自定义」（见 `tools::brush::preset`）。
+        set_text(
+            &mut self.tree,
+            self.options_preset_label,
+            preset::label(&self.brush),
         );
         set_text(
             &mut self.tree,
