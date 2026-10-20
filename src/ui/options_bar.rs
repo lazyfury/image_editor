@@ -26,6 +26,8 @@ pub enum BrushAdjust {
     HardnessUp,
     SmoothDown,
     SmoothUp,
+    SpacingDown,
+    SpacingUp,
     OpacityDown,
     OpacityUp,
 }
@@ -40,6 +42,8 @@ impl BrushAdjust {
             Self::HardnessUp => "笔刷硬度 +",
             Self::SmoothDown => "笔刷平滑 −",
             Self::SmoothUp => "笔刷平滑 +",
+            Self::SpacingDown => "笔刷间距 −",
+            Self::SpacingUp => "笔刷间距 +",
             Self::OpacityDown => "不透明度 −",
             Self::OpacityUp => "不透明度 +",
         }
@@ -147,6 +151,7 @@ pub struct OptionsRefs {
     pub symmetry_button: NodeRef,
     pub hardness: NodeRef,
     pub smooth: NodeRef,
+    pub spacing: NodeRef,
     pub opacity: NodeRef,
     pub bucket: NodeRef,
     /// 钢笔：整行容器 / 路径摘要文字 + 四个动作按钮。
@@ -241,6 +246,22 @@ pub fn options_bar(
             "+",
             request.clone(),
             BrushAdjust::SmoothUp,
+            buttons,
+        ))
+        .child(Text::caption("间距", theme).tone(Tone::Muted))
+        .child(step_button(
+            theme,
+            "−",
+            request.clone(),
+            BrushAdjust::SpacingDown,
+            buttons,
+        ))
+        .child(Text::small("", theme).ref_(&refs.spacing))
+        .child(step_button(
+            theme,
+            "+",
+            request.clone(),
+            BrushAdjust::SpacingUp,
             buttons,
         ))
         .child(Text::caption("不透明度", theme).tone(Tone::Muted))

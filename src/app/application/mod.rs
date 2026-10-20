@@ -473,7 +473,6 @@ impl AppLogic for ImageEditorLogic {
             workspace.editor.set_workspace_path(path.as_deref());
             workspace.editor.update();
             if let Some(preferences) = workspace.editor.take_preferences() {
-                self.preferences = preferences;
                 if let Err(error) = crate::io::save_preferences(&preferences) {
                     tracing::warn!(
                         target: "image_editor",
@@ -481,6 +480,7 @@ impl AppLogic for ImageEditorLogic {
                         "preferences_write_failed"
                     );
                 }
+                self.preferences = preferences;
             }
             if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
                 let scale = backend.borrow().scale_factor();

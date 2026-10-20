@@ -153,7 +153,7 @@ pub(super) fn build_tree(
             theme,
             brush_request.clone(),
             brush_preset_open.clone(),
-            crate::tools::brush::preset::label(&BrushTool::paint()),
+            crate::tools::brush::preset::PRESETS[0].name.as_ref(),
             pixel_mode.clone(),
             square_mode.clone(),
             symmetry_mode.clone(),

@@ -7,6 +7,8 @@
 
 use igui_core::Vec2;
 
+use super::grain::{DabFrame, Grain};
+
 /// 笔刷形状。`Square` 更适合像素画（偶数尺寸是整数边长，不会出十字 / 多一格）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BrushShape {
@@ -100,8 +102,8 @@ const EDGE_AA: f32 = 0.5;
 /// 加一个容差，避免 `1.9999999` 被算到上一格。
 const PIXEL_EPSILON: f32 = 1e-3;
 
-/// 一支笔尖：直径 / 硬度 / 形状 + 是否像素模式。
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// 一支笔尖：几何（直径 / 硬度 / 形状 / 像素模式）+ 可选纹理。
+#[derive(Debug, Clone, PartialEq)]
 pub struct Tip {
     /// 直径，文档像素。
     pub size: f32,
@@ -110,6 +112,23 @@ pub struct Tip {
     pub shape: BrushShape,
     /// 像素模式：覆盖率二值、圆心吸附到像素网格。
     pub hard: bool,
+    /// 颗粒（覆盖率蒙版 + 映射方式）：`None` = 纯程序化笔尖。
+    pub grain: Option<Grain>,
+    /// 落笔间距相对直径的比例（纹理笔通常更小，保证连续）。
+    pub spacing_ratio: f32,
+}
+
+impl Default for Tip {
+    fn default() -> Self {
+        Self {
+            size: 1.0,
+            hardness: 1.0,
+            shape: BrushShape::Square,
+            hard: true,
+            grain: None,
+            spacing_ratio: 0.25,
+        }
+    }
 }
 
 impl Tip {
@@ -121,7 +140,7 @@ impl Tip {
     /// 取直径的 1/4：相邻 stamp 有重叠、线段不会断开也不会出串珠边。像素笔
     /// 额外夹到至少 1px —— 小于一个像素的步长只会把同一个像素反复压。
     pub fn spacing(&self) -> f32 {
-        let step = (self.size * 0.25).max(super::stroke::MIN_SPACING);
+        let step = (self.size * self.spacing_ratio).max(super::stroke::MIN_SPACING);
         if self.hard {
             step.max(1.0)
         } else {
@@ -149,8 +168,12 @@ impl Tip {
     /// 遍历这个 stamp 覆盖到的整数像素（文档坐标）：`visit(x, y, coverage)`。
     ///
     /// 覆盖率落在 `(0, 1]`；0 的像素不会回调（大笔刷边缘上省一半循环）。
-    pub fn cover(&self, center: Vec2, mut visit: impl FnMut(i64, i64, f32)) {
-        let center = self.snap(center);
+    ///
+    /// `frame` 是**这一次落笔**的几何（圆心 / 直径 / 笔迹方向 / 已走弧长，见
+    /// [`DabFrame`]）；没有颗粒时其中的纹理相关字段被忽略。
+    pub fn cover(&self, frame: DabFrame, mut visit: impl FnMut(i64, i64, f32)) {
+        let center = self.snap(frame.center);
+        let frame = frame.with_center(center);
         let radius = (self.size * 0.5).max(0.5);
         // 方形硬边的整数边长：奇数 n×n 居中，偶数把光标像素放左上（避免多一格）。
         let side = self.size.round().max(1.0) as i64;
@@ -194,6 +217,15 @@ impl Tip {
                 } else {
                     self.soft_coverage(radius, dx, dy)
                 };
+                if coverage <= 0.0 {
+                    continue;
+                }
+                // 有颗粒：再乘一层颗粒覆盖率（笔尖哪里厚哪里薄）。采样坐标由
+                // `Grain::mapping` 决定（每站重贴 / 钉画布 / 跟笔滚动）。
+                let coverage = match self.grain.as_ref() {
+                    None => coverage,
+                    Some(grain) => coverage * grain.coverage(frame, Vec2::new(dx, dy), !self.hard),
+                };
                 if coverage > 0.0 {
                     visit(x, y, coverage);
                 }
@@ -220,6 +252,12 @@ impl Tip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tools::brush::grain::GrainMapping;
+
+    /// 不旋转的图章：圆心 (16, 16)、直径 8。
+    fn stamp8() -> DabFrame {
+        DabFrame::stamp(Vec2::new(16.0, 16.0), 8.0)
+    }
 
     fn tip(size: f32, hardness: f32) -> Tip {
         Tip {
@@ -227,13 +265,14 @@ mod tests {
             hardness,
             shape: BrushShape::Round,
             hard: false,
+            ..Tip::default()
         }
     }
 
     /// 圆笔某一行的覆盖率（文档坐标，圆心在 `(16, 16)`）。
     fn coverage_at(tip: &Tip, x: i64, y: i64) -> f32 {
         let mut found = 0.0;
-        tip.cover(Vec2::new(16.0, 16.0), |px, py, coverage| {
+        tip.cover(stamp8(), |px, py, coverage| {
             if px == x && py == y {
                 found = coverage;
             }
@@ -244,7 +283,7 @@ mod tests {
     /// 整个 stamp 里「既不是 0 也不是 1」的像素数（过渡带有多宽）。
     fn partial_pixels(tip: &Tip) -> usize {
         let mut partial = 0;
-        tip.cover(Vec2::new(16.0, 16.0), |_x, _y, coverage| {
+        tip.cover(stamp8(), |_x, _y, coverage| {
             if coverage > 0.0 && coverage < 1.0 {
                 partial += 1;
             }
@@ -312,7 +351,7 @@ mod tests {
     fn pixel_mode_ignores_hardness_and_keeps_binary_coverage() {
         let mut tip = tip(10.0, 0.0);
         tip.hard = true;
-        tip.cover(Vec2::new(16.0, 16.0), |_x, _y, coverage| {
+        tip.cover(stamp8(), |_x, _y, coverage| {
             assert_eq!(coverage, 1.0, "像素模式只有 0 / 1");
         });
     }
@@ -361,6 +400,114 @@ mod tests {
         assert_eq!(seen, vec!["垂直", "水平", "四向", "关"]);
     }
 
+    /// 一张「左半边满、右半边空」的 2×1 纹理。
+    fn half_texture() -> std::rc::Rc<super::super::texture::BrushTexture> {
+        use crate::document::{Color, PixelBuffer};
+        let mut pixels = PixelBuffer::new(2, 1);
+        pixels.set_pixel(0, 0, Color::new(255, 255, 255, 255));
+        pixels.set_pixel(1, 0, Color::new(255, 255, 255, 0));
+        std::rc::Rc::new(super::super::texture::BrushTexture::from_pixels(&pixels).expect("2×1"))
+    }
+
+    #[test]
+    fn a_textured_tip_multiplies_the_shape_and_the_texture() {
+        // 8px 硬边方笔（无抗锯齿）× 左密右空的纹理：只有左半边的像素会落笔。
+        let tip = Tip {
+            size: 8.0,
+            hardness: 1.0,
+            shape: BrushShape::Square,
+            hard: true,
+            grain: Some(Grain::new(half_texture())),
+            spacing_ratio: 0.1,
+        };
+        let mut painted = Vec::new();
+        tip.cover(stamp8(), |x, y, coverage| {
+            assert!(coverage > 0.0 && coverage <= 1.0);
+            painted.push((x, y));
+        });
+        assert!(!painted.is_empty(), "纹理笔应该还画得出东西");
+        // 只画纹理左半边（中线在 16.5，边界那一列受浮点影响，允许模糊一格）。
+        for (x, _) in &painted {
+            assert!(*x <= 16, "只有纹理左半边该落笔：({x})");
+        }
+        assert!(
+            painted.iter().all(|(x, _)| *x <= 16) && painted.len() >= 24,
+            "左半边应该基本铺满：{painted:?}"
+        );
+    }
+
+    #[test]
+    fn rotating_the_texture_swaps_which_half_is_painted() {
+        let tip = Tip {
+            size: 8.0,
+            hardness: 1.0,
+            shape: BrushShape::Square,
+            hard: true,
+            grain: Some(Grain::new(half_texture()).with_angle(std::f32::consts::FRAC_PI_2)),
+            ..Tip::default()
+        };
+        let mut top = Vec::new();
+        tip.cover(stamp8(), |x, y, _| top.push((x, y)));
+        assert!(!top.is_empty());
+        // 转 90°：纹理的 u 轴改成跟着屏幕 dy 走，左半边 = 上半边。
+        for (x, y) in &top {
+            assert!(*y <= 16, "转 90° 后该画上半边：({x}, {y})");
+        }
+        // 下半边完全不该有（真正的反向对照）。
+        assert!(
+            top.iter().all(|(_, y)| *y <= 16) && top.len() >= 24,
+            "上半边应该基本铺满：{top:?}"
+        );
+    }
+
+    /// 1×2 纹理：上半不透、下半空（v < 0.5 才有覆盖）。
+    fn half_v_texture() -> std::rc::Rc<super::super::texture::BrushTexture> {
+        use crate::document::{Color, PixelBuffer};
+        let mut pixels = PixelBuffer::new(1, 2);
+        pixels.set_pixel(0, 0, Color::new(255, 255, 255, 255));
+        pixels.set_pixel(0, 1, Color::new(255, 255, 255, 0));
+        std::rc::Rc::new(super::super::texture::BrushTexture::from_pixels(&pixels).expect("1×2"))
+    }
+
+    #[test]
+    fn along_stroke_texture_scrolls_with_the_distance_travelled() {
+        // 同一个笔尖，滚动量变了 -> 压在画布上的那一截纹理也变了（毛笔 / 刷子的
+        // 毛沿笔迹连续，而不是每个 dab 重新开始）。
+        let tip = Tip {
+            size: 8.0,
+            hardness: 1.0,
+            shape: BrushShape::Square,
+            hard: true,
+            grain: Some(Grain::new(half_v_texture()).with_mapping(GrainMapping::Dragged)),
+            ..Tip::default()
+        };
+        let painted_at = |distance: f32| {
+            let mut painted = Vec::new();
+            let mut frame = stamp8();
+            frame.direction = Vec2::new(1.0, 0.0);
+            frame.distance = distance;
+            tip.cover(frame, |x, y, _| painted.push((x, y)));
+            painted
+        };
+        let start = painted_at(0.0);
+        let scrolled = painted_at(2.0);
+        assert!(!start.is_empty() && !scrolled.is_empty());
+        let columns = |set: &Vec<(i64, i64)>| -> std::collections::BTreeSet<i64> {
+            set.iter().map(|(x, _)| *x).collect()
+        };
+        let (start_columns, scrolled_columns) = (columns(&start), columns(&scrolled));
+        // distance = 0：只有「沿笔迹那一半」的纹理压到画布上（4 列）。
+        assert_eq!(
+            start_columns.into_iter().collect::<Vec<_>>(),
+            vec![16, 17, 18, 19]
+        );
+        // 滚过 2px：同一张纹理整体平移了 2 列（毛发沿笔迹连续，不是每个 dab 重开）。
+        assert_eq!(
+            scrolled_columns.into_iter().collect::<Vec<_>>(),
+            vec![14, 15, 16, 17]
+        );
+    }
+
     #[test]
     fn a_hard_square_tip_covers_an_integer_block() {
         // 直径 6 的硬边方形笔：正好 6×6 个像素，每个都是实心。
@@ -369,12 +516,16 @@ mod tests {
             hardness: 0.0,
             shape: BrushShape::Square,
             hard: true,
+            ..Tip::default()
         };
         let mut pixels = Vec::new();
-        tip.cover(Vec2::new(16.5, 16.5), |x, y, coverage| {
-            assert_eq!(coverage, 1.0);
-            pixels.push((x, y));
-        });
+        tip.cover(
+            DabFrame::stamp(Vec2::new(16.5, 16.5), tip.size),
+            |x, y, coverage| {
+                assert_eq!(coverage, 1.0);
+                pixels.push((x, y));
+            },
+        );
         assert_eq!(pixels.len(), 36);
         let min_x = pixels.iter().map(|(x, _)| *x).min().unwrap();
         let max_x = pixels.iter().map(|(x, _)| *x).max().unwrap();

@@ -118,6 +118,7 @@ pub(super) fn finish(
     // 只留个数给自检 / 报告用。
     let icon_count = icons.len();
 
+    let brush_textures = crate::tools::BrushTextures::default();
     let mut view = EditorView {
         tree,
         menu_bar: refs.menu_bar.get().expect("menu bar mounted"),
@@ -152,6 +153,7 @@ pub(super) fn finish(
         options_size: options.size.get().expect("options size mounted"),
         options_hardness: options.hardness.get().expect("options hardness mounted"),
         options_smooth: options.smooth.get().expect("options smooth mounted"),
+        options_spacing: options.spacing.get().expect("options spacing mounted"),
         options_preset: options
             .preset_button
             .get()
@@ -242,6 +244,8 @@ pub(super) fn finish(
         pen: PenTool::new(),
         select_anchor: None,
         modifiers: igui_core::Modifiers::NONE,
+        presets: crate::tools::brush::preset::PresetLibrary::load(&brush_textures),
+        brush_textures,
         image_clipboard: Rc::new(RefCell::new(None)),
         scale_factor: 1.0,
         merge: crate::canvas::MergeMode::Replace,

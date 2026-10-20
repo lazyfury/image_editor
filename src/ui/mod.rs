@@ -245,6 +245,7 @@ pub struct EditorView {
     options_size: NodeId,
     options_hardness: NodeId,
     options_smooth: NodeId,
+    options_spacing: NodeId,
     /// 对称绘画的值标签 + 循环按钮。
     options_symmetry: NodeId,
     symmetry_button: NodeId,
@@ -363,6 +364,10 @@ pub struct EditorView {
     select_anchor: Option<Vec2>,
     /// 修饰键（Shift 加选 / Alt 减选）。
     modifiers: igui_core::Modifiers,
+    /// 笔尖素材库（`<素材目录>/*.png`，懒加载 + 缓存）。
+    brush_textures: crate::tools::BrushTextures,
+    /// 预设库：内置 + 用户目录里的 `presets.txt`。
+    presets: crate::tools::brush::preset::PresetLibrary,
     /// 像素剪贴板（宿主跨工作区共享；默认为本视图自己的一块）。
     image_clipboard: Rc<RefCell<Option<crate::tools::PixelClipboard>>>,
     /// 窗口的 device pixel 比例（宿主每帧同步）：最近邻采样时把文档矩形对齐到

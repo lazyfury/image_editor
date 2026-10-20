@@ -10,7 +10,6 @@ use igui_core::{Key, Vec2};
 use crate::app::state::{ActiveTool, AppState};
 use crate::canvas::{document_to_pixel, pixel_selection, Selection};
 use crate::renderer::sample_pixel;
-use crate::tools::brush::preset;
 use crate::tools::{
     fill_selection, magic_wand_region, BrushMode, BrushShape, BrushTool, PaintBucketTool, Tool,
     ToolContext,
@@ -526,6 +525,13 @@ impl EditorView {
         *self.message.borrow_mut() = Some(format!("笔刷平滑 {:.0}%", self.brush.smooth * 100.0));
     }
 
+    /// 落笔间距（相对直径）：纹理笔调小一点才连得上。
+    pub(super) fn adjust_brush_spacing(&mut self, delta: f32) {
+        self.brush.spacing_ratio = (self.brush.spacing_ratio + delta).clamp(0.02, 1.0);
+        *self.message.borrow_mut() =
+            Some(format!("笔刷间距 {:.0}%", self.brush.spacing_ratio * 100.0));
+    }
+
     pub(super) fn adjust_brush_opacity(&mut self, delta: f32) {
         self.brush.opacity = (self.brush.opacity + delta).clamp(0.05, 1.0);
         *self.message.borrow_mut() =
@@ -541,6 +547,8 @@ impl EditorView {
             BrushAdjust::HardnessUp => self.adjust_brush_hardness(0.05),
             BrushAdjust::SmoothDown => self.adjust_brush_smooth(-0.1),
             BrushAdjust::SmoothUp => self.adjust_brush_smooth(0.1),
+            BrushAdjust::SpacingDown => self.adjust_brush_spacing(-0.02),
+            BrushAdjust::SpacingUp => self.adjust_brush_spacing(0.02),
             BrushAdjust::OpacityDown => self.adjust_brush_opacity(-0.05),
             BrushAdjust::OpacityUp => self.adjust_brush_opacity(0.05),
         }
@@ -551,13 +559,22 @@ impl EditorView {
     /// 选项栏的「像素 / 方形」开关是**显示源**，`update` 每帧把它们写进画笔，
     /// 所以预设改了这两项之后必须回写共享状态，否则下一帧就被覆盖回去。
     pub(super) fn apply_brush_preset(&mut self, index: usize) {
-        let Some(preset) = preset::PRESETS.get(index) else {
+        let Some(preset) = self.presets.get(index) else {
             return;
         };
-        preset.apply(&mut self.brush);
+        preset.apply(&mut self.brush, &self.brush_textures);
         self.pixel_mode.set(self.brush.hard);
         self.square_mode.set(self.brush.shape == BrushShape::Square);
-        *self.message.borrow_mut() = Some(format!("笔刷预设 {}", preset.name));
+        let tip = self
+            .brush
+            .grain
+            .as_ref()
+            .map(|grain| {
+                let (width, height) = grain.texture().size();
+                format!(" · {width}×{height} 笔尖")
+            })
+            .unwrap_or_default();
+        *self.message.borrow_mut() = Some(format!("笔刷预设 {}{tip}", preset.name));
     }
 
     /// 油漆桶选项栏的「容差 −/+」。

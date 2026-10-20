@@ -6,8 +6,6 @@
 use igui_components::{Component, Menu, MenuItem, Placement};
 use igui_core::{NodeId, Vec2};
 
-use crate::tools::brush::preset;
-
 use super::*;
 
 impl EditorView {
@@ -68,10 +66,11 @@ impl EditorView {
         self.open_tool_group.set(None);
         let theme = self.theme;
         let request = self.brush_preset_request.clone();
-        let current = preset::matching(&self.brush);
+        let current = self.presets.matching(&self.brush, &self.brush_textures);
+        let presets = self.presets.all().to_vec();
         self.overlays.menu(anchor, move |tree, root| {
             let mut menu = Menu::new(theme);
-            for (index, item) in preset::PRESETS.iter().enumerate() {
+            for (index, item) in presets.iter().enumerate() {
                 let request = request.clone();
                 let checked = if current == Some(index) { "✓" } else { " " };
                 menu = menu.item(

@@ -1,6 +1,7 @@
 //! 编辑器偏好：配置目录里的 `preferences`（`key=value` 纯文本，跨会话保留）。
 //!
-//! 只存**笔刷外观**（直径 / 不透明度 / 硬度 / 平滑 / 像素模式 / 方形笔 / 对称）——
+//! 只存**笔刷外观**（直径 / 不透明度 / 硬度 / 平滑 / 像素模式 / 方形笔 / 对称 /
+//! 颗粒 / 个数 / 散布 / 间距）——
 //! 颜色、选区、路径属于文档或会话，不在这里。读的时候坏行直接跳过、越界值夹到
 //! 合法范围，所以手改坏了最多是回到默认值，不会画出 0.001px 的笔。
 
@@ -10,7 +11,7 @@ use super::recent::config_dir;
 use super::IoError;
 
 /// 笔刷外观参数（跨会话保留）。
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct BrushPreferences {
     /// 直径，文档像素。
     pub size: f32,
@@ -26,6 +27,30 @@ pub struct BrushPreferences {
     pub square: bool,
     /// 对称：0 关 / 1 垂直 / 2 水平 / 3 四向。
     pub symmetry: u8,
+    /// 颗粒素材名（空 = 程序化笔尖）。
+    pub texture: String,
+    /// `Stamp` 映射的固定角度（度）。
+    pub angle: f32,
+    /// 颗粒映射：0 = 每站重贴 / 1 = 跟笔滚动 / 2 = 钉在画布。
+    pub angle_mode: u8,
+    /// 一块纹理覆盖几个直径。
+    pub grain_scale: f32,
+    /// 0..=1：颗粒相对底色的深度。
+    pub grain_depth: f32,
+    /// 0..=1：颗粒最暗处的下限。
+    pub grain_min_depth: f32,
+    /// 颗粒对比度（1 = 原样）。
+    pub grain_contrast: f32,
+    /// 颗粒亮度偏移（-1..=1）。
+    pub grain_brightness: f32,
+    /// 每个采样点的图章数（1..=16）。
+    pub count: u32,
+    /// 图章随机偏移幅度（相对直径）。
+    pub scatter: f32,
+    /// 图章随机旋转幅度（0..=1）。
+    pub scatter_rotation: f32,
+    /// 落笔间距相对直径的比例。
+    pub spacing: f32,
 }
 
 impl Default for BrushPreferences {
@@ -39,33 +64,71 @@ impl Default for BrushPreferences {
             solid: true,
             square: true,
             symmetry: 0,
+            texture: String::new(),
+            angle: 0.0,
+            angle_mode: 0,
+            grain_scale: 1.0,
+            grain_depth: 1.0,
+            grain_min_depth: 0.0,
+            grain_contrast: 1.0,
+            grain_brightness: 0.0,
+            count: 1,
+            scatter: 0.0,
+            scatter_rotation: 0.0,
+            spacing: 0.25,
         }
     }
 }
 
 impl BrushPreferences {
     /// 夹到合法范围（和选项栏 / 画笔的边界一致）。
-    pub fn clamped(self) -> Self {
+    pub fn clamped(&self) -> Self {
         Self {
             size: self.size.clamp(1.0, 200.0),
             opacity: self.opacity.clamp(0.05, 1.0),
             hardness: self.hardness.clamp(0.05, 1.0),
             smooth: self.smooth.clamp(0.0, 1.0),
             symmetry: self.symmetry.min(3),
-            ..self
+            angle_mode: self.angle_mode.min(2),
+            grain_scale: self.grain_scale.clamp(0.05, 8.0),
+            grain_contrast: self.grain_contrast.clamp(0.0, 8.0),
+            grain_brightness: self.grain_brightness.clamp(-1.0, 1.0),
+            grain_depth: self.grain_depth.clamp(0.0, 1.0),
+            grain_min_depth: self
+                .grain_min_depth
+                .clamp(0.0, self.grain_depth.clamp(0.0, 1.0)),
+            count: self.count.clamp(1, crate::tools::brush::MAX_STAMPS),
+            scatter: self.scatter.clamp(0.0, 4.0),
+            scatter_rotation: self.scatter_rotation.clamp(0.0, 1.0),
+            spacing: self.spacing.clamp(0.02, 1.0),
+            ..self.clone()
         }
     }
 
-    fn to_text(self) -> String {
+    fn to_text(&self) -> String {
         format!(
-            "size={}\nopacity={}\nhardness={}\nsmooth={}\nsolid={}\nsquare={}\nsymmetry={}\n",
+            "size={}\nopacity={}\nhardness={}\nsmooth={}\nsolid={}\nsquare={}\nsymmetry={}\n\
+texture={}\nangle={}\nangle_mode={}\ngrain_scale={}\ngrain_depth={}\n\
+grain_min_depth={}\ngrain_contrast={}\ngrain_brightness={}\ncount={}\nscatter={}\nscatter_rotation={}\nspacing={}\n",
             self.size,
             self.opacity,
             self.hardness,
             self.smooth,
             self.solid as u8,
             self.square as u8,
-            self.symmetry
+            self.symmetry,
+            self.texture,
+            self.angle,
+            self.angle_mode,
+            self.grain_scale,
+            self.grain_depth,
+            self.grain_min_depth,
+            self.grain_contrast,
+            self.grain_brightness,
+            self.count,
+            self.scatter,
+            self.scatter_rotation,
+            self.spacing
         )
     }
 
@@ -86,6 +149,24 @@ impl BrushPreferences {
                 "solid" => prefs.solid = value != "0",
                 "square" => prefs.square = value != "0",
                 "symmetry" => prefs.symmetry = value.parse::<u8>().unwrap_or(prefs.symmetry),
+                "texture" => prefs.texture = value.to_string(),
+                "angle" => prefs.angle = number.unwrap_or(prefs.angle),
+                "angle_mode" => prefs.angle_mode = value.parse::<u8>().unwrap_or(prefs.angle_mode),
+                "grain_scale" => prefs.grain_scale = number.unwrap_or(prefs.grain_scale),
+                "grain_depth" => prefs.grain_depth = number.unwrap_or(prefs.grain_depth),
+                "grain_min_depth" => {
+                    prefs.grain_min_depth = number.unwrap_or(prefs.grain_min_depth);
+                }
+                "grain_contrast" => prefs.grain_contrast = number.unwrap_or(prefs.grain_contrast),
+                "grain_brightness" => {
+                    prefs.grain_brightness = number.unwrap_or(prefs.grain_brightness);
+                }
+                "count" => prefs.count = value.parse::<u32>().unwrap_or(prefs.count),
+                "scatter" => prefs.scatter = number.unwrap_or(prefs.scatter),
+                "scatter_rotation" => {
+                    prefs.scatter_rotation = number.unwrap_or(prefs.scatter_rotation);
+                }
+                "spacing" => prefs.spacing = number.unwrap_or(prefs.spacing),
                 _ => {}
             }
         }
@@ -163,6 +244,18 @@ mod tests {
             solid: false,
             square: false,
             symmetry: 3,
+            texture: "ink".to_string(),
+            angle: 15.0,
+            angle_mode: 1,
+            grain_scale: 0.5,
+            grain_depth: 0.8,
+            grain_min_depth: 0.1,
+            grain_contrast: 2.5,
+            grain_brightness: -0.1,
+            count: 3,
+            scatter: 0.2,
+            scatter_rotation: 1.0,
+            spacing: 0.12,
         };
         save_at(&path, &prefs).expect("写偏好");
         assert_eq!(load_at(&path), prefs);

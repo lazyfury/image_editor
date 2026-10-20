@@ -560,6 +560,20 @@ fn check_brush_smooth(failures: &mut Vec<String>) {
             }
         }
     }
+    // 间距 − 两次：25% -> 21%（纹理笔靠它调连续）。
+    for _ in 0..2 {
+        if let Some(center) = view.brush_adjust_center(crate::ui::BrushAdjust::SpacingDown) {
+            click_at(&mut view, center);
+            view.update();
+        }
+    }
+    if (view.brush_spacing() - 0.21).abs() > 1e-4 {
+        failures.push(format!(
+            "选项栏「间距 −」没生效：{:.0}%",
+            view.brush_spacing() * 100.0
+        ));
+    }
+
     if (view.brush_smooth() - 0.8).abs() > 1e-4 {
         failures.push(format!(
             "「平滑 −」没生效：{:.0}%",
@@ -604,6 +618,108 @@ fn check_symmetry(failures: &mut Vec<String>) {
     }
 }
 
+/// 纹理笔（鬃刷）：预设菜单里选「鬃刷」，画一笔应有明显深浅和空隙。
+fn check_textured_brush(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    let presets = view.brush_preset_names();
+    // 颗粒三态 + 散布各自都有代表预设。
+    for expected in ["毛笔", "鬃刷", "纹理化刷", "干刷", "草"] {
+        if !presets.iter().any(|name| name == expected) {
+            failures.push(format!("预设库应含「{expected}」：{presets:?}"));
+        }
+    }
+    let tips = view.brush_tip_names();
+    if !tips.iter().any(|tip| tip == "ink") || !tips.iter().any(|tip| tip == "bristle") {
+        failures.push(format!("assets/brushes 里应有 ink / bristle：{tips:?}"));
+    }
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('b'),
+    });
+    view.update();
+    view.layout(viewport());
+
+    // 打开预设下拉，点「毛笔」。
+    let Some(anchor) = view.brush_preset_center() else {
+        failures.push("找不到选项栏的「预设」按钮".to_string());
+        return;
+    };
+    click_at(&mut view, anchor);
+    view.update();
+    view.layout(viewport());
+    let frame = paint_frame(&view);
+    match text_center(&frame, "鬃刷") {
+        Some(item) => {
+            click_at(&mut view, item);
+            view.update();
+        }
+        None => {
+            failures.push("预设下拉里没有「鬃刷」".to_string());
+            return;
+        }
+    }
+    view.layout(viewport());
+    if !contains(&paint_frame(&view), "128×128 笔尖") {
+        failures.push("选项栏没报告鬃刷的笔尖纹理".to_string());
+    }
+    // 点菜单项时松手可能又落回选项栏把下拉点开：先关掉所有浮层再画。
+    for _ in 0..2 {
+        view.event(&InputEvent::KeyDown { key: Key::Escape });
+        view.update();
+    }
+
+    // 画一小段：笔尖纹理应该带来多档深浅 + 没压到的空隙。
+    let camera = view.canvas_camera();
+    let from = camera.document_to_screen(Vec2::new(40.0, 64.0));
+    let to = camera.document_to_screen(Vec2::new(88.0, 64.0));
+    for event in [
+        InputEvent::PointerDown {
+            position: from,
+            button: PointerButton::Left,
+        },
+        InputEvent::PointerMove { position: to },
+        InputEvent::PointerUp {
+            position: to,
+            button: PointerButton::Left,
+        },
+    ] {
+        view.event(&event);
+    }
+    view.update();
+
+    let snapshot = view.document_snapshot();
+    let Some(layer) = snapshot.active_layer() else {
+        failures.push("没有活动图层".to_string());
+        return;
+    };
+    // 画在白色背景层上：用「红通道」当深浅（255 = 没压到）。
+    let mut shades = std::collections::BTreeSet::new();
+    let mut holes = 0;
+    let mut painted = 0;
+    for y in 44..84 {
+        for x in 40..88 {
+            let red = layer.pixels.get_pixel(x, y).r;
+            if red == 255 {
+                holes += 1;
+            } else {
+                painted += 1;
+                shades.insert(red);
+            }
+        }
+    }
+    if painted == 0 {
+        failures.push("鬃刷没有画出任何像素".to_string());
+    } else if shades.len() < 8 {
+        failures.push(format!(
+            "鬃刷笔尖纹理没有生效：只有 {} 档深浅",
+            shades.len()
+        ));
+    }
+    if holes == 0 {
+        failures.push("鬃刷笔尖应该有没压到的空隙（毛束之间）".to_string());
+    }
+}
+
 /// 笔刷预设 + 硬度：下拉里能点、选中后参数 / 开关 / 标签都跟着变，硬度 − 生效。
 fn check_brush_presets(failures: &mut Vec<String>) {
     use crate::tools::brush::preset;
@@ -629,13 +745,13 @@ fn check_brush_presets(failures: &mut Vec<String>) {
             view.layout(viewport());
             let frame = paint_frame(&view);
             for item in preset::PRESETS {
-                if !contains(&frame, item.name) {
+                if !contains(&frame, item.name.as_ref()) {
                     failures.push(format!("预设下拉缺少「{}」", item.name));
                     break;
                 }
             }
-            let target = preset::PRESETS[3];
-            match text_center(&frame, target.name) {
+            let target = &preset::PRESETS[3];
+            match text_center(&frame, target.name.as_ref()) {
                 Some(item_center) => {
                     click_at(&mut view, item_center);
                     view.update();
@@ -646,7 +762,7 @@ fn check_brush_presets(failures: &mut Vec<String>) {
         None => failures.push("找不到选项栏的「预设」按钮".to_string()),
     }
 
-    let target = preset::PRESETS[3];
+    let target = &preset::PRESETS[3];
     if view.brush_size() != target.size
         || (view.brush_hardness() - target.hardness).abs() > 1e-4
         || (view.brush_opacity() - target.opacity).abs() > 1e-4
@@ -1215,6 +1331,7 @@ pub fn check() -> (usize, String) {
     }
     check_pixel_mode_edges(&mut failures);
     check_brush_presets(&mut failures);
+    check_textured_brush(&mut failures);
     check_pen(&mut failures);
     check_brush_cursor(&mut failures);
     check_brush_smooth(&mut failures);

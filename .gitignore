@@ -7,3 +7,6 @@
 
 # package-macos.sh 的产物。
 /dist/
+
+# 用户自己的预设（模板是 presets.example.txt，别把个人配置提交上来）
+assets/brushes/presets.txt

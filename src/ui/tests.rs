@@ -415,6 +415,21 @@ fn the_round_brush_draws_a_circle_cursor() {
     );
 }
 
+/// 间距按钮：纹理笔靠它调连续性，两头都夹住。
+#[test]
+fn the_options_bar_spacing_buttons_tighten_and_cap_the_dabs() {
+    let mut view = brush_view();
+    assert!((view.brush_spacing() - 0.25).abs() < 1e-6, "默认间距 25%");
+    for _ in 0..20 {
+        click_adjust(&mut view, BrushAdjust::SpacingDown);
+    }
+    assert!((view.brush_spacing() - 0.02).abs() < 1e-6, "− 到底 = 2%");
+    for _ in 0..60 {
+        click_adjust(&mut view, BrushAdjust::SpacingUp);
+    }
+    assert!((view.brush_spacing() - 1.0).abs() < 1e-6, "+ 到顶 = 100%");
+}
+
 #[test]
 fn the_options_bar_smooth_buttons_reach_zero_and_cap_at_one() {
     let mut view = brush_view();
@@ -720,7 +735,7 @@ fn the_options_bar_hardness_buttons_step_the_hardness() {
 fn picking_a_preset_sets_the_brush_and_the_options_bar_toggles() {
     let mut view = brush_view();
     // 柔边圆笔 = 24px / 100% / 硬度 35% / 圆头 / 关掉像素模式。
-    let preset = crate::tools::brush::preset::PRESETS[3];
+    let preset = &crate::tools::brush::preset::PRESETS[3];
     view.brush_preset_request.set(Some(3));
     view.update();
     assert_eq!(view.brush_size(), preset.size);
