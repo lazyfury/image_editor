@@ -24,6 +24,8 @@ pub enum BrushAdjust {
     SizeUp,
     HardnessDown,
     HardnessUp,
+    SmoothDown,
+    SmoothUp,
     OpacityDown,
     OpacityUp,
 }
@@ -36,6 +38,8 @@ impl BrushAdjust {
             Self::SizeUp => "笔刷大小 +",
             Self::HardnessDown => "笔刷硬度 −",
             Self::HardnessUp => "笔刷硬度 +",
+            Self::SmoothDown => "笔刷平滑 −",
+            Self::SmoothUp => "笔刷平滑 +",
             Self::OpacityDown => "不透明度 −",
             Self::OpacityUp => "不透明度 +",
         }
@@ -129,6 +133,8 @@ pub struct GradientOptions {
 /// 选项栏里需要回写的文本 / 容器槽位。
 #[derive(Default)]
 pub struct OptionsRefs {
+    /// 选项栏整行（菜单栏 / 标签条下面的那一行；宿主与测试验证顺序用）。
+    pub panel: NodeRef,
     pub tool: NodeRef,
     pub brush: NodeRef,
     /// 「预设」触发按钮的值标签（`sync` 写当前预设名）。
@@ -136,7 +142,11 @@ pub struct OptionsRefs {
     /// 「预设」触发按钮本身（测试点击 / 下拉锚点）。
     pub preset_button: NodeRef,
     pub size: NodeRef,
+    /// 对称绘画：值标签 + 循环按钮。
+    pub symmetry: NodeRef,
+    pub symmetry_button: NodeRef,
     pub hardness: NodeRef,
+    pub smooth: NodeRef,
     pub opacity: NodeRef,
     pub bucket: NodeRef,
     /// 钢笔：整行容器 / 路径摘要文字 + 四个动作按钮。
@@ -161,6 +171,7 @@ pub fn options_bar(
     preset_label: &str,
     hard_state: Rc<Cell<bool>>,
     square_state: Rc<Cell<bool>>,
+    symmetry_state: Rc<Cell<crate::tools::Symmetry>>,
     pen_request: Rc<Cell<Option<PenAction>>>,
     bucket_request: Rc<Cell<Option<BucketAdjust>>>,
     contiguous_state: Rc<Cell<bool>>,
@@ -216,6 +227,22 @@ pub fn options_bar(
             BrushAdjust::HardnessUp,
             buttons,
         ))
+        .child(Text::caption("平滑", theme).tone(Tone::Muted))
+        .child(step_button(
+            theme,
+            "−",
+            request.clone(),
+            BrushAdjust::SmoothDown,
+            buttons,
+        ))
+        .child(Text::small("", theme).ref_(&refs.smooth))
+        .child(step_button(
+            theme,
+            "+",
+            request.clone(),
+            BrushAdjust::SmoothUp,
+            buttons,
+        ))
         .child(Text::caption("不透明度", theme).tone(Tone::Muted))
         .child(step_button(
             theme,
@@ -232,6 +259,16 @@ pub fn options_bar(
             BrushAdjust::OpacityUp,
             buttons,
         ))
+        .child(Text::caption("对称", theme).tone(Tone::Muted))
+        .child(
+            Button::ghost("切换", theme)
+                .on_click({
+                    let state = symmetry_state.clone();
+                    move |_tree, _id| state.set(state.get().next())
+                })
+                .ref_(&refs.symmetry_button),
+        )
+        .child(Text::small("关", theme).ref_(&refs.symmetry))
         .child(toggle_button(theme, BrushToggle::Hard, hard_state, toggles))
         .child(toggle_button(
             theme,
@@ -334,6 +371,7 @@ pub fn options_bar(
         .child(bucket.ref_(&refs.bucket))
         .child(gradient_row.ref_(&refs.gradient))
         .child(Text::caption("", theme).tone(Tone::Muted).ref_(&refs.hint))
+        .ref_(&refs.panel)
 }
 
 /// 非画笔工具的提示文字（画笔 / 橡皮为空，因为它们的配置就在左边）。

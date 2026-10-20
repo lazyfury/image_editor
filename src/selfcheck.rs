@@ -238,6 +238,364 @@ fn check_pen(failures: &mut Vec<String>) {
     }
 }
 
+/// 自上而下的顺序：菜单栏贴顶 -> 工作区标签条 -> 选项栏。
+fn check_chrome_order(failures: &mut Vec<String>) {
+    let theme = crate::theme::editor_theme(false);
+    let mut view = EditorView::new(theme, AppState::default());
+    view.set_tab_band(crate::ui::TAB_STRIP_HEIGHT);
+    view.layout(viewport());
+
+    let (Some(menu), Some(options)) = (view.menu_bar_rect(), view.options_bar_rect()) else {
+        failures.push("取不到菜单栏 / 选项栏的矩形".to_string());
+        return;
+    };
+    if menu.top() > 0.5 {
+        failures.push(format!("菜单栏应贴顶，实际 top = {}", menu.top()));
+    }
+    let band = options.top() - menu.bottom();
+    if (band - crate::ui::TAB_STRIP_HEIGHT).abs() > 0.5 {
+        failures.push(format!(
+            "菜单栏和选项栏之间应留出标签条 {:.0}px，实际 {band:.1}px",
+            crate::ui::TAB_STRIP_HEIGHT
+        ));
+    }
+
+    // 宿主把标签条钉在菜单栏下面，正好落在那条带子里。
+    let mut tabs = crate::ui::WorkspaceTabs::new(theme);
+    tabs.set_tabs(
+        &[crate::ui::WorkspaceTab {
+            name: "A".into(),
+            dirty: false,
+        }],
+        0,
+    );
+    tabs.set_top(menu.bottom());
+    tabs.layout(viewport());
+    match tabs.bar_rect() {
+        Some(bar) => {
+            if (bar.top() - menu.bottom()).abs() > 0.5 {
+                failures.push(format!(
+                    "标签条应贴菜单栏下沿：菜单 {} / 标签 {}",
+                    menu.bottom(),
+                    bar.top()
+                ));
+            }
+            if bar.bottom() > options.top() + 0.5 {
+                failures.push(format!(
+                    "标签条压到了选项栏：标签 {} / 选项栏 {}",
+                    bar.bottom(),
+                    options.top()
+                ));
+            }
+        }
+        None => failures.push("取不到标签条的矩形".to_string()),
+    }
+}
+
+/// 拖一个矩形选区（带修饰键），走真实事件。
+fn drag_selection(view: &mut EditorView, from: Vec2, to: Vec2, modifiers: igui_core::Modifiers) {
+    view.set_modifiers(modifiers);
+    for event in [
+        InputEvent::PointerDown {
+            position: from,
+            button: PointerButton::Left,
+        },
+        InputEvent::PointerMove { position: to },
+        InputEvent::PointerUp {
+            position: to,
+            button: PointerButton::Left,
+        },
+    ] {
+        view.event(&event);
+    }
+    view.update();
+    view.set_modifiers(igui_core::Modifiers::NONE);
+}
+
+/// 选区剪贴板：复制 → 删除 → 粘贴，像素去而复返且各算一步 undo。
+fn check_clipboard(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    // 用矩形填充画一块黑，再框选它。
+    let camera = view.canvas_camera();
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('r'),
+    });
+    view.update();
+    let (from, to) = (
+        camera.document_to_screen(Vec2::new(30.0, 30.0)),
+        camera.document_to_screen(Vec2::new(70.0, 70.0)),
+    );
+    for event in [
+        InputEvent::PointerDown {
+            position: from,
+            button: PointerButton::Left,
+        },
+        InputEvent::PointerMove { position: to },
+        InputEvent::PointerUp {
+            position: to,
+            button: PointerButton::Left,
+        },
+    ] {
+        view.event(&event);
+    }
+    view.update();
+    view.set_selection(Some(crate::canvas::Selection::rect(
+        crate::document::PixelRegion::new(30, 30, 40, 40),
+        view.document_size(),
+    )));
+
+    let pixel = |view: &EditorView| {
+        view.document_snapshot()
+            .active_layer()
+            .map(|layer| layer.pixels.get_pixel(50, 50))
+            .unwrap_or(Color::TRANSPARENT)
+    };
+    if pixel(&view) != Color::BLACK {
+        failures.push("矩形填充没有画出黑块".to_string());
+        return;
+    }
+
+    let before = view.history_len().0;
+    if !view.copy_selection() {
+        failures.push("复制失败".to_string());
+    }
+    if !view.has_clipboard() {
+        failures.push("复制后剪贴板应有内容".to_string());
+    }
+    if !view.delete_selection() {
+        failures.push("删除选区内容失败".to_string());
+    } else if pixel(&view).a != 0 {
+        failures.push("删除后选区内容应透明".to_string());
+    }
+    if view.history_len().0 != before + 1 {
+        failures.push("删除应只加一步 undo".to_string());
+    }
+    if !view.paste_clipboard() {
+        failures.push("粘贴失败".to_string());
+    } else if pixel(&view) != Color::BLACK {
+        failures.push(format!("粘贴没有复原像素：{:?}", pixel(&view)));
+    }
+    if view.history_len().0 != before + 2 {
+        failures.push("粘贴应只加一步 undo".to_string());
+    }
+}
+
+/// 选区加选 / 减选：Shift 框一块并进旧选区，Alt 再框掉它。
+fn check_selection_merge(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('m'),
+    });
+    view.update();
+    view.layout(viewport());
+    let camera = view.canvas_camera();
+    let a = camera.document_to_screen(Vec2::new(20.0, 20.0));
+    let b = camera.document_to_screen(Vec2::new(60.0, 60.0));
+    let c = camera.document_to_screen(Vec2::new(80.0, 20.0));
+    let d = camera.document_to_screen(Vec2::new(120.0, 60.0));
+    let area = |view: &EditorView| view.selection().map(|s| s.area()).unwrap_or(0);
+
+    drag_selection(&mut view, a, b, igui_core::Modifiers::NONE);
+    let first = area(&view);
+    if first == 0 {
+        failures.push("框选没有产生选区".to_string());
+        return;
+    }
+
+    // Shift：把右边那块并进来，面积至少翻倍。
+    drag_selection(
+        &mut view,
+        c,
+        d,
+        igui_core::Modifiers {
+            shift: true,
+            ..igui_core::Modifiers::NONE
+        },
+    );
+    let added = area(&view);
+    if added < first * 2 {
+        failures.push(format!("Shift 加选没生效：{first} -> {added}"));
+    }
+
+    // Alt：再把第一块减掉，面积应该变小。
+    drag_selection(
+        &mut view,
+        a,
+        b,
+        igui_core::Modifiers {
+            alt: true,
+            ..igui_core::Modifiers::NONE
+        },
+    );
+    let remaining = area(&view);
+    if remaining >= added {
+        failures.push(format!("Alt 减选没生效：{added} -> {remaining}"));
+    }
+}
+
+/// 「选择」菜单是第 4 个标题（文件 / 编辑 / 图像 / 图层 / 选择 …）。
+const SELECT_MENU: usize = 4;
+
+/// 打开「选择」菜单并按文字点里面的某一项。
+fn pick_select_menu(view: &mut EditorView, label: &str, failures: &mut Vec<String>) -> bool {
+    let Some(title) = view.menu_center(SELECT_MENU) else {
+        failures.push("找不到「选择」菜单标题".to_string());
+        return false;
+    };
+    click_at(view, title);
+    view.update();
+    view.layout(viewport());
+    let frame = paint_frame(view);
+    match text_center(&frame, label) {
+        Some(center) => {
+            click_at(view, center);
+            view.update();
+            true
+        }
+        None => {
+            failures.push(format!("「选择」菜单里找不到「{label}」"));
+            false
+        }
+    }
+}
+
+/// 选择菜单的「全选 / 反选」：走真实的下拉点击，选区和状态栏都要跟着变。
+fn check_selection_menu(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+
+    if pick_select_menu(&mut view, "全选", failures) {
+        match view.selection() {
+            Some(selection) if selection.area() == 128 * 128 => {}
+            Some(selection) => failures.push(format!(
+                "全选后选区面积应为 {}，实为 {}",
+                128 * 128,
+                selection.area()
+            )),
+            None => failures.push("全选没有产生选区".to_string()),
+        }
+    }
+
+    if pick_select_menu(&mut view, "反选", failures) && view.selection().is_some() {
+        failures.push("全选再反选应取消选择".to_string());
+    }
+
+    // 羽化：先全选，再点「羽化」，画布边缘的覆盖率应淡到一半以下。
+    if pick_select_menu(&mut view, "全选", failures)
+        && pick_select_menu(&mut view, "羽化", failures)
+    {
+        match view.selection() {
+            Some(selection) if selection.coverage(0, 64) < 0.5 => {
+                if selection.coverage(64, 64) < 0.99 {
+                    failures.push("羽化不该把选区中心也变淡".to_string());
+                }
+            }
+            Some(selection) => {
+                failures.push(format!("羽化没有让边缘变淡：{}", selection.coverage(0, 64)))
+            }
+            None => failures.push("羽化把选区弄没了".to_string()),
+        }
+    }
+}
+
+/// 笔刷光标圈：画笔在画布上时出现、指针离开画布就消失。
+fn check_brush_cursor(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    // 文档中心在屏幕上的位置：一定落在画布区域里。
+    let pointer = view
+        .canvas_camera()
+        .document_to_screen(Vec2::new(64.5, 64.5));
+    let has_ring = |frame: &RecordedFrame| {
+        frame.commands().iter().any(|command| {
+            matches!(command, DrawCommand::StrokeRect { rect, .. } if rect.center() == pointer)
+        })
+    };
+
+    view.event(&InputEvent::PointerMove { position: pointer });
+    view.layout(viewport());
+    if !has_ring(&paint_frame(&view)) {
+        failures.push("画笔在画布上应显示笔刷光标圈".to_string());
+    }
+
+    let off_canvas = Vec2::new(pointer.x, 4.0);
+    view.event(&InputEvent::PointerMove {
+        position: off_canvas,
+    });
+    view.layout(viewport());
+    if has_ring(&paint_frame(&view)) {
+        failures.push("指针离开画布后不该再有光标圈".to_string());
+    }
+}
+
+/// 选项栏的「平滑 −」：100% -> 80%（0% 是折线，像素画的「笔到手到」）。
+fn check_brush_smooth(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('b'),
+    });
+    view.update();
+    view.layout(viewport());
+
+    for _ in 0..2 {
+        match view.brush_adjust_center(crate::ui::BrushAdjust::SmoothDown) {
+            Some(center) => {
+                click_at(&mut view, center);
+                view.update();
+            }
+            None => {
+                failures.push("找不到选项栏的「平滑 −」按钮".to_string());
+                return;
+            }
+        }
+    }
+    if (view.brush_smooth() - 0.8).abs() > 1e-4 {
+        failures.push(format!(
+            "「平滑 −」没生效：{:.0}%",
+            view.brush_smooth() * 100.0
+        ));
+    }
+}
+
+/// 对称绘画：选项栏「切换」循环到垂直，画一笔两侧都要有像素。
+fn check_symmetry(failures: &mut Vec<String>) {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    match view.symmetry_button_center() {
+        Some(center) => {
+            click_at(&mut view, center);
+            view.update();
+        }
+        None => {
+            failures.push("找不到对称「切换」按钮".to_string());
+            return;
+        }
+    }
+    if view.symmetry_mode() != crate::tools::Symmetry::Vertical {
+        failures.push(format!(
+            "对称应切到垂直，实为 {}",
+            view.symmetry_mode().label()
+        ));
+    }
+
+    let point = view
+        .canvas_camera()
+        .document_to_screen(Vec2::new(20.0, 64.0));
+    click_at(&mut view, point);
+    view.update();
+    let snapshot = view.document_snapshot();
+    let mirrored = snapshot
+        .active_layer()
+        .map(|layer| layer.pixels.get_pixel(127 - 20, 64))
+        .unwrap_or(Color::TRANSPARENT);
+    if mirrored != Color::BLACK {
+        failures.push(format!("垂直对称的镜像位置没有落笔：{mirrored:?}"));
+    }
+}
+
 /// 笔刷预设 + 硬度：下拉里能点、选中后参数 / 开关 / 标签都跟着变，硬度 − 生效。
 fn check_brush_presets(failures: &mut Vec<String>) {
     use crate::tools::brush::preset;
@@ -619,6 +977,12 @@ pub fn check() -> (usize, String) {
     if !view.can_undo() {
         failures.push("一笔画笔之后应该能撤销".to_string());
     }
+    // 撤销区域贴着笔迹（不是整层 diff）：30 屏幕像素的一笔远小于整张文档。
+    match view.undo_region() {
+        Some(region) if region.area() * 8 < 128 * 128 => {}
+        Some(region) => failures.push(format!("撤销区域应是笔迹包围盒而不是整层：{region:?}")),
+        None => failures.push("撤销命令没有记录像素区域".to_string()),
+    }
     // 一笔 = 一步 undo：此刻栈里应该只有这一笔。
     if view.history_len() != (1, 0) {
         failures.push(format!(
@@ -844,6 +1208,13 @@ pub fn check() -> (usize, String) {
     check_pixel_mode_edges(&mut failures);
     check_brush_presets(&mut failures);
     check_pen(&mut failures);
+    check_brush_cursor(&mut failures);
+    check_brush_smooth(&mut failures);
+    check_symmetry(&mut failures);
+    check_selection_menu(&mut failures);
+    check_selection_merge(&mut failures);
+    check_clipboard(&mut failures);
+    check_chrome_order(&mut failures);
     check_bucket(&mut failures);
     check_gradient(&mut failures);
     check_magic_wand(&mut failures);

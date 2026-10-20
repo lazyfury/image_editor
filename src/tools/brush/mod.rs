@@ -25,9 +25,9 @@ use igui_core::Vec2;
 use super::stroke;
 use super::tool::{PointerEvent, Tool, ToolContext};
 use crate::canvas::Selection;
-use crate::document::{Color, Document, LayerId, PaintCommand, PixelBuffer};
+use crate::document::{Color, Document, LayerId, PaintCommand, PixelBuffer, PixelRegion};
 
-pub use tip::BrushShape;
+pub use tip::{BrushShape, Symmetry};
 
 use mask::{StrokeMask, Writer};
 use tip::Tip;
@@ -57,6 +57,8 @@ pub struct BrushTool {
     pub opacity: f32,
     /// 笔尖硬度：1 = 只有 1px 抗锯齿边，0 = 从中心渐变到边缘。
     pub hardness: f32,
+    /// 平滑强度：1 = 二次中点平滑（默认，快笔画不出折角），0 = 纯折线（像素画笔到手到）。
+    pub smooth: f32,
     pub color: Color,
     pub mode: BrushMode,
     /// 可选选区：只有落在里面的像素会被写（Phase 8 / 12 的选区裁剪）。
@@ -66,6 +68,8 @@ pub struct BrushTool {
     pub hard: bool,
     /// 笔刷形状。
     pub shape: BrushShape,
+    /// 对称绘画（镜像轴 = 文档中线）。
+    pub symmetry: Symmetry,
     drawing: bool,
     /// 采样器状态：上一个 / 上上个光标点（见 [`stroke`]）。
     last: Option<Vec2>,
@@ -74,6 +78,10 @@ pub struct BrushTool {
     painted: Option<Vec2>,
     /// 复用的等距采样缓冲，避免每个光标事件都分配。
     dabs: Vec<Vec2>,
+    /// **整笔**实际写过的文档像素包围盒（抬笔时做撤销区域，`take_dirty` 不动它）。
+    stroke_dirty: Option<PixelRegion>,
+    /// 上次 [`Self::take_dirty`] 之后的脏区（视图拿它做局部合成）。
+    dirty_since_take: Option<PixelRegion>,
     /// 当前笔触落笔时的图层快照；不在笔画中时为 `None`。
     pending: Option<PendingStroke>,
 }
@@ -93,13 +101,17 @@ impl BrushTool {
             mode: BrushMode::Paint,
             clip: None,
             hardness: 1.0,
+            smooth: 1.0,
             hard: true,
             shape: BrushShape::Square,
+            symmetry: Symmetry::Off,
             drawing: false,
             last: None,
             previous: None,
             painted: None,
             dabs: Vec::new(),
+            stroke_dirty: None,
+            dirty_since_take: None,
             pending: None,
         }
     }
@@ -117,6 +129,13 @@ impl BrushTool {
     /// 是否正处在一笔的中间。
     pub fn is_drawing(&self) -> bool {
         self.drawing
+    }
+
+    /// 取走「上次报告以来」写过的像素包围盒（文档坐标），视图拿它做局部合成。
+    ///
+    /// 整笔的包围盒另外记着（抬笔时做撤销区域），所以反复调用不会丢撤销范围。
+    pub fn take_dirty(&mut self) -> Option<PixelRegion> {
+        self.dirty_since_take.take()
     }
 
     /// 把 `color` 也带上。运行时直接改 `self.brush.color`，这里给测试构造画笔用。
@@ -159,9 +178,10 @@ impl BrushTool {
         let mut dabs = std::mem::take(&mut self.dabs);
         dabs.clear();
         if let Some(last) = self.last {
-            let from = self
-                .previous
-                .map_or(last, |previous| stroke::midpoint(previous, last));
+            let ease = 1.0 - self.smooth.clamp(0.0, 1.0);
+            let from = self.previous.map_or(last, |previous| {
+                stroke::midpoint(previous, last).lerp(last, ease)
+            });
             stroke::curve_dabs(from, last, to, self.spacing(), &mut dabs);
             self.paint_dabs(document, &mut dabs);
         }
@@ -186,16 +206,22 @@ impl BrushTool {
             // 原地不动的 move 事件（有些系统会连发）不该再压一个点。
             return;
         }
-        let from = self
-            .previous
-            .map_or(last, |previous| stroke::midpoint(previous, last));
-        let end = stroke::midpoint(last, to);
+        // 平滑强度把「锚点 / 光标」和「中点」混起来：1 = 平滑（终点是两段的中点，
+        // 笔迹滞后半个事件段），0 = 折线（终点就是光标，笔到手到）。
+        let ease = 1.0 - self.smooth.clamp(0.0, 1.0);
+        let from = self.previous.map_or(last, |previous| {
+            stroke::midpoint(previous, last).lerp(last, ease)
+        });
+        let end = stroke::midpoint(last, to).lerp(to, ease);
         stroke::curve_dabs(from, last, end, self.spacing(), out);
         self.previous = Some(last);
         self.last = Some(to);
     }
 
     /// 把一批等距采样点压到当前图层上。
+    ///
+    /// 对称绘画由 [`Writer`] 在像素级镜像（见 [`Symmetry::mirror_pixel`]），
+    /// 所以这里只走一遍采样点。
     fn paint_dabs(&mut self, document: &mut Document, dabs: &mut Vec<Vec2>) {
         let tip = self.tip();
         // 1px 像素笔走 Bresenham：采样点之间可能斜向隔开，连线才不会断。
@@ -211,12 +237,21 @@ impl BrushTool {
                 tip.cover(point, |x, y, coverage| writer.put(x, y, coverage));
             }
         }
+        let dirty = writer.dirty();
         self.painted = painted;
+        if let Some(region) = dirty {
+            self.stroke_dirty = Some(self.stroke_dirty.map_or(region, |old| old.union(region)));
+            self.dirty_since_take = Some(
+                self.dirty_since_take
+                    .map_or(region, |old| old.union(region)),
+            );
+        }
         dabs.clear();
     }
 
     /// 当前这一笔的写入上下文（目标图层 + 落笔前快照 + 本笔蒙版）。
     fn writer<'a>(&'a mut self, document: &'a mut Document) -> Option<Writer<'a>> {
+        let document_size = (document.width, document.height);
         let layer = document.active_layer_mut()?;
         let offset = layer.position;
         let target = &mut layer.pixels;
@@ -230,9 +265,12 @@ impl BrushTool {
             opacity,
             clip,
             offset,
+            symmetry: self.symmetry,
+            document: document_size,
             before,
             mask,
             target,
+            dirty: None,
         })
     }
 
@@ -244,6 +282,8 @@ impl BrushTool {
     /// 「一笔」生效。
     fn begin_stroke(&mut self, ctx: &mut ToolContext) {
         self.reset_sampling();
+        self.stroke_dirty = None;
+        self.dirty_since_take = None;
         if let Some(id) = ctx.document.active_layer().map(|layer| layer.id) {
             let (dx, dy) = ctx.document.ensure_layer_covers_document(id);
             ctx.history.translate_layer(id, dx, dy);
@@ -256,15 +296,30 @@ impl BrushTool {
     }
 
     /// 收一笔：整笔的像素差异提交成**一条**命令；没有变化就不入栈。
+    ///
+    /// 区域有这一笔的脏矩形记录（[`Writer::dirty`]），所以不用扫整层做 diff：
+    /// 4K 文档抬笔从「扫 830 万像素」变成「只比包围盒」。
     fn commit_stroke(&mut self, ctx: &mut ToolContext) {
         let Some(pending) = self.pending.take() else {
             return;
         };
-        let command = match ctx.document.layer(pending.layer) {
-            Some(layer) => {
-                PaintCommand::capture(pending.layer, &pending.before, &layer.pixels, self.name())
+        let document_region = self.stroke_dirty.take();
+        let command = match (ctx.document.layer(pending.layer), document_region) {
+            (Some(layer), Some(region)) => {
+                let region = region.in_buffer(
+                    (layer.position.x, layer.position.y),
+                    layer.pixels.width,
+                    layer.pixels.height,
+                );
+                PaintCommand::capture_in(
+                    pending.layer,
+                    region,
+                    &pending.before,
+                    &layer.pixels,
+                    self.name(),
+                )
             }
-            None => None,
+            _ => None,
         };
         if let Some(command) = command {
             ctx.history.execute(Box::new(command), ctx.document);
@@ -298,6 +353,7 @@ impl BrushTool {
     }
 
     /// 清掉一条笔触的采样状态。
+    /// 清掉采样器状态（**不动** `stroke_dirty`：抬笔前还要用它提交撤销区域）。
     fn reset_sampling(&mut self) {
         self.last = None;
         self.previous = None;
@@ -510,6 +566,92 @@ mod tests {
     }
 
     #[test]
+    fn a_vertical_symmetry_stroke_is_mirrored_about_the_document_mid_line() {
+        // 32×32 文档、垂直对称：左边画一下，右边对称位置也有。像素级镜像
+        // （x' = width - 1 - x），像素画也严格对称。
+        let mut document = document();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        brush.symmetry = Symmetry::Vertical;
+        stroke(&mut brush, &mut document, &[Vec2::new(10.0, 20.0)]);
+        assert_eq!(at(&document, 10, 20), Color::RED);
+        assert_eq!(at(&document, 21, 20), Color::RED, "x' = 32 - 1 - 10");
+        assert_eq!(at(&document, 20, 20), Color::WHITE, "中间不该被压");
+    }
+
+    #[test]
+    fn four_way_symmetry_presses_four_pixels_and_off_presses_one() {
+        let mut off = document();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        stroke(&mut brush, &mut off, &[Vec2::new(6.0, 4.0)]);
+        assert_eq!(at(&off, 6, 4), Color::RED);
+        assert_eq!(at(&off, 25, 4), Color::WHITE, "关掉对称只有一处");
+
+        let mut both = document();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        brush.symmetry = Symmetry::Both;
+        stroke(&mut brush, &mut both, &[Vec2::new(6.0, 4.0)]);
+        for (x, y) in [(6, 4), (25, 4), (6, 27), (25, 27)] {
+            assert_eq!(at(&both, x, y), Color::RED, "({x}, {y})");
+        }
+    }
+
+    #[test]
+    fn full_smoothing_lags_the_ink_by_half_a_segment() {
+        // 默认（平滑 1）：曲线只能画到「当前点与下一个点的中点」，所以一次 move
+        // 之后光标处的像素还没落笔 —— 抬笔时才补完。
+        let mut document = document();
+        let mut history = History::new();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        brush.on_pointer_down(
+            &mut context(&mut document, &mut history),
+            left(Vec2::new(4.0, 16.0)),
+        );
+        brush.on_pointer_move(
+            &mut context(&mut document, &mut history),
+            left(Vec2::new(28.0, 16.0)),
+        );
+        assert_eq!(
+            at(&document, 28, 16),
+            Color::WHITE,
+            "平滑模式下落笔滞后：光标处的像素还没压到"
+        );
+        assert_eq!(at(&document, 16, 16), Color::RED, "中点已经画到");
+        brush.on_pointer_up(
+            &mut context(&mut document, &mut history),
+            left(Vec2::new(28.0, 16.0)),
+        );
+        assert_eq!(at(&document, 28, 16), Color::RED, "抬笔时补完最后半段");
+    }
+
+    #[test]
+    fn zero_smoothing_follows_the_cursor_exactly() {
+        // 平滑 0：折线直连，move 一下光标处立刻落笔（像素画要的「笔到手到」）。
+        let mut document = document();
+        let mut history = History::new();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        brush.smooth = 0.0;
+        brush.on_pointer_down(
+            &mut context(&mut document, &mut history),
+            left(Vec2::new(4.0, 4.0)),
+        );
+        brush.on_pointer_move(
+            &mut context(&mut document, &mut history),
+            left(Vec2::new(28.0, 4.0)),
+        );
+        assert_eq!(at(&document, 28, 4), Color::RED, "光标处应立刻落笔");
+        brush.on_pointer_move(
+            &mut context(&mut document, &mut history),
+            left(Vec2::new(28.0, 28.0)),
+        );
+        assert_eq!(at(&document, 28, 4), Color::RED, "拐角仍然在");
+        assert_eq!(at(&document, 28, 28), Color::RED, "第二段也到位");
+        brush.on_pointer_up(
+            &mut context(&mut document, &mut history),
+            left(Vec2::new(28.0, 28.0)),
+        );
+    }
+
+    #[test]
     fn two_half_opacity_strokes_build_up_to_seventy_five_percent() {
         // 每一笔各自封顶 50%，两笔相交才是标准的 1 - (1 - 0.5)^2 = 75%。
         let mut document = document();
@@ -520,6 +662,42 @@ mod tests {
         }
         let color = at(&document, 16, 16);
         assert!((color.r as i32 - 64).abs() <= 2, "r = {}", color.r);
+    }
+
+    #[test]
+    fn the_undo_region_is_the_stroke_box_not_the_whole_layer() {
+        // 抬笔不再扫整层 diff：撤销区域 = 这一笔实际写过的包围盒。
+        let mut document = Document::new("d", 64, 64);
+        let mut history = History::new();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        brush.size = 4.0;
+        brush.hard = false;
+        {
+            let mut ctx = context(&mut document, &mut history);
+            brush.stroke_path(&mut ctx, &[Vec2::new(10.0, 10.0), Vec2::new(30.0, 12.0)]);
+        }
+        let region = history.undo_region().expect("应记录撤销区域");
+        assert!(
+            region.width <= 26 && region.height <= 10,
+            "区域应贴着笔迹（4px 笔 + 20px 长），实际 {region:?}"
+        );
+        assert!(region.area() < 64 * 64 / 4, "不该是整层：{region:?}");
+    }
+
+    #[test]
+    fn a_stroke_that_changes_nothing_pushes_no_command() {
+        // 整笔落在文档外：脏区里没有任何真实变化 -> 不入栈（有 bbox 也一样）。
+        let mut document = document();
+        let mut history = History::new();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        {
+            let mut ctx = context(&mut document, &mut history);
+            brush.stroke_path(
+                &mut ctx,
+                &[Vec2::new(-50.0, -50.0), Vec2::new(-40.0, -50.0)],
+            );
+        }
+        assert!(!history.can_undo());
     }
 
     #[test]

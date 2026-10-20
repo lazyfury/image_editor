@@ -41,23 +41,52 @@ impl EditorView {
 
     /// 取走待上传的文档合成结果；宿主把它注册成纹理。没有变化时返回 `None`。
     pub fn take_texture_upload(&mut self) -> Option<PixelBuffer> {
-        if !self.texture_dirty {
+        let full = std::mem::take(&mut self.texture_dirty);
+        let region = self.dirty_region.take();
+        if !full && region.is_none() {
             return None;
         }
-        self.texture_dirty = false;
         let state = self.state.borrow();
-        self.renderer
-            .render(&state.document, &mut self.render_target);
-        // 显示用：透明区域补上棋盘格（可关）。导出走 `export_png_to`，仍是纯合成。
-        if self.show_checkerboard {
-            paint_backdrop(&mut self.render_target.pixels);
+        match (full, region) {
+            // 整图：导出 / 尺寸变化 / 图层结构变了。
+            (true, _) | (false, None) => {
+                self.renderer
+                    .render(&state.document, &mut self.render_target);
+                if self.show_checkerboard {
+                    paint_backdrop(&mut self.render_target.pixels);
+                }
+            }
+            // 局部：画笔一笔只脏一小块，4K 文档不用每帧重算整张。
+            (false, Some(region)) => {
+                let region = region.clamped(state.document.width, state.document.height);
+                if region.area() == 0 {
+                    return None;
+                }
+                self.renderer
+                    .render_region(&state.document, &mut self.render_target, region);
+                if self.show_checkerboard {
+                    paint_backdrop_in(&mut self.render_target.pixels, region);
+                }
+            }
         }
         Some(self.render_target.pixels.clone())
     }
 
-    /// 文档像素变了，需要重新合成 / 上传（Phase 4/5 的编辑会调用）。
+    /// 文档像素变了，需要**整图**重新合成 / 上传（图层增删 / 移动 / 撤销 / 导入…）。
     pub fn mark_texture_dirty(&mut self) {
         self.texture_dirty = true;
+        self.dirty_region = None;
+    }
+
+    /// 只有 `region`（文档坐标）变了：局部重合成，其余像素沿用上一帧。
+    pub fn mark_region_dirty(&mut self, region: crate::document::PixelRegion) {
+        if self.texture_dirty {
+            return; // 反正要整图，不用再攒脏区
+        }
+        self.dirty_region = Some(match self.dirty_region {
+            Some(old) => old.union(region),
+            None => region,
+        });
     }
 
     // -- 撤销 / 重做（Phase 6） -------------------------------------------
@@ -97,6 +126,11 @@ impl EditorView {
 
     pub fn can_redo(&self) -> bool {
         self.state.borrow().can_redo()
+    }
+
+    /// 最近一条撤销命令改动的像素区域（自检核对「撤销区域贴着笔迹」用）。
+    pub fn undo_region(&self) -> Option<crate::document::PixelRegion> {
+        self.state.borrow().history.undo_region()
     }
 
     /// 撤销 / 重做栈的长度，测试与自检用。
@@ -256,14 +290,33 @@ impl EditorView {
         igui_ui::control(&self.tree, id).map(|control| control.rect.center())
     }
 
+    /// 当前对称绘画模式 / 循环按钮的中心点。
+    pub fn symmetry_mode(&self) -> crate::tools::Symmetry {
+        self.symmetry_mode.get()
+    }
+
+    pub fn symmetry_button_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.symmetry_button).map(|control| control.rect.center())
+    }
+
     /// 当前笔刷硬度（0..=1）。
     pub fn brush_hardness(&self) -> f32 {
         self.brush.hardness
     }
 
+    /// 当前平滑强度（0 = 折线、1 = 二次中点平滑）。
+    pub fn brush_smooth(&self) -> f32 {
+        self.brush.smooth
+    }
+
     /// 当前笔刷不透明度（0..=1）。
     pub fn brush_opacity(&self) -> f32 {
         self.brush.opacity
+    }
+
+    /// 选项栏整行的矩形（宿主与测试验证自上而下的顺序用）。
+    pub fn options_bar_rect(&self) -> Option<Rect> {
+        igui_ui::control(&self.tree, self.options_panel).map(|control| control.rect)
     }
 
     /// 选项栏「预设」触发按钮的中心点（测试与自检点击用）。
@@ -438,6 +491,11 @@ impl EditorView {
     pub fn menu_center(&self, index: usize) -> Option<Vec2> {
         let id = *self.menu_nodes.get(index)?;
         igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
+    /// 直接设置当前选区（测试 / 自检造场景；`None` = 取消选择）。
+    pub fn set_selection(&mut self, selection: Option<Selection>) {
+        self.state.borrow_mut().selection = selection.map(Rc::new);
     }
 
     /// 当前是否有下拉菜单打开。

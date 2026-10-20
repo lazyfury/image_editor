@@ -185,7 +185,12 @@ pub fn fill_selection(
         let mut changed = false;
         for y in 0..height {
             for x in 0..width {
-                if !region.contains(x, y) || clip.is_some_and(|c| !c.contains(x, y)) {
+                // 羽化过的选区按覆盖率混合，硬选区里就是 0 / 1。
+                let mut alpha = region.coverage(x, y);
+                if let Some(clip) = clip {
+                    alpha *= clip.coverage(x, y);
+                }
+                if alpha <= 0.0 {
                     continue;
                 }
                 let bx = x as i64 - offset.x as i64;
@@ -198,9 +203,17 @@ pub fn fill_selection(
                     continue;
                 }
                 let (bx, by) = (bx as u32, by as u32);
-                if layer.pixels.get_pixel(bx, by) != color {
-                    layer.pixels.set_pixel(bx, by, color);
-                    changed = true;
+                let before = layer.pixels.get_pixel(bx, by);
+                if alpha >= 1.0 {
+                    if before != color {
+                        layer.pixels.set_pixel(bx, by, color);
+                        changed = true;
+                    }
+                } else {
+                    layer.pixels.blend_from(bx, by, before, color, alpha);
+                    if layer.pixels.get_pixel(bx, by) != before {
+                        changed = true;
+                    }
                 }
             }
         }

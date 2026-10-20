@@ -12,12 +12,14 @@
 mod codec;
 mod dialog;
 mod file;
+mod preferences;
 mod recent;
 mod workspace;
 
 pub use codec::{decode_png, encode_png};
 pub use dialog::{DialogOptions, FileDialog, FileFilter, NativeFileDialog};
 pub use file::{file_label, read_png, write_png};
+pub use preferences::{load as load_preferences, save as save_preferences, BrushPreferences};
 pub use recent::{load_recent, record_recent};
 pub use workspace::{
     read_workspace, read_workspace_summary, write_workspace, EXTENSION as WORKSPACE_EXTENSION,

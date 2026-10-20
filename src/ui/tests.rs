@@ -313,6 +313,223 @@ fn the_pixel_mode_toggles_flip_the_brush() {
     assert!(view.pixel_mode() && view.square_mode());
 }
 
+/// 指针停在 `position`（画布区域内的逻辑坐标）后画一帧。
+fn frame_with_pointer(view: &mut EditorView, position: Vec2) -> Vec<DrawCommand> {
+    view.event(&InputEvent::PointerMove { position });
+    view.layout(viewport());
+    paint_commands(view)
+}
+
+#[test]
+fn the_symmetry_button_cycles_and_the_brush_follows() {
+    let mut view = brush_view();
+    assert_eq!(view.symmetry_mode(), crate::tools::Symmetry::Off);
+    let center = view.symmetry_button_center().expect("symmetry button");
+    for expected in [
+        crate::tools::Symmetry::Vertical,
+        crate::tools::Symmetry::Horizontal,
+        crate::tools::Symmetry::Both,
+        crate::tools::Symmetry::Off,
+    ] {
+        click_at(&mut view, center);
+        assert_eq!(view.symmetry_mode(), expected);
+        // 选项栏是显示源，`update` 每帧同步进画笔。
+        assert_eq!(label_text(&view, view.options_symmetry), expected.label());
+    }
+}
+
+#[test]
+fn a_symmetric_stroke_paints_both_sides_through_the_view() {
+    let mut view = brush_view();
+    let center = view.symmetry_button_center().expect("symmetry button");
+    click_at(&mut view, center);
+    assert_eq!(view.symmetry_mode(), crate::tools::Symmetry::Vertical);
+
+    // 左半边画一下（默认 32? 不 —— 默认 128×128 文档）。
+    let point = view
+        .canvas_camera()
+        .document_to_screen(Vec2::new(20.0, 64.0));
+    click_at(&mut view, point);
+    let (left, right) = {
+        let state = view.state.borrow();
+        let pixels = &state.document.active_layer().unwrap().pixels;
+        (pixels.get_pixel(20, 64), pixels.get_pixel(107, 64))
+    };
+    assert_eq!(left, Color::BLACK, "原位置应落笔");
+    assert_eq!(right, Color::BLACK, "x' = 128 - 1 - 20 镜像位置也应落笔");
+}
+
+#[test]
+fn the_brush_cursor_ring_follows_the_pointer_and_the_brush_size() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    let pointer = view
+        .canvas_camera()
+        .document_to_screen(Vec2::new(64.5, 64.5));
+
+    // 默认 1px 像素笔：指针处出现一个方形轮廓（最小半径，保证看得见）。
+    let ring = |commands: &[DrawCommand]| {
+        commands.iter().find_map(|command| match command {
+            DrawCommand::StrokeRect { rect, .. } if rect.center() == pointer => Some(rect.size),
+            _ => None,
+        })
+    };
+    let small = ring(&frame_with_pointer(&mut view, pointer)).expect("指针在画布上应有光标圈");
+
+    // 笔刷变大 -> 圈跟着变大。
+    view.brush.size = 20.0;
+    let large = ring(&frame_with_pointer(&mut view, pointer)).expect("光标圈还在");
+    assert!(large.width > small.width, "{large:?} 应比 {small:?} 大");
+
+    // 指针离开画布（例如移到菜单栏）就不再画。
+    let off_canvas = Vec2::new(pointer.x, 4.0);
+    assert!(
+        ring(&frame_with_pointer(&mut view, off_canvas)).is_none(),
+        "指针不在画布上时不该有光标圈"
+    );
+}
+
+#[test]
+fn the_round_brush_draws_a_circle_cursor() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    // 关掉「方形」= 圆头笔。
+    view.square_mode.set(false);
+    view.update();
+    view.brush.size = 20.0;
+    let pointer = view
+        .canvas_camera()
+        .document_to_screen(Vec2::new(64.5, 64.5));
+    let zoom = view.canvas_camera().zoom;
+
+    let commands = frame_with_pointer(&mut view, pointer);
+    let radius = commands.iter().find_map(|command| match command {
+        DrawCommand::StrokeCircle { center, radius, .. } if *center == pointer => Some(*radius),
+        _ => None,
+    });
+    let radius = radius.expect("圆头笔应画圆形光标");
+    assert!(
+        (radius - 20.0 * zoom * 0.5).abs() < 0.01,
+        "半径 {radius} 应等于直径 {} 的一半",
+        20.0 * zoom
+    );
+}
+
+#[test]
+fn the_options_bar_smooth_buttons_reach_zero_and_cap_at_one() {
+    let mut view = brush_view();
+    // 默认平滑 100%（二次中点平滑）。
+    assert_eq!(view.brush_smooth(), 1.0);
+    for _ in 0..12 {
+        click_adjust(&mut view, BrushAdjust::SmoothDown);
+    }
+    assert_eq!(view.brush_smooth(), 0.0, "− 到底就是折线，笔到手到");
+    for _ in 0..12 {
+        click_adjust(&mut view, BrushAdjust::SmoothUp);
+    }
+    assert_eq!(view.brush_smooth(), 1.0, "+ 到顶不会超过 100%");
+}
+
+/// 拖一个矩形选区（屏幕坐标），带修饰键状态。
+fn drag_selection(view: &mut EditorView, from: Vec2, to: Vec2, modifiers: igui_core::Modifiers) {
+    view.set_modifiers(modifiers);
+    for event in [
+        InputEvent::PointerDown {
+            position: from,
+            button: PointerButton::Left,
+        },
+        InputEvent::PointerMove { position: to },
+        InputEvent::PointerUp {
+            position: to,
+            button: PointerButton::Left,
+        },
+    ] {
+        view.event(&event);
+    }
+    view.update();
+    view.set_modifiers(igui_core::Modifiers::NONE);
+}
+
+#[test]
+fn shift_adds_and_alt_subtracts_from_the_selection() {
+    let mut view = brush_view();
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('m'),
+    });
+    view.update();
+    let camera = view.canvas_camera();
+    let a = camera.document_to_screen(Vec2::new(20.0, 20.0));
+    let b = camera.document_to_screen(Vec2::new(60.0, 60.0));
+
+    // 先框一块：40×40。
+    drag_selection(&mut view, a, b, igui_core::Modifiers::NONE);
+    assert_eq!(
+        view.selection().map(|selection| selection.area()),
+        Some(40 * 40)
+    );
+
+    // Shift 框右侧同样大的一块：40×40 + 40×40（不重叠）。
+    let c = camera.document_to_screen(Vec2::new(80.0, 20.0));
+    let d = camera.document_to_screen(Vec2::new(120.0, 60.0));
+    drag_selection(
+        &mut view,
+        c,
+        d,
+        igui_core::Modifiers {
+            shift: true,
+            ..igui_core::Modifiers::NONE
+        },
+    );
+    assert_eq!(
+        view.selection().map(|selection| selection.area()),
+        Some(2 * 40 * 40),
+        "Shift 应该是加选"
+    );
+
+    // Alt 框掉左边那块：只剩右边 1600。
+    drag_selection(
+        &mut view,
+        a,
+        b,
+        igui_core::Modifiers {
+            alt: true,
+            ..igui_core::Modifiers::NONE
+        },
+    );
+    assert_eq!(
+        view.selection().map(|selection| selection.area()),
+        Some(40 * 40),
+        "Alt 应该是减选"
+    );
+
+    // 减空了就没有选区。
+    drag_selection(
+        &mut view,
+        c,
+        d,
+        igui_core::Modifiers {
+            alt: true,
+            ..igui_core::Modifiers::NONE
+        },
+    );
+    assert!(view.selection().is_none());
+}
+
+/// 一帧里某段文字的落点（点菜单项用）。
+fn text_center(view: &EditorView, needle: &str) -> Option<Vec2> {
+    paint_commands(view)
+        .into_iter()
+        .find_map(|command| match command {
+            DrawCommand::DrawText {
+                text,
+                position,
+                font_size,
+                ..
+            } if text.contains(needle) => Some(position + Vec2::new(8.0, -font_size * 0.5)),
+            _ => None,
+        })
+}
+
 /// 切到钢笔并排好版的新视图（默认 128×128 文档）。
 fn pen_view() -> EditorView {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
@@ -641,7 +858,7 @@ fn the_tab_strip_stays_at_the_top() {
 fn a_click_on_the_editor_toolbar_reaches_it_through_the_tab_strip() {
     let theme = crate::theme::editor_theme(false);
     let mut editor = EditorView::new(theme, AppState::default());
-    editor.set_top_inset(TAB_STRIP_HEIGHT);
+    editor.set_tab_band(TAB_STRIP_HEIGHT);
     let mut tabs = WorkspaceTabs::new(theme);
     tabs.set_tabs(
         &[WorkspaceTab {
@@ -651,6 +868,8 @@ fn a_click_on_the_editor_toolbar_reaches_it_through_the_tab_strip() {
         0,
     );
     editor.layout(viewport());
+    // 菜单栏在最上：标签条钉在菜单栏下面（宿主每帧同步，这里手动做一次）。
+    tabs.set_top(editor.menu_bar_rect().expect("菜单栏").bottom());
     tabs.layout(viewport());
     let center = editor
         .tool_center(ActiveTool::RectangleSelect)
@@ -677,23 +896,62 @@ fn a_click_on_the_editor_toolbar_reaches_it_through_the_tab_strip() {
     );
 }
 
-/// 顶部预留 32px（工作区标签条）后，编辑器内容仍然绘制。
+/// 菜单栏在最上，工作区标签条在它下面：菜单底 ≤ 标签条顶 ≤ 选项栏顶。
 #[test]
-fn the_editor_still_paints_after_a_top_inset() {
-    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
-    view.set_top_inset(32.0);
+fn the_menu_bar_sits_above_the_tab_band() {
+    let theme = crate::theme::editor_theme(false);
+    let mut view = EditorView::new(theme, AppState::default());
+    view.set_tab_band(TAB_STRIP_HEIGHT);
     view.layout(viewport());
-    let mut menu_y = None;
-    for command in paint_commands(&view) {
-        if let DrawCommand::DrawText { text, position, .. } = command {
-            if text == "文件" {
-                menu_y = Some(position.y);
-            }
-        }
-    }
+
+    let menu = view.menu_bar_rect().expect("菜单栏");
+    let options = view.options_bar_rect().expect("选项栏");
+    assert!(menu.top() <= 0.5, "菜单栏应贴顶，实际 {:?}", menu.top());
     assert!(
-        menu_y.is_some_and(|y| y > 32.0),
-        "页面应下移 32px，菜单 y = {menu_y:?}"
+        menu.bottom() <= options.top(),
+        "菜单栏 ({}) 不该和选项栏 ({}) 重叠",
+        menu.bottom(),
+        options.top()
+    );
+    assert!(
+        (options.top() - menu.bottom() - TAB_STRIP_HEIGHT).abs() < 0.5,
+        "菜单栏和选项栏之间应正好留出标签条：{} -> {}",
+        menu.bottom(),
+        options.top()
+    );
+
+    // 宿主把标签条钉在菜单栏下面，正好落在预留带里。
+    let mut tabs = WorkspaceTabs::new(theme);
+    tabs.set_tabs(
+        &[WorkspaceTab {
+            name: "A".into(),
+            dirty: false,
+        }],
+        0,
+    );
+    tabs.set_top(menu.bottom());
+    tabs.layout(viewport());
+    let bar = tabs.bar_rect().expect("标签条");
+    assert!(
+        (bar.top() - menu.bottom()).abs() < 0.5,
+        "标签条贴菜单栏下沿"
+    );
+    assert!(bar.bottom() <= options.top() + 0.5, "标签条不该压到选项栏");
+}
+
+/// 没有标签条时（`set_tab_band(0)`）菜单下面直接就是选项栏。
+#[test]
+fn without_a_tab_band_the_options_bar_follows_the_menu() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.set_tab_band(0.0);
+    view.layout(viewport());
+    let menu = view.menu_bar_rect().expect("菜单栏");
+    let options = view.options_bar_rect().expect("选项栏");
+    assert!(
+        (options.top() - menu.bottom()).abs() < 0.5,
+        "标签带 0 高时应紧接着菜单栏：{} -> {}",
+        menu.bottom(),
+        options.top()
     );
 }
 
@@ -1257,6 +1515,204 @@ fn undo_restores_the_stroke_and_redo_reapplies_it_through_the_view() {
     view.redo();
     let redone = view.take_texture_upload().expect("重做后应重合成");
     assert_eq!(redone.get_pixel(64, 64), Color::BLACK);
+}
+
+/// 「羽化」把选区边缘变成覆盖率渐变，填充按覆盖率混合（边缘是中间色）。
+#[test]
+fn feathering_softens_the_selection_and_the_fill_follows_it() {
+    let mut view = brush_view();
+    // 框一块 40×40，羽化后边缘变淡、中心仍是满覆盖。
+    view.select_all();
+    let radius = 8.0;
+    assert!(view.feather_selection());
+    let selection = view.selection().expect("羽化后选区还在");
+    assert_eq!(selection.coverage(64, 64), 1.0, "中心仍满覆盖");
+    assert!(
+        selection.coverage(0, 64) < 0.5,
+        "画布边缘应被羽化淡出：{}",
+        selection.coverage(0, 64)
+    );
+    assert!(selection.area() < 128 * 128, "面积按覆盖率折算");
+
+    // 用矩形填充盖住几乎整张画布（起点在画布区域内）：羽化边缘的像素是中间色，
+    // 不是纯前景色。
+    view.event(&InputEvent::KeyDown {
+        key: Key::Character('r'),
+    });
+    view.update();
+    let camera = view.canvas_camera();
+    let from = camera.document_to_screen(Vec2::new(1.0, 1.0));
+    let to = camera.document_to_screen(Vec2::new(127.0, 127.0));
+    for event in [
+        InputEvent::PointerDown {
+            position: from,
+            button: PointerButton::Left,
+        },
+        InputEvent::PointerMove { position: to },
+        InputEvent::PointerUp {
+            position: to,
+            button: PointerButton::Left,
+        },
+    ] {
+        view.event(&event);
+    }
+    view.update();
+    let snapshot = view.document_snapshot();
+    let pixels = &snapshot.active_layer().unwrap().pixels;
+    let edge = pixels.get_pixel(3, 64);
+    let center = pixels.get_pixel(64, 64);
+    assert_eq!(center, Color::BLACK, "中间应被填满");
+    assert!(
+        edge.r > 40 && edge.r < 240,
+        "羽化边缘应是中间色而不是硬边：{edge:?}"
+    );
+    let _ = radius;
+}
+
+/// 「编辑」菜单的剪切 / 复制 / 粘贴接到真实动作上（不是占位）。
+#[test]
+fn the_edit_menu_cuts_copies_and_pastes_the_selection() {
+    let mut view = brush_view();
+    // 画一块黑，框选它。
+    let camera = view.canvas_camera();
+    let paint_rect = |view: &mut EditorView| {
+        let from = camera.document_to_screen(Vec2::new(20.0, 20.0));
+        let to = camera.document_to_screen(Vec2::new(60.0, 60.0));
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character('r'),
+        });
+        view.update();
+        for event in [
+            InputEvent::PointerDown {
+                position: from,
+                button: PointerButton::Left,
+            },
+            InputEvent::PointerMove { position: to },
+            InputEvent::PointerUp {
+                position: to,
+                button: PointerButton::Left,
+            },
+        ] {
+            view.event(&event);
+        }
+        view.update();
+    };
+    paint_rect(&mut view);
+    view.state.borrow_mut().selection = Some(std::rc::Rc::new(crate::canvas::Selection::rect(
+        crate::document::PixelRegion::new(20, 20, 40, 40),
+        (128, 128),
+    )));
+
+    // 「编辑」菜单里点「复制」，剪贴板应有内容。
+    let pick = |view: &mut EditorView, label: &str| {
+        let title = view.menu_center(1).expect("编辑菜单标题");
+        click_at(view, title);
+        view.layout(viewport());
+        let item = text_center(view, label).expect("菜单项");
+        click_at(view, item);
+    };
+    pick(&mut view, "复制");
+    assert!(view.has_clipboard(), "复制后剪贴板应有内容");
+
+    // 剪切 -> 选区变透明；粘贴 -> 复原。
+    let before = {
+        let state = view.state.borrow();
+        state
+            .document
+            .active_layer()
+            .unwrap()
+            .pixels
+            .get_pixel(30, 30)
+    };
+    assert_eq!(before, Color::BLACK);
+    pick(&mut view, "剪切");
+    let cleared = {
+        let state = view.state.borrow();
+        state
+            .document
+            .active_layer()
+            .unwrap()
+            .pixels
+            .get_pixel(30, 30)
+    };
+    assert_eq!(cleared.a, 0, "剪切后选区内容被清掉");
+    pick(&mut view, "粘贴");
+    let pasted = {
+        let state = view.state.borrow();
+        state
+            .document
+            .active_layer()
+            .unwrap()
+            .pixels
+            .get_pixel(30, 30)
+    };
+    assert_eq!(pasted, Color::BLACK, "粘贴回原位");
+}
+
+/// 最近邻采样时文档矩形对齐设备像素网格，避免 1px / 2px 交替的锯齿。
+#[test]
+fn the_document_rect_snaps_to_device_pixels_when_using_nearest() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.set_scale_factor(2.0);
+    view.layout(viewport());
+    // 默认相机把 128² 适配到画布区域（倍率 > 1）-> 最近邻。
+    assert_eq!(
+        view.image_smoothing(),
+        crate::canvas::ImageSmoothing::Nearest
+    );
+
+    let rect_of = |view: &EditorView| {
+        paint_commands(view)
+            .into_iter()
+            .find_map(|command| match command {
+                DrawCommand::DrawImage {
+                    texture,
+                    destination,
+                    ..
+                } if texture == DOCUMENT_TEXTURE => Some(destination),
+                _ => None,
+            })
+    };
+    let snapped = rect_of(&view).expect("文档图像");
+    // 设备像素 = 0.5 逻辑像素（scale 2），矩形四边都该落在网格上。
+    for value in [
+        snapped.left(),
+        snapped.top(),
+        snapped.right(),
+        snapped.bottom(),
+    ] {
+        let grid = value * 2.0;
+        assert!((grid - grid.round()).abs() < 1e-4, "{value} 没对齐设备像素");
+    }
+
+    // 缩小到 1 倍以下 -> 线性采样，矩形不再需要对齐。
+    while view.canvas_camera().zoom >= 0.9 {
+        view.apply_canvas_action(crate::ui::CanvasAction::ZoomOut);
+    }
+    assert_eq!(
+        view.image_smoothing(),
+        crate::canvas::ImageSmoothing::Linear
+    );
+}
+
+/// 画笔的局部合成必须和整图重合成逐像素一致，而且撤销区域贴着笔迹。
+#[test]
+fn a_brush_stroke_is_composited_locally_and_undoes_only_its_region() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    paint_a_stroke(&mut view);
+
+    let local = view.take_texture_upload().expect("笔迹应产出合成结果");
+    let region = view.undo_region().expect("应记录撤销区域");
+    assert!(
+        region.area() < 64 * 64,
+        "撤销区域应贴着笔迹，实际 {region:?}"
+    );
+
+    // 整图重合成一次，和局部结果逐像素比对。
+    view.mark_texture_dirty();
+    let full = view.take_texture_upload().expect("整图重合成");
+    assert_eq!(local, full, "局部合成应与整图一致");
 }
 
 #[test]

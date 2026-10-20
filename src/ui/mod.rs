@@ -19,6 +19,7 @@ mod accessors;
 mod build;
 mod canvas;
 mod card;
+mod clipboard;
 mod confirm;
 mod file_panel;
 mod gradient_editor;
@@ -35,6 +36,7 @@ mod options_bar;
 mod paint;
 mod palette;
 mod pen;
+mod preferences;
 mod properties_panel;
 mod rename;
 mod selection;
@@ -89,14 +91,16 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use igui_components::{set_text, update_control, ListState, NodeRef, Overlays};
-use igui_core::{Edges, Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize};
+use igui_core::{Key, NodeId, PointerButton, Rect, Size, Vec2, ViewportSize};
 use igui_scene::SceneTree;
 use igui_theme::{space, Theme};
 use igui_ui::{SizeBasis, TextMeasurer};
 
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::app::tool_groups::{group_index, TOOL_GROUPS};
-use crate::canvas::{document_to_pixel, paint_backdrop, screen_to_document, CanvasCamera};
+use crate::canvas::{
+    document_to_pixel, paint_backdrop, paint_backdrop_in, screen_to_document, CanvasCamera,
+};
 use crate::document::{CropLayerCommand, Gradient, LayerId, LayerMetaCommand};
 use crate::icons::IconSet;
 use crate::renderer::{CpuRenderer, RenderTarget, Renderer};
@@ -127,6 +131,11 @@ const RESIZE_GUTTER: f32 = 6.0;
 const FIT_PADDING: f32 = 24.0;
 /// 一个滚轮刻度 / `+`/`-` 的缩放倍率。
 const ZOOM_STEP: f32 = 1.25;
+/// 「羽化」菜单的半径（文档像素）。以后接半径输入框就把它换掉。
+const FEATHER_RADIUS: f32 = 8.0;
+/// 笔刷光标圈的最小屏幕半径（1px 笔缩小时也看得见）与中心十字的半长。
+const MIN_CURSOR_RADIUS: f32 = 2.0;
+const CROSSHAIR_ARM: f32 = 4.0;
 /// 钢笔锚点命中 / 「点回起点闭合」的屏幕半径（逻辑像素）。
 const PEN_HIT_RADIUS: f32 = 8.0;
 /// 钢笔预览的展平容差（屏幕像素，折成文档单位要给 `zoom` 除一下）。
@@ -146,6 +155,9 @@ const LAYER_PANEL_MIN: f32 = 120.0;
 /// 需要在构建后回写的节点槽位。
 #[derive(Default)]
 struct Refs {
+    /// 菜单栏本身 / 标签条预留行（宿主把工作区标签条画在预留行里）。
+    menu_bar: NodeRef,
+    tab_band: NodeRef,
     tool: NodeRef,
     zoom: NodeRef,
     message: NodeRef,
@@ -200,9 +212,10 @@ pub struct EditorView {
     /// 长按阈值（测试可调，默认 [`LONG_PRESS_MS`]）。
     long_press_threshold: Duration,
     /// 页面（根 Flex 的子节点，顶部预留靠它的 `offsets` 实现）。
-    page: NodeId,
-    /// 顶部预留高度（工作区标签条占的那一条）。
-    top_inset: f32,
+    /// 菜单栏节点（宿主用它把工作区标签条钉在菜单下面）。
+    menu_bar: NodeId,
+    /// 标签条预留行（菜单栏和选项栏之间；宿主画标签条的那一条）。
+    tab_band: NodeId,
     /// 图标包（长按浮层打开时还要用它画行图标）。
     icons: Rc<IconSet>,
     /// 撤销 / 重做按钮节点（Phase 6）。
@@ -225,10 +238,16 @@ pub struct EditorView {
     /// 覆盖层：承载菜单下拉，画在 UI 之上并优先接收输入。
     overlays: Overlays,
     /// 工具选项栏的文本 / 容器节点。
+    /// 选项栏整行（测试 / 自检验证「菜单 → 标签条 → 选项栏」的顺序）。
+    options_panel: NodeId,
     options_tool: NodeId,
     options_brush: NodeId,
     options_size: NodeId,
     options_hardness: NodeId,
+    options_smooth: NodeId,
+    /// 对称绘画的值标签 + 循环按钮。
+    options_symmetry: NodeId,
+    symmetry_button: NodeId,
     /// 「预设」触发按钮 / 它的值标签。
     options_preset: NodeId,
     options_preset_label: NodeId,
@@ -251,6 +270,10 @@ pub struct EditorView {
     /// `self.brush`）。
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,
+    /// 对称绘画（选项栏按钮写、`update` 同步进画笔）。
+    symmetry_mode: Rc<Cell<crate::tools::Symmetry>>,
+    /// 上一次「已落盘」的偏好快照：变了才让宿主写配置（见 `take_preferences`）。
+    saved_preferences: crate::io::BrushPreferences,
     /// 开关按钮节点（测试 / 自检点击用）。
     brush_toggles: Vec<(BrushToggle, NodeId)>,
     /// 点了「预设」触发按钮后写入它的节点 id；`update` 取走开下拉。
@@ -319,8 +342,10 @@ pub struct EditorView {
     canvas_area: NodeId,
     renderer: CpuRenderer,
     render_target: RenderTarget,
-    /// 文档变了、还没上传的合成结果。
+    /// 文档变了、还没上传的合成结果（整图重合成）。
     texture_dirty: bool,
+    /// 只有这一块（文档坐标）需要重合成；`texture_dirty` 为真时整图优先。
+    dirty_region: Option<crate::document::PixelRegion>,
     /// 显示用的透明棋盘格背景是否开启。
     show_checkerboard: bool,
     /// 是否已做过首次适配。
@@ -336,6 +361,16 @@ pub struct EditorView {
     pen: PenTool,
     /// 框选拖拽起点（文档坐标）；`Some` = 正在框选。
     select_anchor: Option<Vec2>,
+    /// 修饰键（Shift 加选 / Alt 减选）。
+    modifiers: igui_core::Modifiers,
+    /// 像素剪贴板（宿主跨工作区共享；默认为本视图自己的一块）。
+    image_clipboard: Rc<RefCell<Option<crate::tools::PixelClipboard>>>,
+    /// 窗口的 device pixel 比例（宿主每帧同步）：最近邻采样时把文档矩形对齐到
+    /// 设备像素网格，否则 1:1 缩放也会出现 1px / 2px 交替的锯齿。
+    scale_factor: f32,
+    /// 选区工具按下时决定的合并方式 + 当时的旧选区。
+    merge: crate::canvas::MergeMode,
+    merge_base: Option<Rc<crate::canvas::Selection>>,
     /// 套索拖动中收集的折线（文档坐标）；非空 = 正在套索。
     lasso_points: Vec<Vec2>,
     /// 图层列表的共享行数 / 选中行 / 状态。
@@ -378,16 +413,40 @@ impl EditorView {
         self.overlays.set_clipboard(clipboard);
     }
 
-    /// 顶部预留 `inset` 逻辑像素（工作区标签条占的那一条）。
+    /// 宿主每帧同步修饰键：Shift 加选、Alt 减选（框选 / 套索 / 魔棒）。
+    pub fn set_modifiers(&mut self, modifiers: igui_core::Modifiers) {
+        self.modifiers = modifiers;
+    }
+
+    /// 宿主每帧同步 device pixel 比例（对齐设备像素网格用）。
+    pub fn set_scale_factor(&mut self, scale_factor: f32) {
+        self.scale_factor = scale_factor.max(0.01);
+    }
+
+    /// 文档纹理该用哪种采样：缩小用线性（不然细笔迹会断成毛刺），放大用最近邻。
+    pub fn image_smoothing(&self) -> crate::canvas::ImageSmoothing {
+        crate::canvas::ImageSmoothing::for_zoom(self.state.borrow().canvas.zoom)
+    }
+
+    /// 在菜单栏下面预留 `height` 逻辑像素，给宿主画工作区标签条。
     ///
-    /// 根 Flex 的子节点按 anchors 摆，所以把预留加在**页面**的 offsets 上。
-    pub fn set_top_inset(&mut self, inset: f32) {
-        self.top_inset = inset;
-        let page = self.page;
-        update_control(&mut self.tree, page, |data| {
-            data.anchors = Edges::new(0.0, 0.0, 1.0, 1.0);
-            data.offsets = Edges::new(0.0, inset, 0.0, 0.0);
+    /// `0` 就把这一行折叠掉（没有标签条的界面，比如单窗口 / 测试）。
+    pub fn set_tab_band(&mut self, height: f32) {
+        let height = height.max(0.0);
+        let band = self.tab_band;
+        if self.tree.is_visible(band) != Some(height > 0.0) {
+            self.tree.set_visible(band, height > 0.0);
+        }
+        update_control(&mut self.tree, band, |data| {
+            data.layout.basis = SizeBasis::Px(height);
+            data.min_size.height = height;
         });
+        igui_ui::mark_dirty(&mut self.tree, band);
+    }
+
+    /// 菜单栏占的矩形（宿主据此把标签条钉在它下面）。
+    pub fn menu_bar_rect(&self) -> Option<Rect> {
+        igui_ui::control(&self.tree, self.menu_bar).map(|control| control.rect)
     }
 
     /// 当前文档的 revision（工作区脏标记用）。
@@ -436,6 +495,7 @@ impl EditorView {
         } else {
             BrushShape::Round
         };
+        self.brush.symmetry = self.symmetry_mode.get();
         self.paint_bucket.contiguous = self.bucket_contiguous.get();
         // 渐变：未自定义时首尾跟随前景 / 背景；工具读类型 / 反向。
         if !self.gradient_customized.get() {

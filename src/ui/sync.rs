@@ -200,6 +200,11 @@ impl EditorView {
             self.options_hardness,
             format!("{:.0}%", self.brush.hardness * 100.0),
         );
+        set_text(
+            &mut self.tree,
+            self.options_smooth,
+            format!("{:.0}%", self.brush.smooth * 100.0),
+        );
         // 参数不命中任何预设时显示「自定义」（见 `tools::brush::preset`）。
         set_text(
             &mut self.tree,
@@ -223,6 +228,11 @@ impl EditorView {
             self.gradient_kind.label(),
         );
 
+        set_text(
+            &mut self.tree,
+            self.options_symmetry,
+            self.symmetry_mode.get().label(),
+        );
         let show_brush = tool_has_brush(tool);
         if self.tree.is_visible(self.options_brush) != Some(show_brush) {
             self.tree.set_visible(self.options_brush, show_brush);

@@ -16,7 +16,7 @@ use crate::tools::{
     ToolContext,
 };
 
-use super::{left_pointer, BrushAdjust, BucketAdjust, EditorView, PEN_HIT_RADIUS};
+use super::{left_pointer, BrushAdjust, BucketAdjust, EditorView, FEATHER_RADIUS, PEN_HIT_RADIUS};
 
 impl EditorView {
     pub(super) fn is_dragging(&self) -> bool {
@@ -47,13 +47,16 @@ impl EditorView {
                 self.brush.color = foreground;
                 self.brush.clip = selection;
                 tracing::debug!(target: "image_editor", tool = self.brush.name(), "stroke_started");
-                let mut state = self.state.borrow_mut();
-                let AppState {
-                    document, history, ..
-                } = &mut *state;
-                let mut ctx = ToolContext { document, history };
-                self.brush.on_pointer_down(&mut ctx, left_pointer(position));
-                self.texture_dirty = true;
+                {
+                    let mut state = self.state.borrow_mut();
+                    let AppState {
+                        document, history, ..
+                    } = &mut *state;
+                    let mut ctx = ToolContext { document, history };
+                    self.brush.on_pointer_down(&mut ctx, left_pointer(position));
+                }
+                // 借用结束再标脏：画笔把写过的矩形记在 `brush` 里。
+                self.mark_brush_dirty();
             }
             ActiveTool::Move => {
                 let mut state = self.state.borrow_mut();
@@ -66,10 +69,16 @@ impl EditorView {
                 self.texture_dirty = true;
             }
             ActiveTool::RectangleSelect => {
+                self.begin_selection_edit();
                 self.select_anchor = Some(position);
                 self.update_selection(position);
             }
-            ActiveTool::LassoSelect | ActiveTool::FreeFill => {
+            ActiveTool::LassoSelect => {
+                self.begin_selection_edit();
+                self.lasso_points.clear();
+                self.lasso_points.push(position);
+            }
+            ActiveTool::FreeFill => {
                 self.lasso_points.clear();
                 self.lasso_points.push(position);
             }
@@ -100,39 +109,38 @@ impl EditorView {
                 self.texture_dirty = true;
             }
             // 魔棒：点一下把容差连通区域变成选区（不落笔）。容差 / 连续复用油漆桶。
+            // 魔棒：点一下把容差连通区域变成选区（不落笔）。容差 / 连续复用油漆桶，
+            // 按住 Shift 加选、Alt 减选。
             ActiveTool::MagicWand => {
                 let (tolerance, contiguous) =
                     (self.paint_bucket.tolerance, self.paint_bucket.contiguous);
-                let mut state = self.state.borrow_mut();
-                let AppState {
-                    document,
-                    selection,
-                    ..
-                } = &mut *state;
-                let (width, height) = (document.width, document.height);
-                let Some(seed) = document_to_pixel(position, width, height) else {
+                let found = {
+                    let state = self.state.borrow();
+                    let document = &state.document;
+                    let (width, height) = (document.width, document.height);
+                    document_to_pixel(position, width, height).and_then(|seed| {
+                        let layer = document.active_layer()?;
+                        magic_wand_region(
+                            &layer.pixels,
+                            layer.position,
+                            (width, height),
+                            seed,
+                            tolerance,
+                            contiguous,
+                        )
+                        .map(|mask| ((width, height), mask))
+                    })
+                };
+                let Some((document, mask)) = found else {
                     return;
                 };
-                let Some(layer) = document.active_layer() else {
-                    return;
-                };
-                let offset = layer.position;
-                let Some(mask) = magic_wand_region(
-                    &layer.pixels,
-                    offset,
-                    (width, height),
-                    seed,
-                    tolerance,
-                    contiguous,
-                ) else {
-                    return;
-                };
-                let next = Selection::from_mask((width, height), mask);
-                *selection = if next.is_empty() {
-                    None
-                } else {
-                    Some(Rc::new(next))
-                };
+                // 魔棒的掩码是布尔（洪水填充也用它），这里转成覆盖率掩码。
+                let coverage = mask
+                    .into_iter()
+                    .map(|selected| if selected { 255 } else { 0 })
+                    .collect();
+                self.begin_selection_edit();
+                self.apply_new_selection(Selection::from_mask(document, coverage));
             }
             ActiveTool::RectangleFill => {
                 let (foreground, selection) = {
@@ -179,13 +187,15 @@ impl EditorView {
         let position = self.document_position(screen);
         match tool {
             ActiveTool::Brush | ActiveTool::Eraser if self.brush.is_drawing() => {
-                let mut state = self.state.borrow_mut();
-                let AppState {
-                    document, history, ..
-                } = &mut *state;
-                let mut ctx = ToolContext { document, history };
-                self.brush.on_pointer_move(&mut ctx, left_pointer(position));
-                self.texture_dirty = true;
+                {
+                    let mut state = self.state.borrow_mut();
+                    let AppState {
+                        document, history, ..
+                    } = &mut *state;
+                    let mut ctx = ToolContext { document, history };
+                    self.brush.on_pointer_move(&mut ctx, left_pointer(position));
+                }
+                self.mark_brush_dirty();
             }
             ActiveTool::Move if self.move_tool.is_moving() => {
                 let mut state = self.state.borrow_mut();
@@ -243,13 +253,15 @@ impl EditorView {
         let position = self.document_position(screen);
         match tool {
             ActiveTool::Brush | ActiveTool::Eraser if self.brush.is_drawing() => {
-                let mut state = self.state.borrow_mut();
-                let AppState {
-                    document, history, ..
-                } = &mut *state;
-                let mut ctx = ToolContext { document, history };
-                self.brush.on_pointer_up(&mut ctx, left_pointer(position));
-                self.texture_dirty = true;
+                {
+                    let mut state = self.state.borrow_mut();
+                    let AppState {
+                        document, history, ..
+                    } = &mut *state;
+                    let mut ctx = ToolContext { document, history };
+                    self.brush.on_pointer_up(&mut ctx, left_pointer(position));
+                }
+                self.mark_brush_dirty();
             }
             ActiveTool::Move if self.move_tool.is_moving() => {
                 let mut state = self.state.borrow_mut();
@@ -286,14 +298,11 @@ impl EditorView {
                 self.lasso_points.push(position);
                 let points = std::mem::take(&mut self.lasso_points);
                 let (width, height) = self.document_size();
-                let selection = Selection::polygon(&points, (width, height));
-                let message = if selection.is_empty() {
-                    "套索：没有围出区域".to_string()
-                } else {
-                    format!("自由选区 {} 像素", selection.area())
+                let next = Selection::polygon(&points, (width, height));
+                let message = match self.apply_new_selection(next) {
+                    Some(area) => format!("自由选区 {area} 像素"),
+                    None => "套索：没有围出区域".to_string(),
                 };
-                self.state.borrow_mut().selection =
-                    (!selection.is_empty()).then(|| Rc::new(selection));
                 *self.message.borrow_mut() = Some(message);
             }
             ActiveTool::FreeFill if !self.lasso_points.is_empty() => {
@@ -344,6 +353,13 @@ impl EditorView {
         }
     }
 
+    /// 画笔刚写过的地方：只把那一块标脏（局部合成），别整图重算。
+    pub(super) fn mark_brush_dirty(&mut self) {
+        if let Some(region) = self.brush.take_dirty() {
+            self.mark_region_dirty(region);
+        }
+    }
+
     /// 把「命中锚点 / 闭合」的半径换算到文档单位（屏幕上恒为 `PEN_HIT_RADIUS`）。
     pub(super) fn sync_pen_radius(&mut self) {
         let zoom = self.state.borrow().canvas.zoom.max(0.01);
@@ -389,9 +405,28 @@ impl EditorView {
             return;
         };
         let (width, height) = self.document_size();
-        let selection = pixel_selection(anchor, position, width, height)
-            .map(|region| Rc::new(Selection::rect(region, (width, height))));
-        self.state.borrow_mut().selection = selection;
+        let Some(region) = pixel_selection(anchor, position, width, height) else {
+            // 退化拖动（点了一下没拖）：回到按下前的选区。
+            self.state.borrow_mut().selection = self.merge_base.clone();
+            return;
+        };
+        let next = Selection::rect(region, (width, height));
+        self.apply_new_selection(next);
+    }
+
+    /// 选区工具按下时：记下合并方式（Shift 加 / Alt 减）和当时的旧选区。
+    pub(super) fn begin_selection_edit(&mut self) {
+        self.merge =
+            crate::canvas::MergeMode::from_modifiers(self.modifiers.shift, self.modifiers.alt);
+        self.merge_base = self.state.borrow().selection.clone();
+    }
+
+    /// 把新选区按修饰键合到旧选区上；空结果就是「没有选区」。返回选中的像素数。
+    pub(super) fn apply_new_selection(&mut self, next: Selection) -> Option<usize> {
+        let merged = self.merge.apply(self.merge_base.as_deref(), next);
+        let area = merged.as_ref().map(Selection::area);
+        self.state.borrow_mut().selection = merged.map(Rc::new);
+        area
     }
 
     /// 吸管：取合成后 `position` 处的颜色作为前景色。
@@ -429,6 +464,52 @@ impl EditorView {
         true
     }
 
+    /// 全选（整个文档）。
+    pub fn select_all(&mut self) -> bool {
+        let (width, height) = self.document_size();
+        let selection = Selection::all((width, height));
+        let area = selection.area();
+        self.state.borrow_mut().selection = Some(Rc::new(selection));
+        *self.message.borrow_mut() = Some(format!("全选 {area} 像素"));
+        true
+    }
+
+    /// 反选；没有选区时等于全选，选满整个文档时等于取消选择。
+    pub fn invert_selection(&mut self) -> bool {
+        let Some(selection) = self.state.borrow().selection.clone() else {
+            return self.select_all();
+        };
+        let inverted = selection.invert();
+        let message = if inverted.is_empty() {
+            "反选：已取消选择".to_string()
+        } else {
+            format!("反选 {} 像素", inverted.area())
+        };
+        self.state.borrow_mut().selection = (!inverted.is_empty()).then(|| Rc::new(inverted));
+        *self.message.borrow_mut() = Some(message);
+        true
+    }
+
+    /// 羽化当前选区（半径 = [`FEATHER_RADIUS`] 文档像素），边缘按覆盖率渐变。
+    pub fn feather_selection(&mut self) -> bool {
+        let Some(selection) = self.state.borrow().selection.clone() else {
+            *self.message.borrow_mut() = Some("没有选区可羽化".to_string());
+            return false;
+        };
+        let feathered = selection.feathered(FEATHER_RADIUS);
+        *self.message.borrow_mut() = Some(format!(
+            "羽化 {} px · {}",
+            FEATHER_RADIUS,
+            if feathered.is_empty() {
+                "选区已为空".to_string()
+            } else {
+                format!("{} 像素", feathered.area())
+            }
+        ));
+        self.state.borrow_mut().selection = (!feathered.is_empty()).then(|| Rc::new(feathered));
+        true
+    }
+
     pub(super) fn adjust_brush_size(&mut self, delta: f32) {
         self.brush.size = (self.brush.size + delta).clamp(BrushTool::MIN_SIZE, BrushTool::MAX_SIZE);
         *self.message.borrow_mut() = Some(format!("笔刷大小 {:.0}px", self.brush.size));
@@ -437,6 +518,12 @@ impl EditorView {
     pub(super) fn adjust_brush_hardness(&mut self, delta: f32) {
         self.brush.hardness = (self.brush.hardness + delta).clamp(0.05, 1.0);
         *self.message.borrow_mut() = Some(format!("笔刷硬度 {:.0}%", self.brush.hardness * 100.0));
+    }
+
+    /// 平滑强度：0% = 折线（笔到手到），100% = 二次中点平滑。
+    pub(super) fn adjust_brush_smooth(&mut self, delta: f32) {
+        self.brush.smooth = (self.brush.smooth + delta).clamp(0.0, 1.0);
+        *self.message.borrow_mut() = Some(format!("笔刷平滑 {:.0}%", self.brush.smooth * 100.0));
     }
 
     pub(super) fn adjust_brush_opacity(&mut self, delta: f32) {
@@ -452,6 +539,8 @@ impl EditorView {
             BrushAdjust::SizeUp => self.adjust_brush_size(1.0),
             BrushAdjust::HardnessDown => self.adjust_brush_hardness(-0.05),
             BrushAdjust::HardnessUp => self.adjust_brush_hardness(0.05),
+            BrushAdjust::SmoothDown => self.adjust_brush_smooth(-0.1),
+            BrushAdjust::SmoothUp => self.adjust_brush_smooth(0.1),
             BrushAdjust::OpacityDown => self.adjust_brush_opacity(-0.05),
             BrushAdjust::OpacityUp => self.adjust_brush_opacity(0.05),
         }

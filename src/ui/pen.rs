@@ -97,7 +97,7 @@ impl EditorView {
             let mut ctx = ToolContext { document, history };
             self.brush.stroke_path(&mut ctx, &points);
         }
-        self.texture_dirty = true;
+        self.mark_brush_dirty();
         *self.message.borrow_mut() = Some("钢笔：已描边".to_string());
         true
     }

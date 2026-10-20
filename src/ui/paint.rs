@@ -3,13 +3,30 @@
 //! 入口是 [`EditorView::paint`]（宿主 / 自检调用）；其余都是它内部的步骤。
 //! 调用方负责先 `clip_rect` 到画布区域，这里不再重复判断。
 
-use igui_core::{Rect, Size, Vec2};
+use igui_core::{Color, Rect, Size, Vec2};
 use igui_render::{Paint, PaintContext};
 
 use crate::canvas::{pixel_selection, DOCUMENT_TEXTURE};
 
 use super::selection;
-use super::{EditorView, ANCHOR_SIZE, GRID_MIN_ZOOM, HANDLE_DOT, PEN_PREVIEW_TOLERANCE};
+use crate::tools::BrushShape;
+
+use super::{
+    EditorView, ANCHOR_SIZE, CROSSHAIR_ARM, GRID_MIN_ZOOM, HANDLE_DOT, MIN_CURSOR_RADIUS,
+    PEN_PREVIEW_TOLERANCE,
+};
+
+/// 把矩形对齐到 `1 / scale_factor` 的网格（设备像素）。
+fn snap_to_device(rect: Rect, scale_factor: f32) -> Rect {
+    let unit = 1.0 / scale_factor.max(0.01);
+    let snap = |value: f32| (value / unit).round() * unit;
+    let min = Vec2::new(snap(rect.left()), snap(rect.top()));
+    let max = Vec2::new(snap(rect.right()), snap(rect.bottom()));
+    Rect::from_min_max(
+        min,
+        Vec2::new(max.x.max(min.x + unit), max.y.max(min.y + unit)),
+    )
+}
 
 impl EditorView {
     /// 发出这一帧的绘制命令：先在画布区域的裁剪里画世界（文档图像 + 像素网格 +
@@ -25,6 +42,7 @@ impl EditorView {
         }
         self.paint_document(ctx);
         self.paint_pixel_grid(ctx);
+        self.paint_brush_cursor(ctx);
         self.paint_selection(ctx);
         self.paint_lasso(ctx);
         self.paint_pen(ctx);
@@ -46,10 +64,15 @@ impl EditorView {
         };
         let min = camera.document_to_screen(Vec2::ZERO);
         let max = camera.document_to_screen(Vec2::new(size.width, size.height));
-        let rect = Rect::from_min_max(
+        let mut rect = Rect::from_min_max(
             Vec2::new(min.x.min(max.x), min.y.min(max.y)),
             Vec2::new(min.x.max(max.x), min.y.max(max.y)),
         );
+        // 最近邻放大时把矩形对齐到设备像素网格：错半格会让 1 像素的硬边在屏幕上
+        // 一会儿 1px、一会儿 2px（看着像毛刺）。缩小时用线性，对齐就没有意义了。
+        if self.image_smoothing() == crate::canvas::ImageSmoothing::Nearest {
+            rect = snap_to_device(rect, self.scale_factor);
+        }
         ctx.draw_image(DOCUMENT_TEXTURE, rect, None, Paint::default());
     }
 
@@ -129,6 +152,42 @@ impl EditorView {
             .map(|point| camera.document_to_screen(*point))
             .collect();
         selection::paint_polyline(ctx, &points);
+    }
+
+    /// 笔刷光标圈：跟着指针画当前笔刷的轮廓（屏幕空间，大小不随缩放走样）。
+    ///
+    /// 只在画笔 / 橡皮、且指针落在画布区域里时画。黑白各画一遍（2px 黑底 +
+    /// 1px 白线），这样深浅底色上都看得见 —— 和选区的马赛克描边同一个思路。
+    fn paint_brush_cursor(&self, ctx: &mut PaintContext) {
+        if !super::options_bar::tool_has_brush(self.state.borrow().active_tool) {
+            return;
+        }
+        let Some(pointer) = self.pointer else {
+            return;
+        };
+        if !self.canvas_area_contains(pointer) {
+            return;
+        }
+        let zoom = self.state.borrow().canvas.zoom;
+        let tip = self.brush.tip();
+        // 直径换算到屏幕；太小（比如 1px 笔缩到 25%）时给个最小半径，不然看不见。
+        let radius = (tip.size * zoom * 0.5).max(MIN_CURSOR_RADIUS);
+        let black = Paint::new(Color::BLACK);
+        let white = Paint::new(Color::WHITE);
+        let outline = |ctx: &mut PaintContext, width: f32, paint: Paint| match tip.shape {
+            BrushShape::Round => ctx.stroke_circle(pointer, radius, width, paint),
+            BrushShape::Square => {
+                let rect = Rect::from_center_size(pointer, Size::splat(radius * 2.0));
+                ctx.stroke_rect(rect, width, paint);
+            }
+        };
+        outline(ctx, 2.0, black);
+        outline(ctx, 1.0, white);
+        // 中心十字：细笔也看得出准心在哪。
+        for (dx, dy) in [(1.0, 0.0), (0.0, 1.0)] {
+            let arm = Vec2::new(dx, dy) * CROSSHAIR_ARM;
+            ctx.draw_line(pointer - arm, pointer + arm, 1.0, white);
+        }
     }
 
     /// 钢笔画到一半 / 已收尾的路径：双色虚线 + 锚点 + 控制柄 + 橡皮筋。

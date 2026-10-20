@@ -15,6 +15,82 @@ pub enum BrushShape {
     Square,
 }
 
+/// 对称绘画：以文档中线为轴，把每个 dab 额外压到镜像位置。
+///
+/// 轴固定在文档中心（`x' = width - x`、`y' = height - y`），所以镜像点永远落在
+/// 文档里；落在文档外的原点（用户在画布外落笔）不镜像。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Symmetry {
+    #[default]
+    Off,
+    Vertical,
+    Horizontal,
+    Both,
+}
+
+impl Symmetry {
+    /// 循环切换（选项栏按钮用）。
+    pub const fn next(self) -> Self {
+        match self {
+            Self::Off => Self::Vertical,
+            Self::Vertical => Self::Horizontal,
+            Self::Horizontal => Self::Both,
+            Self::Both => Self::Off,
+        }
+    }
+
+    /// 选项栏上的短名字。
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Off => "关",
+            Self::Vertical => "垂直",
+            Self::Horizontal => "水平",
+            Self::Both => "四向",
+        }
+    }
+
+    /// 这次落笔要走几个通道。
+    pub const fn lanes(self) -> usize {
+        match self {
+            Self::Off => 1,
+            Self::Vertical | Self::Horizontal => 2,
+            Self::Both => 4,
+        }
+    }
+
+    /// 第 `lane` 个通道上的**像素**坐标（`lane = 0` 是原位置）。
+    ///
+    /// 镜像在像素级做（`x' = width - 1 - x`），所以像素画也是严格对称的；
+    /// 镜像点落在文档外时返回 `None`。
+    pub fn mirror_pixel(
+        self,
+        x: i64,
+        y: i64,
+        document: (u32, u32),
+        lane: usize,
+    ) -> Option<(i64, i64)> {
+        if lane >= self.lanes() {
+            return None;
+        }
+        // 通道号的含义按模式定：四向用两位（低位 x、高位 y），单向只有一个镜像。
+        let (flip_x, flip_y) = match self {
+            Self::Off => (false, false),
+            Self::Vertical => (lane == 1, false),
+            Self::Horizontal => (false, lane == 1),
+            Self::Both => (lane % 2 == 1, lane / 2 == 1),
+        };
+        let mirrored = (
+            if flip_x { document.0 as i64 - 1 - x } else { x },
+            if flip_y { document.1 as i64 - 1 - y } else { y },
+        );
+        let inside = mirrored.0 >= 0
+            && mirrored.1 >= 0
+            && mirrored.0 < document.0 as i64
+            && mirrored.1 < document.1 as i64;
+        inside.then_some(mirrored)
+    }
+}
+
 /// 抗锯齿过渡带宽度（像素）：硬度 1 时只剩这一圈半透明边。
 const EDGE_AA: f32 = 0.5;
 
@@ -239,6 +315,50 @@ mod tests {
         tip.cover(Vec2::new(16.0, 16.0), |_x, _y, coverage| {
             assert_eq!(coverage, 1.0, "像素模式只有 0 / 1");
         });
+    }
+
+    #[test]
+    fn symmetry_mirrors_at_the_pixel_level() {
+        let document = (128, 64);
+        // 关掉只有一个通道。
+        assert_eq!(Symmetry::Off.mirror_pixel(10, 20, document, 1), None);
+        // 垂直：x' = width - 1 - x（像素级，像素画也严格对称）。
+        assert_eq!(
+            Symmetry::Vertical.mirror_pixel(10, 20, document, 1),
+            Some((117, 20))
+        );
+        // 水平：y' = height - 1 - y。
+        assert_eq!(
+            Symmetry::Horizontal.mirror_pixel(10, 20, document, 1),
+            Some((10, 43))
+        );
+        // 四向：四个通道都不同。
+        let both: Vec<(i64, i64)> = (0..4)
+            .filter_map(|lane| Symmetry::Both.mirror_pixel(10, 20, document, lane))
+            .collect();
+        assert_eq!(both, vec![(10, 20), (117, 20), (10, 43), (117, 43)]);
+    }
+
+    #[test]
+    fn a_mirror_outside_the_document_is_dropped() {
+        // 原位置在文档外（画布外落笔）时镜像会落到文档外：不画。
+        assert_eq!(Symmetry::Vertical.mirror_pixel(-5, 20, (128, 128), 1), None);
+        // 文档中心附近的镜像仍然在文档内。
+        assert_eq!(
+            Symmetry::Vertical.mirror_pixel(0, 0, (128, 128), 1),
+            Some((127, 0))
+        );
+    }
+
+    #[test]
+    fn symmetry_cycles_off_vertical_horizontal_both() {
+        let mut mode = Symmetry::Off;
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            mode = mode.next();
+            seen.push(mode.label());
+        }
+        assert_eq!(seen, vec!["垂直", "水平", "四向", "关"]);
     }
 
     #[test]

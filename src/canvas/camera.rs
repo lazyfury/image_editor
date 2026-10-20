@@ -116,6 +116,17 @@ mod tests {
     }
 
     #[test]
+    fn smoothing_is_nearest_when_magnifying_and_linear_when_minifying() {
+        use super::super::ImageSmoothing;
+        // 4K 适配窗口 ~0.18 倍：必须线性，最近邻会把细笔迹采样成断线。
+        assert_eq!(ImageSmoothing::for_zoom(0.18), ImageSmoothing::Linear);
+        assert_eq!(ImageSmoothing::for_zoom(0.5), ImageSmoothing::Linear);
+        // 100% 及放大：最近邻，像素画硬边不被插值糊掉。
+        assert_eq!(ImageSmoothing::for_zoom(1.0), ImageSmoothing::Nearest);
+        assert_eq!(ImageSmoothing::for_zoom(4.0), ImageSmoothing::Nearest);
+    }
+
+    #[test]
     fn zooming_keeps_the_anchor_fixed() {
         let mut camera = CanvasCamera::new(1.0, Vec2::ZERO);
         let anchor = Vec2::new(120.0, 80.0);

@@ -31,6 +31,11 @@ pub trait Command: fmt::Debug {
     /// 图层缓冲区重新对齐（内容索引整体平移 `(dx, dy)`，非负）时，同步平移
     /// 这条命令记录的区域。默认 no-op；只有记录像素坐标的命令需要实现。
     fn translate_for(&mut self, _layer: LayerId, _dx: i32, _dy: i32) {}
+
+    /// 这条命令改动的像素区域（测试 / 自检核对「撤销区域贴着笔迹」用）。
+    fn region(&self) -> Option<PixelRegion> {
+        None
+    }
 }
 
 /// 撤销 / 重做栈。超过上限时丢弃最旧的命令，内存有界。
@@ -84,6 +89,11 @@ impl History {
         self.undo.push(command);
         self.trim();
         Some(label)
+    }
+
+    /// 最近一条可撤销命令记录的像素区域（测试 / 自检验证撤销区域用）。
+    pub fn undo_region(&self) -> Option<PixelRegion> {
+        self.undo.last().and_then(|command| command.region())
     }
 
     pub fn can_undo(&self) -> bool {
@@ -194,6 +204,35 @@ impl PaintCommand {
         })
     }
 
+    /// 用调用方给的区域（画笔的脏矩形）抓差异，不扫整层。
+    ///
+    /// `region` 是**图层缓冲区坐标**；区域内没有像素变化（例如整笔都被选区 /
+    /// 图层边界挡掉）时返回 `None`，不入栈。
+    pub fn capture_in(
+        layer: LayerId,
+        region: PixelRegion,
+        before: &PixelBuffer,
+        after: &PixelBuffer,
+        label: &'static str,
+    ) -> Option<Self> {
+        let region = region.clamped(after.width, after.height);
+        if region.area() == 0 {
+            return None;
+        }
+        let before_pixels = before.region(region);
+        let after_pixels = after.region(region);
+        if before_pixels == after_pixels {
+            return None;
+        }
+        Some(Self {
+            layer,
+            region,
+            before: before_pixels,
+            after: after_pixels,
+            label,
+        })
+    }
+
     /// 把 `pixels` 写回目标图层；图层已被删掉时返回 `false`。
     fn write(&self, document: &mut Document, pixels: &[Color]) -> bool {
         match document.layer_mut(self.layer) {
@@ -207,6 +246,10 @@ impl PaintCommand {
 }
 
 impl Command for PaintCommand {
+    fn region(&self) -> Option<PixelRegion> {
+        Some(self.region)
+    }
+
     fn execute(&mut self, document: &mut Document) {
         if self.write(document, &self.after) {
             document.touch();

@@ -6,7 +6,7 @@
 //! 这里只放纯数学，方便无头测试。
 
 mod camera;
-mod checkerboard;
+pub mod checkerboard;
 mod coordinate;
 mod path;
 mod selection;
@@ -14,14 +14,37 @@ mod selection;
 pub use camera::CanvasCamera;
 #[cfg(test)]
 pub use checkerboard::color_at;
-pub use checkerboard::paint_backdrop;
+pub use checkerboard::{paint_backdrop, paint_backdrop_in};
 /// 棋盘格的两种格色（透明预览复用，保证跟画布一致）。
 pub use checkerboard::{DARK as CHECKER_DARK, LIGHT as CHECKER_LIGHT};
 pub use coordinate::{document_to_pixel, pixel_selection, screen_to_document};
 pub use path::{flatten_segment, Anchor, Path};
-pub use selection::Selection;
+pub use selection::{MergeMode, Selection};
 
 use igui_render::TextureId;
+
+/// 文档纹理的采样方式。
+///
+/// **放大（`zoom >= 1`）用最近邻**：像素画的硬边不该被插值糊掉；
+/// **缩小用线性**：4K 文档适配到窗口是 0.18 倍，最近邻会直接丢像素，
+/// 细笔迹变成断线 / 锯齿（就是「毛刺」）。宿主每帧把它翻成后端的
+/// `TextureFilter`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageSmoothing {
+    Nearest,
+    Linear,
+}
+
+impl ImageSmoothing {
+    /// 按缩放挑采样方式：倍率 ≥ 1 才用最近邻。
+    pub fn for_zoom(zoom: f32) -> Self {
+        if zoom >= 1.0 {
+            Self::Nearest
+        } else {
+            Self::Linear
+        }
+    }
+}
 
 /// 文档合成结果在渲染后端里的纹理句柄。
 ///

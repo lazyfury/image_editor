@@ -37,6 +37,55 @@ pub(super) fn file_shortcut(command: bool, shift: bool, event: &InputEvent) -> O
     }
 }
 
+/// Ctrl/Cmd+X / C / V：剪切 / 复制 / 粘贴选区内容；命中返回 `true`。
+pub(super) fn clipboard_shortcut(
+    editor: &mut EditorView,
+    command: bool,
+    event: &InputEvent,
+) -> bool {
+    if !command {
+        return false;
+    }
+    let Some(key) = command_key(event) else {
+        return false;
+    };
+    match key {
+        'x' => {
+            editor.cut_selection();
+            true
+        }
+        'c' => {
+            editor.copy_selection();
+            true
+        }
+        'v' => {
+            editor.paste_clipboard();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Ctrl/Cmd+A 全选、Shift+Ctrl/Cmd+I 反选；命中返回 `true`。
+pub(super) fn selection_shortcut(
+    editor: &mut EditorView,
+    command: bool,
+    shift: bool,
+    event: &InputEvent,
+) -> bool {
+    if !command {
+        return false;
+    }
+    let Some(key) = command_key(event) else {
+        return false;
+    };
+    match key {
+        'a' => editor.select_all(),
+        'i' if shift => editor.invert_selection(),
+        _ => false,
+    }
+}
+
 /// Ctrl/Cmd+Z 撤销、Shift+Ctrl/Cmd+Z（或 Ctrl+Y）重做；命中返回 `true`。
 pub(super) fn history_shortcut(
     editor: &mut EditorView,

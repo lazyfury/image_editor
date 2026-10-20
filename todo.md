@@ -18,6 +18,8 @@
 路径输入，每个按钮只发 `FileRequest` 意图，路径由 `io/dialog.rs` 手写的平台
 FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；PNG 拖进窗口当新图层。
 
+**当前主线：第 2 节的「绘画 / 修图路线图」**（绘画优先，一批一批落地）。
+
 ---
 
 ## 1. 主线：像素模式（已完成）
@@ -94,7 +96,135 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 
 ---
 
-## 2. 紧接着
+## 2. 绘画 / 修图路线图（绘画优先，按批落地）
+
+判断标准：**先补"画不准 / 画不完 / 画不爽"，再补修图**。每条都写清「改哪里 /
+怎么验收」；一批做完出一次报告。`[ ]` 未做 / `[~]` 进行中 / `[x]` 完成。
+
+### 第 1 批：绘画手感
+
+- [x] **笔刷光标圈**：画布上跟随指针画当前笔刷的轮廓（屏幕空间、1px、亮/暗双色
+  描边保证任何底色可见），像素模式显示方框、软笔显示圆，另加一个中心十字。
+  - 改哪里：`src/ui/paint.rs`（新增 `paint_brush_cursor`，排在文档/网格之后、
+    选区之前）；尺寸取 `self.brush.size`、形状取 `tip().shape`；只画在
+    「画布区域 ∩ 文档范围」内，指针不在画布上时不画。
+  - 咋验收：单测断言「鼠标在画布上时帧里多出该尺寸的轮廓、离开后消失、
+    尺寸随 `brush.size` 变」；`--selfcheck` 新增 `check_brush_cursor`
+    （指针在画布上有圈、移到菜单栏就没有）。实现是 2px 黑底 + 1px 白线 +
+    中心十字，圆头 `StrokeCircle` / 像素模式 `StrokeRect`。
+- [x] **对称绘画**（关 / 垂直 / 水平 / 四向）：每个 dab 额外在镜像位置压一次。
+  - 实现：镜像放在**像素级**——`Symmetry::mirror_pixel`（`x' = width - 1 - x`）
+    由 `brush/mask.rs::Writer::put` 对每个落笔像素再做一遍，所以像素画也严格对称、
+    越界自动丢掉，Bresenham / 软笔 / 描边路径全部自动跟着对称。
+    选项栏「对称」+「切换」按钮循环 关 → 垂直 → 水平 → 四向。
+  - 验收：单测（垂直 `x' = w-1-x`、四向 4 个通道、越界丢弃、循环顺序）、
+    `Writer` 级对称合成、UI「切换后画笔跟手且两侧落笔」、`--selfcheck` `check_symmetry`。
+- [x] **平滑强度可调（含关掉）**：现在固定是「二次中点平滑」，像素画党要笔到手到。
+  - 实现：`BrushTool::smooth`（0..=1，默认 1）。平滑 0 时把「起点 / 终点」从
+    中点换成锚点本身（`Vec2::lerp`），曲线退化成折线、笔迹不再滞后半个事件段；
+    两个端点的定义一致，所以段与段之间仍然连续。选项栏「平滑 −/+」（10% 步进）。
+  - 验收：单测「平滑 1：一次 move 后光标处像素还没落笔、抬笔才补完」「平滑 0：
+    move 一下立刻落笔、折角保持折角」、UI「− 到底 = 0% / + 到顶 = 100%」、
+    `--selfcheck` `check_brush_smooth`。
+- [x] **笔刷预设持久化**：自定义参数重启后还在。
+  - 实现：`src/io/preferences.rs`（配置目录 `preferences`，`key=value`，坏行跳过 /
+    越界夹住）+ `src/ui/preferences.rs`（视图只做 `preferences()` /
+    `apply_preferences()` / `take_preferences()` 快照桥，**读写文件是宿主的活**，
+    所以测试与 `--selfcheck` 永远不碰用户配置目录）。宿主在装配时
+    `load_preferences()`、每帧问一次 `take_preferences()`，变了才写盘。
+  - 验收：`io::preferences` 4 条（默认值 = 像素硬笔、round-trip、坏行/越界、
+    文件不存在）+ `ui::preferences` 4 条（新视图无可写快照、应用后开关同步、
+    改一次只报一次、对称码 round-trip）。
+
+### 第 2 批：选区（绘画的"边界"）
+
+- [x] **全选 / 反选**：`Selection::all` / `Selection::invert`（掩码取反 + 按新掩码
+  重算轮廓），菜单「选择」里两项接上真实动作（`MenuAction::{SelectAll, InvertSelection}`），
+  快捷键 `Ctrl/Cmd+A` / `Shift+Ctrl/Cmd+I`（纯函数 `selection_shortcut`）。
+  验收：单测（全选面积/边框数、反选互补、反选两次掩码还原）、宿主快捷键单测、
+  `--selfcheck` `check_selection_menu`（真的点开「选择」菜单点两项）。
+- [x] **加选 / 减选**：框选 / 套索 / 魔棒按住 `Shift` 取并、`Alt` 取差。
+  - 实现：`Selection::{union, subtract}`（掩码集合运算 → `from_mask` 重算面积 / 包围盒 /
+    合并轮廓）+ `canvas::MergeMode { Replace, Add, Subtract }`（`from_modifiers` 里
+    Alt 优先，`apply(base, next)` 空结果 → 没有选区）。视图按下时记
+    `merge` / `merge_base`，宿主每帧把 `InputEvent::ModifiersChanged` 转发进
+    `EditorView::set_modifiers`（`igui_core::Key` 没有 Shift/Alt 变体，视图自己收不到）。
+  - 验收：单测（并集 / 差集面积、挖空 → None、尺寸不同不 panic、修饰键映射）；
+    `ui::tests::shift_adds_and_alt_subtracts_from_the_selection`（真实拖拽）；
+    `--selfcheck::check_selection_merge`（Shift 面积翻倍、Alt 变小）。
+- [x] **羽化**：`Selection::feathered(radius)` —— 掩码从 `bool` 升级成 **`u8`
+  覆盖率**（0 = 未选中、255 = 完全选中），两遍盒式模糊（越界按 0，和 PS 一样
+  贴着画布边缘的那一侧也会向内淡出）。
+  - 裁剪升级成覆盖率：`Writer::put` 用 `coverage × clip.coverage()` 衰减落笔、
+    `fill_selection` 按覆盖率 `blend_from`（硬选区里就是 0 / 1，行为不变）。
+  - 菜单「选择 → 羽化」（半径固定 8px，`FEATHER_RADIUS`；以后接半径输入框就换掉它），
+    没选区时置灰。
+  - 验收：`canvas::selection` 三条（边缘变淡 / 中心仍满覆盖 / 半径 ≤ 0 是 no-op /
+    面积按覆盖率折算）、`tools::brush::mask::a_feathered_selection_fades_the_stamp…`、
+    `ui::tests::feathering_softens_the_selection_and_the_fill_follows_it`（填出来的
+    边缘是中间色）、`--selfcheck` 在「选择」菜单里点「羽化」并核对覆盖率。
+
+### 第 3 批：图层（合成器）
+
+- [ ] **图层混合模式**：`BlendMode` 从只有 `Normal` 扩到 正片叠底 / 滤色 / 叠加 /
+  柔光 / 变亮 / 变暗 / 差值；`.igui` 的 `u8` 判别值只追加不重排。
+  - 改哪里：`src/document/layer.rs`（枚举 + `label()`）、`src/renderer/cpu.rs`
+    （每个模式的像素公式，先算通道再套 alpha）、属性面板换成可点下拉。
+  - 咋验收：单测每个模式在已知两色上的合成结果（和公式对照），以及
+    `Normal` 结果不变。
+- [ ] **Alpha 锁定（锁定透明像素）**：图层开关，画笔只在 `before.a > 0` 的像素上写。
+  - 改哪里：`Layer`（`alpha_locked: bool`，进 `LayerMetaCommand` 与 `.igui`）、
+    `src/tools/brush/mask.rs::Writer::put`（锁定且 `base.a == 0` 直接跳过）。
+- [ ] **复制图层 / 合并向下**：`LayerCommand` + 图层菜单（"复制图层"占位已存在）。
+- [ ] **图层右键菜单**（Phase 11 前置已具备一部分，等 `Overlays` 指针锚点）。
+
+### 第 4 批：变换
+
+- [ ] **水平/垂直翻转、旋转 90°**（整层或整图；菜单占位已存在）：`PixelBuffer::{flip_h,
+  flip_v, rotate90}` 无插值 → `PaintCommand::capture` 一条 undo。
+- [ ] **图像大小 / 画布裁剪**（菜单占位已存在）：`Document::resize` / `crop`，
+  重采样先最近邻，补上双线性。
+- [ ] **自由变换（`Ctrl/Cmd+T`）**：选区或整层的平移 / 缩放 / 任意旋转（反向映射
+  + 双线性），四角柄 + 预览叠加。分两步：先整层，再选区。
+
+### 第 5 批：修图（先做"滤镜框架"）
+
+- [ ] **滤镜框架**：`apply_to_region(|x, y, color| color)` = 快照 → 改区域内像素 →
+  `PaintCommand::capture`（一条 undo）。所有一次性调整都走它。
+- [ ] **灰度 / 反相 / 亮度对比度 / 色相饱和度**（"滤镜"菜单占位已存在）。
+- [ ] **高斯模糊**（可调半径，区域化；先做可分离的盒式近似）。
+- [ ] **裁剪到画布 / 应用图标**：`--selfcheck` 断言"作用区域外的像素不变"。
+
+### 第 6 批：修图进阶（可选）
+
+- [ ] **克隆图章**：采样点 + 复用画笔的间距 / 蒙版 / undo。
+- [ ] **减淡 / 加深**：画笔流程 + 提亮/压暗的混合公式（绘画打光也能用）。
+- [ ] **涂抹（smudge）**：每个 dab 取上一次的颜色混进去。
+
+### 明确不做
+
+- 压感（winit 鼠标没有压感源）、纹理/图案笔刷（打破"无纹理"约束）、
+  液化 / 调整图层 / 图层蒙版系统、画布旋转（要重做全部命中测试）。
+
+### 1.w 选区剪贴板（已完成）
+
+- [x] **Ctrl/Cmd+X / C / V + Delete**：`tools/clipboard.rs::PixelClipboard`
+  （按选区包围盒抓一块 RGBA、alpha 乘过覆盖率 → 羽化边缘贴回去也是软的；粘贴
+  放回原位置并按**当前选区**再裁一次；`clear_selection` 按覆盖率把 alpha 拉 0）。
+  视图侧 `ui/clipboard.rs` 用 `PixelRegion::in_buffer` 算区域、`capture_in` 提交
+  **一条** undo；宿主共享一块剪贴板（跨工作区复制粘贴），并接
+  `clipboard_shortcut`（Ctrl/Cmd+X/C/V）与 `Delete/Backspace`（钢笔优先，先删它
+  自己的锚点）。「编辑」菜单的剪切 / 复制 / 粘贴从占位换成真动作（没选区 / 空
+  剪贴板时置灰）。
+- 验收：`tools::clipboard` 5 条（裁剪到包围盒 / 羽化 alpha / 原位贴回 / 按选区裁 /
+  只清选区）、`ui::clipboard` 4 条（剪切→粘贴 round-trip + 各一步 undo / 删除一步
+  undo 且重复删不加 / 空选区空剪贴板是 no-op / 换选区粘贴被裁）、宿主
+  `clipboard_shortcuts_cut_copy_and_paste`、UI「编辑菜单真的能剪切复制粘贴」、
+  `--selfcheck::check_clipboard`。
+- 已知：剪贴板只在**进程内**（没有接系统剪贴板，跨 App 复制粘贴要平台 FFI，
+  和 `io/dialog.rs` 同一类工作）；粘贴进当前图层而不是新图层。
+
+## 3. 紧接着
 
 - [x] **CPU 合成成本收口**（`src/renderer/cpu.rs`）：图层缓冲现在可能比文档大，
   之前的慢路会遍历整块缓冲。改成只遍历「落在渲染目标里的那部分」，合成成本
@@ -108,6 +238,98 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   按 `position` 摆好后裁回文档尺寸、`position` 归零，丢掉画布外像素。
 - **`--selfcheck` 覆盖**：棋盘格 / 移动映射目前只有单元测试。
 - [x] **UI 暴露**：属性面板显示图层 `position` / 缓冲尺寸；视图菜单可开关棋盘格。
+
+### 1.z 布局：菜单栏放到最上（已完成，方案 A）
+
+原来工作区标签条是**宿主**的、钉在窗口最顶 32px，编辑器整页用 `set_top_inset(32)`
+让开；所以顺序是「标签条 → 菜单栏 → 选项栏」。现在改成 Photoshop 那种
+**菜单栏在最上、工作区标签在它下面**：
+
+- `EditorView`：菜单栏和选项栏之间多了一个 0 高的「标签带」占位行
+  （`set_tab_band(h)`，`h = 0` 就折叠）；`menu_bar_rect()` / `options_bar_rect()`
+  给宿主和测试量位置。`set_top_inset` 删掉（不再需要页面级偏移）。
+- `WorkspaceTabs::set_top(y)`：标签条钉在 `y`，宿主在 `layout()` 里用
+  `editor.menu_bar_rect().bottom()` 每帧同步（菜单栏高度是主题算出来的，不写死常量）。
+- 验收：`ui::tests` 两条（菜单贴顶 + 标签带正好 32 + 标签条落在带子里；标签带
+  为 0 时选项栏紧贴菜单）+ 点击穿透测试、`--selfcheck::check_chrome_order`
+  （菜单 top ≈ 0 → 标签条贴菜单下沿 → 不压选项栏）。
+- [x] **菜单弹窗被标签条挡住**：绘制顺序改成「标签条 → 编辑器 → 浮层」
+  （`application::paint_screen`，之前是「编辑器 → 标签条」，菜单下拉跨过标签带那一条
+  时会被切掉）。测试：宿主单测比对命令流里「主页」（标签条）与「导入 PNG…」（菜单项）
+  的先后，故意换回旧顺序会失败。
+- **可选方案 B（保留）**：把菜单栏提到宿主级 chrome（主页也有菜单、菜单与工作区
+  解耦）。代价：`MenuAction` 的十二个动作现在实现在 `EditorView::apply_menu_action`
+  （依赖文档 / 历史 / 选区 / 画笔），要改成「宿主转发给当前编辑器 + 无编辑器时置灰」，
+  锚点节点与点标题开关菜单的命中测试跟着搬。真需要主页菜单时再做。
+
+## 性能：实测与优化计划（4K 很卡的调查）
+
+用一次性探针实测（已删除），对象是 128² / 1080p / 4K 三种文档，单位为「一次操作」。
+关键结论：**画笔本身很便宜，贵的是「每次脏帧都把整张文档重算 + 整块上传」和
+「抬笔时整层 diff」**，而 debug 构建把它们放大了 20–90 倍。
+
+### 实测（3840×2160，三档构建）
+
+| 操作（4K） | dev 默认（opt0） | dev `opt-level=2` | release |
+|---|---|---|---|
+| 每帧「合成 + 棋盘格 + 克隆」 | **443 ms** | **10.5 ms** | 5.8 ms |
+| 合成本身 | 275 ms | 7.9 ms | 3.1 ms |
+| 棋盘格（`paint_backdrop`） | 169 ms | 3.1 ms | 3.5 ms |
+| 缓冲区克隆（`take_texture_upload`） | 1.3 ms | 0.8 ms | 0.8 ms |
+| 落笔（快照 33MB + 蒙版 8.3MB） | 2.2 ms | 2.1 ms | 2.3 ms |
+| 抬笔（`PixelRegion::diff` 整层） | **230 ms** | **3.5 ms** | 3.1 ms |
+| 60 个 move（40px 软笔） | 5.2 ms | 0.57 ms | 0.48 ms |
+| `update()` / `paint()`（命令列表） | 36 µs / 0.9 ms | 10 µs / 0.2 ms | 5 µs / 0.2 ms |
+| `Selection::all(4K)` | **190 ms** | **15.6 ms** | 15.3 ms |
+| `Selection::area()` | 44 ms | 2.1 ms | 0.4 ms |
+| 全选后的蚂蚁线（每帧） | 12 371 条 `Line` / 0.6 ms | 同 | 同 |
+
+1080p 同口径：每帧 111 ms → 3.9 ms（dev opt2）→ 2.4 ms（release）；抬笔 58 ms → 1.4 ms。
+128² 一档本来就快（dev opt0 每帧 1.2 ms），所以小画布感觉不到。
+
+### 已完成
+
+- [x] **dev 构建开优化**（`Cargo.toml`：`[profile.dev] opt-level = 2`，
+  依赖 `opt-level = 3`）。只改一行，4K 每帧 443 ms → 10.5 ms（42×），抬笔
+  230 ms → 3.5 ms（65×），而且保留 `debug_assertions` / 溢出检查 / 行号表。
+  `cargo run` 默认就是这档，所以「很卡」的主观感受立刻改善。
+
+### 显示毛刺（已修）
+
+现象：高分辨率文档里笔迹看起来「毛刺」很重。实测排除了画笔引擎 —— 4K、200px 软笔
+斜着画一条，上边缘相对直线最大偏差 1.8px、线宽无断列（`--ignored` 探针量过，已删）。
+真正的原因是**显示采样**：文档纹理一直用 `TextureFilter::Nearest`，而 4K 适配窗口是
+≈0.18 倍，最近邻缩小等于丢像素，细笔迹在屏幕上断成虚线/锯齿。
+
+- [x] `canvas::ImageSmoothing::for_zoom`：倍率 ≥ 1 用最近邻、否则线性；宿主每帧把它
+  翻成 `WgpuBackend::set_texture_filter`（变了才调），并把 `scale_factor` 同步给视图。
+- [x] 最近邻时把文档矩形对齐到设备像素网格（`scale_factor` 的倒数），消掉 1:1 缩放
+  时 1px / 2px 交替的锯齿。
+- 后续（像素画手感）：缩放吸附到整数倍（1/2/3/4/6/8…），这样非整数倍率的「有的像素
+  5 个点、有的 6 个点」也一起解决。
+
+### 待做（按收益排序）
+
+- [x] **P0 脏矩形合成**：`EditorView` 记一个 `dirty: Option<PixelRegion>`
+  （每次 dab 并自己的 bbox；换图层 / 换文档 / 撤销 → 全图），
+  `CpuRenderer::render_region(document, target, region)` 只合成那一块，
+  棋盘格也只刷脏区。4K 笔触每帧从 10.5 ms → 预估 < 1 ms（release 5.8 → ~0.3 ms）。
+  验收：单测「合成结果与整图合成逐像素相同」「脏区外像素不变」。
+- [x] **P1 抬笔不再整层 diff**：`Writer` 里增量维护 bbox（O(1)），
+  抬笔用 `PaintCommand::capture_in(bbox, before, after)`；`before` 快照留到
+  有第一笔时再按需裁剪。4K 抬笔 3.5 ms → 预估 < 0.2 ms，历史内存从 33 MB/笔
+  降到「笔迹 bbox」。
+  验收：单测「整层 diff 与 bbox 记录的撤销区域一致」「撤销/重做像素不变」。
+- [x] **P2 选区不再扫整张掩码**：`Selection::{all, rect}` 直接给矩形轮廓（4 条边，
+  不扫 mask）；`area` / `bounds` 构造时缓存一次（`is_empty` 复用）；
+  `mask_edges` 改成按行 / 列 run 合并。实测（4K）：`Selection::all` 15.6 → **0.11 ms**，
+  `area()` 2.1 ms → **O(1)**；蚂蚁线 12 371 → **819 条**命令。
+- [ ] **P3 上传**：`WgpuBackend::update_texture` 只能整张写（origin 0、extent 全图），
+  部分上传要上游加 `update_texture_region`（记进 `docs/upstream.md`）。
+  在上游补齐之前：合成/上传节流到 ~30 Hz（画笔的 move 仍然每帧处理），
+  以及 `take_texture_upload` 不再整块 `clone()`（改成借用，测试里再 clone）。
+- [ ] **P4 内存 / 历史上限**：`History` 加步数 + 字节上限（4K 一笔 33 MB 快照，
+  P1 之后按 bbox 存），`Document` 增加「图层缓冲上限」提示。
 
 ## 结构改进（持续）
 
@@ -148,11 +370,15 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   做保存 / 导出 toast（需给 `EditorView::update` 传 `dt` 并调 `overlays.update`）、
   `List::on_context` + `menu_at` 做图层右键菜单、`ScrollView` 包住属性面板 /
   首页、`Select` 收窄选项栏、新建文档尺寸可直接键入（`TextInput`）。
+- [ ] **合成只刷脏区**：`CpuRenderer` 现在是整张文档重合成。实测（release）
+  512² 0.5ms / 1080p 4ms / 4K 12.7ms，画笔每帧都要合成一次 —— 加了高分辨率预设
+  （4K / A4 300dpi）之后这条变重要：按笔迹包围盒（脏矩形）只合成那一块，
+  4K 的笔触就能回到 ~1ms 量级。
 - [ ] **`History` 上限**：目前无步数 / 字节上限，大文档多步编辑会一直涨。
 - [ ] **工具元数据表**：新增一个工具要改 7+ 处（枚举 / `ALL` / 标签 / 图标 /
   `tool_groups` / `begin..end` 的 match / 快捷键）；可收成一张 `ToolSpec` 表。
 
-## 3. 计划阶段（Phase 10+）
+## 4. 计划阶段（Phase 10+）
 
 复用 `igui_components::Overlays` 与 `examples/file_browser` 的工作线程 /
 `EventLoopProxy` 模式：

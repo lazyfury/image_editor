@@ -67,6 +67,15 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
 ] }
 
 # 发布构建（`package-macos.sh` 用）：LTO + 单 codegen unit 换更小 / 更快的 .app。
+# 调试构建也带优化：像素级循环（合成 / 混合 / 掩码扫描）在 opt-level=0 下慢
+# 20–90 倍，4K 文档会掉到 ~2fps。opt-level = 1 保留 debug_assertions 与行号表，
+# 但热点循环能快一个数量级；依赖（wgpu / winit / igui）直接给 3。
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

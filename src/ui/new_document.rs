@@ -44,17 +44,29 @@ impl Default for NewDocumentSpec {
 /// 侧边的最小 / 最大边长（逻辑像素即文档像素）。步进按钮每次 ±1，所以尺寸不受
 /// 倍数限制，任意边长都能改到。
 const MIN_SIDE: u32 = 1;
-const MAX_SIDE: u32 = 2048;
+/// 4096：够放下 4K（3840）和 A4 300dpi（2480×3508），再大 CPU 合成就顶不住了。
+const MAX_SIDE: u32 = 4096;
 const SIDE_STEP: u32 = 1;
 
-/// 预设尺寸（仍保留，用来快速跳到常见大小）。
-const PRESETS: [(u32, u32); 6] = [
+/// 预设尺寸：先是像素画的小方块，再是常见的高分辨率画布（显示 / 打印 / 贴图）。
+///
+/// 大尺寸走 CPU 合成：笔触期间每帧要遍历整张文档，4K 会比 512² 慢两个数量级，
+/// 所以选项栏下面有一句提示。
+const PRESETS: [(u32, u32); 12] = [
+    // 像素画
     (16, 16),
     (32, 32),
     (64, 64),
     (128, 128),
     (256, 256),
     (512, 512),
+    // 高分辨率
+    (1920, 1080),
+    (1080, 1920),
+    (2560, 1440),
+    (3840, 2160),
+    (2048, 2048),
+    (2480, 3508),
 ];
 
 /// 背景色预设（名字，颜色）。第一个是透明。
@@ -66,8 +78,8 @@ const BACKGROUNDS: [(&str, Color); 4] = [
 ];
 
 /// 初始窗口尺寸 / 拖动缩放下限（逻辑像素）。
-const WINDOW_SIZE: Vec2 = Vec2::new(460.0, 420.0);
-const WINDOW_MIN: Vec2 = Vec2::new(380.0, 320.0);
+const WINDOW_SIZE: Vec2 = Vec2::new(460.0, 470.0);
+const WINDOW_MIN: Vec2 = Vec2::new(380.0, 360.0);
 
 /// 「新建文档」浮层给出的结果。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -328,6 +340,10 @@ fn build_content(
         .child(Text::subheading("尺寸", theme))
         .child(size_steppers)
         .child(presets)
+        .child(
+            Text::caption("大尺寸（4K / A4 300dpi）在 CPU 合成下会明显变慢。", theme)
+                .tone(Tone::Muted),
+        )
         .child(Text::subheading("背景色", theme))
         .child(backgrounds)
         .child(
@@ -658,6 +674,66 @@ mod tests {
         assert!(
             preset_bottom <= background_top + 0.5,
             "换行后的预设压住了下一行：preset_bottom={preset_bottom} background_top={background_top}"
+        );
+    }
+
+    /// 高分辨率预设：一次点到位，宽高都按真实分辨率设置。
+    #[test]
+    fn a_high_resolution_preset_sets_both_sides() {
+        let mut modal = modal();
+        // 4K：3840×2160。
+        let index = PRESETS
+            .iter()
+            .position(|(width, height)| (*width, *height) == (3840, 2160))
+            .expect("4K 预设");
+        let id = modal.nodes.presets.borrow()[index];
+        let position = center(&modal, id).expect("预设按钮");
+        click(&mut modal, position);
+        assert_eq!((modal.spec().width, modal.spec().height), (3840, 2160));
+
+        // A4 300dpi 是竖的：宽 < 高。
+        let index = PRESETS
+            .iter()
+            .position(|(width, height)| (*width, *height) == (2480, 3508))
+            .expect("A4 300dpi 预设");
+        let id = modal.nodes.presets.borrow()[index];
+        let position = center(&modal, id).expect("预设按钮");
+        click(&mut modal, position);
+        assert_eq!((modal.spec().width, modal.spec().height), (2480, 3508));
+    }
+
+    /// 每个预设都要在 stepper 的合法范围内，否则点完就不再用 ± 调得回去。
+    #[test]
+    fn every_preset_fits_the_side_limits() {
+        for (width, height) in PRESETS {
+            assert!(
+                (MIN_SIDE..=MAX_SIDE).contains(&width) && (MIN_SIDE..=MAX_SIDE).contains(&height),
+                "{width}×{height} 超出 {MIN_SIDE}..={MAX_SIDE}"
+            );
+        }
+        // 4K 与 A4 300dpi 必须放得下（上限就是为了它们定的）。
+        let largest = PRESETS.iter().map(|(w, h)| (*w).max(*h)).max().unwrap_or(0);
+        assert!(MAX_SIDE >= largest, "MAX_SIDE = {MAX_SIDE} < {largest}");
+    }
+
+    /// 最小窗口下，换行后的预设和背景色仍然落在页脚上面（不溢出内容区）。
+    #[test]
+    fn the_wrapped_presets_stay_above_the_footer_at_the_minimum_size() {
+        let mut modal = modal();
+        resize_to_min(&mut modal);
+        let presets = rects(&modal, &modal.nodes.presets);
+        let backgrounds = rects(&modal, &modal.nodes.backgrounds);
+        let footer = center(&modal, modal.nodes.create.get().expect("创建按钮"))
+            .map(|center| center.y - 12.0)
+            .expect("创建按钮位置");
+        let content_bottom = presets
+            .iter()
+            .chain(backgrounds.iter())
+            .map(|rect| rect.bottom())
+            .fold(0.0f32, f32::max);
+        assert!(
+            content_bottom <= footer + 0.5,
+            "内容溢出到页脚：content_bottom={content_bottom} footer_top={footer}"
         );
     }
 

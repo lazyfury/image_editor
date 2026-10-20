@@ -41,8 +41,8 @@ use super::{
 pub(super) fn editor(theme: &'static dyn Theme, state: AppState) -> EditorView {
     let document_size = (state.document.width, state.document.height);
     let state = Rc::new(RefCell::new(state));
-    let (tree, page, wiring, lists) = tree::build_tree(theme, &state);
-    assemble::finish(theme, state, document_size, tree, page, wiring, lists)
+    let (tree, _page, wiring, lists) = tree::build_tree(theme, &state);
+    assemble::finish(theme, state, document_size, tree, wiring, lists)
 }
 
 /// 构造期收集的共享状态槽与 NodeRef；构造完搬进 [`EditorView`]。
@@ -67,6 +67,7 @@ struct Wiring {
     brush_preset_open: Rc<Cell<Option<NodeId>>>,
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,
+    symmetry_mode: Rc<Cell<crate::tools::Symmetry>>,
     pen_request: Rc<Cell<Option<crate::ui::PenAction>>>,
     bucket_request: Rc<Cell<Option<BucketAdjust>>>,
     bucket_contiguous: Rc<Cell<bool>>,

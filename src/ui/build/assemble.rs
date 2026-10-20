@@ -8,7 +8,6 @@ pub(super) fn finish(
     state: Rc<RefCell<AppState>>,
     document_size: (u32, u32),
     tree: SceneTree,
-    page: NodeId,
     wiring: Wiring,
     lists: Lists,
 ) -> EditorView {
@@ -33,6 +32,7 @@ pub(super) fn finish(
         brush_preset_open,
         pixel_mode,
         square_mode,
+        symmetry_mode,
         pen_request,
         bucket_request,
         bucket_contiguous,
@@ -120,8 +120,9 @@ pub(super) fn finish(
 
     let mut view = EditorView {
         tree,
-        page,
-        top_inset: 0.0,
+        menu_bar: refs.menu_bar.get().expect("menu bar mounted"),
+        options_panel: options.panel.get().expect("options panel mounted"),
+        tab_band: refs.tab_band.get().expect("tab band mounted"),
         theme,
         state,
         message,
@@ -150,6 +151,7 @@ pub(super) fn finish(
         options_brush: options.brush.get().expect("options brush mounted"),
         options_size: options.size.get().expect("options size mounted"),
         options_hardness: options.hardness.get().expect("options hardness mounted"),
+        options_smooth: options.smooth.get().expect("options smooth mounted"),
         options_preset: options
             .preset_button
             .get()
@@ -173,6 +175,14 @@ pub(super) fn finish(
         brush_buttons,
         pixel_mode,
         square_mode,
+        symmetry_mode,
+        options_symmetry: options.symmetry.get().expect("options symmetry mounted"),
+        symmetry_button: options
+            .symmetry_button
+            .get()
+            .expect("symmetry button mounted"),
+        // 默认参数就是 `BrushPreferences::default()`，所以启动时不会立刻写配置。
+        saved_preferences: crate::io::BrushPreferences::default(),
         brush_toggles,
         bucket_request,
         bucket_buttons,
@@ -222,6 +232,7 @@ pub(super) fn finish(
         renderer: CpuRenderer,
         render_target: RenderTarget::new(document_size.0, document_size.1),
         texture_dirty: true,
+        dirty_region: None,
         show_checkerboard: true,
         fitted: false,
         viewport: ViewportSize::new(Size::new(1280.0, 800.0)),
@@ -230,6 +241,11 @@ pub(super) fn finish(
         move_tool: MoveTool::new(),
         pen: PenTool::new(),
         select_anchor: None,
+        modifiers: igui_core::Modifiers::NONE,
+        image_clipboard: Rc::new(RefCell::new(None)),
+        scale_factor: 1.0,
+        merge: crate::canvas::MergeMode::Replace,
+        merge_base: None,
         lasso_points: Vec::new(),
         layer_count,
         layer_selected,

@@ -61,6 +61,11 @@ impl EditorView {
                 if self.handle_pen_key(*key) {
                     return EventResult::Handled;
                 }
+                // 删选区内容：macOS 的 Delete 键报成 `Backspace`（钢笔已经先截走
+                // 它自己的「删锚点」）。
+                if matches!(key, Key::Delete | Key::Backspace) && self.delete_selection() {
+                    return EventResult::Handled;
+                }
                 if matches!(key, Key::Escape) && self.clear_selection() {
                     return EventResult::Handled;
                 }

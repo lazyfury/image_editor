@@ -7,8 +7,8 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use igui_components::{Button, Component, Flex, NodeRef};
-use igui_core::{Color, Edges, EventResult, InputEvent, NodeId, Vec2, ViewportSize};
+use igui_components::{update_control, Button, Component, Flex, NodeRef};
+use igui_core::{Color, Edges, EventResult, InputEvent, NodeId, Rect, Vec2, ViewportSize};
 use igui_render::PaintContext;
 use igui_scene::SceneTree;
 use igui_theme::{radius, space, SurfaceLevel, Theme};
@@ -40,6 +40,8 @@ pub struct WorkspaceTabs {
     request: Rc<Cell<Option<WorkspaceTabAction>>>,
     tabs: Vec<WorkspaceTab>,
     active: usize,
+    /// 标签条节点的顶部偏移（菜单栏高度；宿主每帧同步）。
+    top: f32,
     /// 标签条节点（判断指针是否落在条上）。
     bar: Option<NodeId>,
     /// 这次按下的起点在标签条上（后续 move / up 归标签条）。
@@ -57,6 +59,7 @@ impl WorkspaceTabs {
             request: Rc::new(Cell::new(None)),
             tabs: Vec::new(),
             active: 0,
+            top: 0.0,
             bar: None,
             captured: false,
             tab_nodes: Vec::new(),
@@ -85,6 +88,26 @@ impl WorkspaceTabs {
         self.tabs = tabs.to_vec();
         self.active = active;
         self.rebuild();
+    }
+
+    /// 把标签条钉到 `top`（逻辑像素）：菜单栏在最上时，它就在菜单栏下面。
+    pub fn set_top(&mut self, top: f32) {
+        if (self.top - top).abs() < f32::EPSILON {
+            return;
+        }
+        self.top = top;
+        if let Some(bar) = self.bar {
+            update_control(&mut self.tree, bar, |data| {
+                data.offsets = Edges::new(0.0, self.top, 0.0, self.top + TAB_STRIP_HEIGHT);
+            });
+        }
+    }
+
+    /// 标签条当前占的那一条（逻辑坐标）；宿主 / 自检用它验证顺序。
+    pub fn bar_rect(&self) -> Option<Rect> {
+        self.bar
+            .and_then(|id| igui_ui::control(&self.tree, id))
+            .map(|control| control.rect)
     }
 
     pub fn layout(&mut self, viewport: ViewportSize) {
@@ -167,7 +190,7 @@ impl WorkspaceTabs {
             // 标签条的父节点是根控件，子节点按 **anchors/offsets** 摆（不是 flex），
             // 所以这里显式把它钉成顶部一条，否则它会撑满整个视口。
             .anchors(Edges::new(0.0, 0.0, 1.0, 0.0))
-            .offsets(Edges::new(0.0, 0.0, 0.0, TAB_STRIP_HEIGHT))
+            .offsets(Edges::new(0.0, self.top, 0.0, self.top + TAB_STRIP_HEIGHT))
             .align(Align::Center)
             .gap(space::XXS)
             .padding(Edges::symmetric(space::SM, space::XXS))

@@ -41,6 +41,7 @@ impl EditorView {
                 state.selection.is_some(),
             )
         };
+        let can_paste = self.has_clipboard();
         self.overlays.menu(anchor, move |tree, root| {
             menu::menu_content(
                 tree,
@@ -51,6 +52,7 @@ impl EditorView {
                 can_undo,
                 can_redo,
                 has_selection,
+                can_paste,
             );
         });
         self.open_menu.set(Some(index));
@@ -188,6 +190,24 @@ impl EditorView {
             menu::MenuAction::ZoomOut => self.apply_canvas_action(CanvasAction::ZoomOut),
             menu::MenuAction::ZoomReset => self.apply_canvas_action(CanvasAction::Reset),
             menu::MenuAction::ZoomFit => self.apply_canvas_action(CanvasAction::Fit),
+            menu::MenuAction::SelectAll => {
+                self.select_all();
+            }
+            menu::MenuAction::InvertSelection => {
+                self.invert_selection();
+            }
+            menu::MenuAction::FeatherSelection => {
+                self.feather_selection();
+            }
+            menu::MenuAction::Cut => {
+                self.cut_selection();
+            }
+            menu::MenuAction::Copy => {
+                self.copy_selection();
+            }
+            menu::MenuAction::Paste => {
+                self.paste_clipboard();
+            }
             menu::MenuAction::ClearSelection => {
                 self.clear_selection();
             }

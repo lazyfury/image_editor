@@ -1,6 +1,6 @@
 //! CPU 合成器：`Normal` 混合 + 图层不透明度 + 图层位置偏移。
 
-use crate::document::{blend_over, Color, Document, PixelBuffer};
+use crate::document::{blend_over, Color, Document, PixelBuffer, PixelRegion};
 
 use super::{RenderTarget, Renderer};
 
@@ -10,24 +10,69 @@ pub struct CpuRenderer;
 
 impl Renderer for CpuRenderer {
     fn render(&self, document: &Document, target: &mut RenderTarget) {
+        self.render_region(
+            document,
+            target,
+            PixelRegion::new(0, 0, document.width, document.height),
+        );
+    }
+
+    /// 只重算 `region`：画笔一笔只脏几百像素时，4K 文档也不用每帧扫 830 万像素。
+    ///
+    /// 目标尺寸变了（换文档 / 缩放画布尺寸）就直接整图重来，否则局部结果是错的。
+    fn render_region(&self, document: &Document, target: &mut RenderTarget, region: PixelRegion) {
+        if target.pixels.width != document.width || target.pixels.height != document.height {
+            target.resize(document.width, document.height);
+            return self.render(document, target);
+        }
+        let region = region.clamped(document.width, document.height);
+        if region.area() == 0 {
+            return;
+        }
         target.resize(document.width, document.height);
         // 画布底是透明的；白色背景由文档里的“背景”图层提供，这样隐藏背景
         // 图层时能露出透明的棋盘格背景（`canvas::checkerboard`，只在显示用的
         // 合成结果上生成，不影响导出的 PNG）。
-        target.pixels.clear(Color::TRANSPARENT);
+        clear_region(&mut target.pixels, region);
 
         // layers 从下到上，直接顺序 source-over 即可。
         for layer in &document.layers {
             if !layer.visible || layer.opacity <= 0.0 {
                 continue;
             }
-            blend_layer(&mut target.pixels, layer);
+            blend_layer(&mut target.pixels, layer, region);
         }
     }
 }
 
-/// 把一个图层按位置偏移与不透明度合成到目标上。
-fn blend_layer(target: &mut PixelBuffer, layer: &crate::document::Layer) {
+/// 逐 4 字节块合成（同尺寸对齐的快路）：透明跳过、不透明覆盖、其余 source-over。
+fn blend_rows(dst: &mut [u8], src: &[u8], opacity: f32, opaque: bool) {
+    for (dst, src) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+        let alpha = src[3];
+        if alpha == 0 {
+            continue;
+        }
+        if opaque && alpha == 255 {
+            dst.copy_from_slice(src);
+            continue;
+        }
+        blend_over(dst, src, opacity);
+    }
+}
+
+/// 把 `region` 内的目标像素清成 `color`（区域外不动）。
+fn clear_region(target: &mut PixelBuffer, region: PixelRegion) {
+    for y in region.y..region.bottom() {
+        let start = (y as usize * target.width as usize + region.x as usize) * 4;
+        let end = start + region.width as usize * 4;
+        for pixel in target.data[start..end].chunks_exact_mut(4) {
+            pixel.copy_from_slice(&Color::TRANSPARENT.to_rgba8());
+        }
+    }
+}
+
+/// 把一个图层按位置偏移与不透明度合成到目标上（只处理 `region` 内的目标像素）。
+fn blend_layer(target: &mut PixelBuffer, layer: &crate::document::Layer, region: PixelRegion) {
     let opacity = layer.opacity;
     // 不透明度拉满时，alpha=255 的源像素可以直接覆盖目标（source-over 的
     // 特例），省掉每像素的浮点混合。背景层与画笔实心部分都走这条路。
@@ -35,39 +80,45 @@ fn blend_layer(target: &mut PixelBuffer, layer: &crate::document::Layer) {
     let dx = layer.position.x as i64;
     let dy = layer.position.y as i64;
 
+    // 「图层映射到目标后的范围」∩ 脏矩形：先在**目标坐标**里求交集，再换成图层索引，
+    // 否则偏移过的图层会在错误的像素上合成。
+    let tx_start = dx.max(0).max(region.x as i64);
+    let tx_end = (dx + layer.pixels.width as i64)
+        .min(target.width as i64)
+        .min(region.right() as i64);
+    let ty_start = dy.max(0).max(region.y as i64);
+    let ty_end = (dy + layer.pixels.height as i64)
+        .min(target.height as i64)
+        .min(region.bottom() as i64);
+    if tx_start >= tx_end || ty_start >= ty_end {
+        return;
+    }
+    let x_start = tx_start - dx;
+    let x_end = tx_end - dx;
+    let y_start = ty_start - dy;
+    let y_end = ty_end - dy;
+
     let aligned = dx == 0
         && dy == 0
         && layer.pixels.width == target.width
         && layer.pixels.height == target.height;
     if aligned {
-        // 快路：同尺寸对齐，逐 4 字节块处理，省掉每像素的坐标与边界检查。
-        for (dst, src) in target
-            .data
-            .chunks_exact_mut(4)
-            .zip(layer.pixels.data.chunks_exact(4))
-        {
-            let alpha = src[3];
-            if alpha == 0 {
-                continue;
-            }
-            if opaque && alpha == 255 {
-                dst.copy_from_slice(src);
-                continue;
-            }
-            crate::document::blend_over(dst, src, opacity);
+        // 快路：同尺寸对齐，按行切片逐 4 字节块处理，省掉每像素的坐标与边界检查。
+        let (x0, x1) = (x_start as usize, x_end as usize);
+        let row = target.width as usize;
+        for y in y_start as usize..y_end as usize {
+            let start = (y * row + x0) * 4;
+            let end = (y * row + x1) * 4;
+            blend_rows(
+                &mut target.data[start..end],
+                &layer.pixels.data[start..end],
+                opacity,
+                opaque,
+            );
         }
         return;
     }
 
-    // 只遍历**落在渲染目标里的**那部分：图层缓冲区可能比文档大很多（移动画布
-    // 外内容后），合成成本不应该随缓冲区尺寸增长。
-    let x_start = (-dx).max(0);
-    let x_end = (target.width as i64 - dx).min(layer.pixels.width as i64);
-    let y_start = (-dy).max(0);
-    let y_end = (target.height as i64 - dy).min(layer.pixels.height as i64);
-    if x_start >= x_end || y_start >= y_end {
-        return;
-    }
     for y in y_start as u32..y_end as u32 {
         for x in x_start as u32..x_end as u32 {
             let src = layer.pixels.get_pixel(x, y);
@@ -141,6 +192,46 @@ mod tests {
         layer.visible = false;
         document.layers.push(layer);
         assert_eq!(render(&document).get_pixel(0, 0), Color::TRANSPARENT);
+    }
+
+    #[test]
+    fn a_partial_render_matches_the_full_one_inside_the_region() {
+        // 局部合成必须和整图逐像素一致（这是脏矩形正确性的唯一标准）。
+        let mut document = Document::with_background("d", 16, 16, Color::WHITE);
+        let id = document.active_layer().unwrap().id;
+        document.set_layer_position(id, crate::document::Point::new(3, 2));
+        let layer = document.layer_mut(id).unwrap();
+        for y in 2..8 {
+            for x in 3..9 {
+                layer.pixels.set_pixel(x, y, Color::RED);
+            }
+        }
+
+        let renderer = CpuRenderer;
+        let mut full = RenderTarget::new(16, 16);
+        renderer.render(&document, &mut full);
+
+        let mut partial = RenderTarget::new(16, 16);
+        // 先整图一次（得到「上一帧」的底），再局部重算一条带子。
+        renderer.render(&document, &mut partial);
+        let region = PixelRegion::new(4, 2, 6, 4);
+        partial.pixels.set_pixel(0, 0, Color::BLACK); // 区域外故意涂脏
+        renderer.render_region(&document, &mut partial, region);
+
+        assert_eq!(
+            partial.pixels.get_pixel(0, 0),
+            Color::BLACK,
+            "区域外不该被重算"
+        );
+        for y in region.y..region.bottom() {
+            for x in region.x..region.right() {
+                assert_eq!(
+                    partial.pixels.get_pixel(x, y),
+                    full.pixels.get_pixel(x, y),
+                    "({x}, {y}) 应和整图一致"
+                );
+            }
+        }
     }
 
     #[test]

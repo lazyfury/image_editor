@@ -114,7 +114,9 @@ fn build_app(options: Options) -> App {
     }
 
     let dialog: Rc<dyn FileDialog> = Rc::new(NativeFileDialog);
-    builder.logic(ImageEditorLogic::new(theme, dialog)).build()
+    let logic =
+        ImageEditorLogic::new(theme, dialog).with_preferences(crate::io::load_preferences());
+    builder.logic(logic).build()
 }
 
 /// 应用逻辑：主页 / 多工作区编辑器 +「新建文档」模态框，都在这一个 `AppLogic` 里。
@@ -137,6 +139,12 @@ struct ImageEditorLogic {
     /// 正在等待确认关闭的工作区下标。
     pending_close: Option<usize>,
     modifiers: Modifiers,
+    /// 笔刷偏好（启动读配置、编辑器改了就写回去）。
+    preferences: crate::io::BrushPreferences,
+    /// 上一次设给后端的文档纹理采样方式（变了才调 `set_texture_filter`）。
+    image_smoothing: crate::canvas::ImageSmoothing,
+    /// 像素剪贴板：所有工作区共用一块（跨工作区复制粘贴）。
+    image_clipboard: Rc<RefCell<Option<crate::tools::PixelClipboard>>>,
     /// 文档换了标题，下一帧写回原生窗口。
     title_dirty: bool,
 }
@@ -211,6 +219,9 @@ impl ImageEditorLogic {
             confirm: None,
             pending_close: None,
             modifiers: Modifiers::NONE,
+            preferences: crate::io::BrushPreferences::default(),
+            image_smoothing: crate::canvas::ImageSmoothing::Linear,
+            image_clipboard: Rc::new(RefCell::new(None)),
             title_dirty: false,
         }
     }
@@ -263,7 +274,13 @@ impl ImageEditorLogic {
         }
     }
 
-    /// 工作区编辑器统一配置：字体度量 + 系统剪贴板 + 顶部给标签条留位置。
+    /// 带上从配置读出来的笔刷偏好（宿主装配时用；测试用默认值）。
+    fn with_preferences(mut self, preferences: crate::io::BrushPreferences) -> Self {
+        self.preferences = preferences.clamped();
+        self
+    }
+
+    /// 工作区编辑器统一配置：字体度量 + 系统剪贴板 + 顶部给标签条留位置 + 笔刷偏好。
     fn configure_editor(&self, editor: &mut EditorView) {
         if let Some(measurer) = self.measurer.clone() {
             editor.set_text_measurer(measurer);
@@ -271,7 +288,9 @@ impl ImageEditorLogic {
         if let Some(clipboard) = self.clipboard.clone() {
             editor.set_clipboard(clipboard);
         }
-        editor.set_top_inset(TAB_STRIP_HEIGHT);
+        editor.set_tab_band(TAB_STRIP_HEIGHT);
+        editor.apply_preferences(&self.preferences);
+        editor.set_image_clipboard(self.image_clipboard.clone());
     }
 
     /// 把「新建文档」的选择变成一个新工作区（并切到编辑器）。
@@ -407,7 +426,15 @@ impl AppLogic for ImageEditorLogic {
                     return EventResult::Handled;
                 }
                 if let Some(workspace) = self.workspaces.active_mut() {
+                    // Shift / Alt 是选区工具的加选 / 减选（视图不认识 winit 事件）。
+                    workspace.editor.set_modifiers(self.modifiers);
                     if history_shortcut(&mut workspace.editor, command, shift, event) {
+                        return EventResult::Handled;
+                    }
+                    if selection_shortcut(&mut workspace.editor, command, shift, event) {
+                        return EventResult::Handled;
+                    }
+                    if clipboard_shortcut(&mut workspace.editor, command, event) {
                         return EventResult::Handled;
                     }
                     if let Some(request) = file_shortcut(command, shift, event) {
@@ -445,8 +472,33 @@ impl AppLogic for ImageEditorLogic {
             let path = workspace.path.clone();
             workspace.editor.set_workspace_path(path.as_deref());
             workspace.editor.update();
-            if let Some(pixels) = workspace.editor.take_texture_upload() {
-                if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
+            if let Some(preferences) = workspace.editor.take_preferences() {
+                self.preferences = preferences;
+                if let Err(error) = crate::io::save_preferences(&preferences) {
+                    tracing::warn!(
+                        target: "image_editor",
+                        %error,
+                        "preferences_write_failed"
+                    );
+                }
+            }
+            if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
+                let scale = backend.borrow().scale_factor();
+                workspace.editor.set_scale_factor(scale);
+                // 缩小用线性、放大用最近邻：4K 适配窗口是 0.18 倍，最近邻会把
+                // 细笔迹直接采没（看着像毛刺）。
+                let smoothing = workspace.editor.image_smoothing();
+                if smoothing != self.image_smoothing {
+                    self.image_smoothing = smoothing;
+                    backend.borrow_mut().set_texture_filter(
+                        crate::canvas::DOCUMENT_TEXTURE,
+                        match smoothing {
+                            crate::canvas::ImageSmoothing::Nearest => TextureFilter::Nearest,
+                            crate::canvas::ImageSmoothing::Linear => TextureFilter::Linear,
+                        },
+                    );
+                }
+                if let Some(pixels) = workspace.editor.take_texture_upload() {
                     upload_texture(&backend, &pixels);
                 }
             }
@@ -471,6 +523,13 @@ impl AppLogic for ImageEditorLogic {
                 if let Some(workspace) = self.workspaces.active_mut() {
                     workspace.editor.layout(viewport);
                 }
+                // 菜单栏在最上：标签条钉在菜单栏下面（编辑器给它留了 `TAB_STRIP_HEIGHT`
+                // 的带子）。菜单栏高度由布局算出来，所以每帧同步一次。
+                if let Some(workspace) = self.workspaces.active() {
+                    if let Some(rect) = workspace.editor.menu_bar_rect() {
+                        self.tabs.set_top(rect.bottom());
+                    }
+                }
                 self.tabs.layout(viewport);
             }
         }
@@ -483,21 +542,14 @@ impl AppLogic for ImageEditorLogic {
     }
 
     fn paint(&mut self, _ctx: &FrameContext<'_>, paint: &mut PaintContext) {
-        match &self.screen {
-            Screen::Home(home) => home.paint(paint),
-            Screen::Editor => {
-                if let Some(workspace) = self.workspaces.active() {
-                    workspace.editor.paint(paint);
-                }
-                self.tabs.paint(paint);
-            }
-        }
-        if let Some(modal) = self.modal.as_ref() {
-            modal.paint(paint);
-        }
-        if let Some(confirm) = self.confirm.as_ref() {
-            confirm.paint(paint);
-        }
+        paint_screen(
+            &self.screen,
+            &self.workspaces,
+            &self.tabs,
+            self.modal.as_ref(),
+            self.confirm.as_ref(),
+            paint,
+        );
     }
 
     /// 编辑器在等工具栏长按阈值时要持续出帧（winit 侧靠它 `request_redraw`）。
@@ -520,6 +572,36 @@ fn upload_texture(backend: &SharedBackend, pixels: &PixelBuffer) {
         &pixels.data,
     ) {
         eprintln!("document texture upload failed: {error}");
+    }
+}
+
+/// 一帧的绘制顺序：**先标签条（窗口 chrome）→ 再内容 → 最后浮层**。
+///
+/// 标签条必须画在编辑器之前：菜单下拉 / 浮层属于编辑器的 `Overlays`，要盖在
+/// 标签条**上面**（菜单栏在最上、标签条在它下面，下拉会跨过那条带子）。
+fn paint_screen(
+    screen: &Screen,
+    workspaces: &Workspaces,
+    tabs: &WorkspaceTabs,
+    modal: Option<&NewDocumentModal>,
+    confirm: Option<&ConfirmDialog>,
+    paint: &mut PaintContext,
+) {
+    match screen {
+        Screen::Home(home) => home.paint(paint),
+        Screen::Editor => {
+            // 标签条是 chrome：先画它，编辑器的浮层（菜单下拉）才能盖在上面。
+            tabs.paint(paint);
+            if let Some(workspace) = workspaces.active() {
+                workspace.editor.paint(paint);
+            }
+        }
+    }
+    if let Some(modal) = modal {
+        modal.paint(paint);
+    }
+    if let Some(confirm) = confirm {
+        confirm.paint(paint);
     }
 }
 
@@ -570,6 +652,76 @@ mod tests {
             .workspaces
             .push(Workspace::new(EditorView::new(theme, AppState::default())));
         logic
+    }
+
+    /// 标签条是 chrome，必须画在编辑器之前：菜单下拉属于编辑器浮层，要盖住它。
+    #[test]
+    fn the_tab_strip_is_painted_below_the_editor_overlays() {
+        use igui_core::{InputEvent, PointerButton, Size, ViewportSize};
+        use igui_render::{DrawCommand, PaintContext};
+
+        let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+        // 从主页切到编辑器（正常流程走「新建文档」，这里直接切屏）。
+        logic.screen = Screen::Editor;
+        let viewport = ViewportSize::new(Size::new(1280.0, 800.0));
+        let tabs_state = vec![crate::ui::WorkspaceTab {
+            name: "A".into(),
+            dirty: false,
+        }];
+        let workspace = logic.workspaces.active_mut().expect("一个工作区");
+        workspace.editor.set_tab_band(crate::ui::TAB_STRIP_HEIGHT);
+        workspace.editor.layout(viewport);
+        let tabs_top = workspace.editor.menu_bar_rect().expect("菜单栏").bottom();
+        logic.tabs.set_tabs(&tabs_state, 0);
+        logic.tabs.set_top(tabs_top);
+        logic.tabs.layout(viewport);
+
+        // 打开「文件」菜单（编辑器的浮层），下拉会跨过标签条那条带子。
+        let title = workspace.editor.menu_center(0).expect("文件菜单标题");
+        for event in [
+            InputEvent::PointerDown {
+                position: title,
+                button: PointerButton::Left,
+            },
+            InputEvent::PointerUp {
+                position: title,
+                button: PointerButton::Left,
+            },
+        ] {
+            workspace.editor.event(&event);
+        }
+        workspace.editor.update();
+        workspace.editor.layout(viewport);
+
+        let mut paint = PaintContext::new();
+        paint_screen(
+            &logic.screen,
+            &logic.workspaces,
+            &logic.tabs,
+            logic.modal.as_ref(),
+            logic.confirm.as_ref(),
+            &mut paint,
+        );
+        let texts: Vec<String> = paint
+            .draw_list()
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::DrawText { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        let tab_index = texts
+            .iter()
+            .position(|text| text == "主页")
+            .expect("标签条");
+        let item_index = texts
+            .iter()
+            .position(|text| text.contains("导入 PNG"))
+            .expect("文件菜单项");
+        assert!(
+            tab_index < item_index,
+            "标签条要先画，菜单浮层才能盖住它：tabs #{tab_index} / item #{item_index}"
+        );
     }
 
     fn temp_workspace(tag: &str) -> PathBuf {
@@ -721,6 +873,55 @@ mod tests {
             native,
             "系统字体应直接用原生 ascent"
         );
+    }
+
+    #[test]
+    fn clipboard_shortcuts_cut_copy_and_paste() {
+        let mut editor = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        let key = |ch: char| InputEvent::KeyDown {
+            key: Key::Character(ch),
+        };
+        // 没有选区 / 剪贴板时仍是 handled（别把字符漏给输入框），但不改像素。
+        assert!(
+            !clipboard_shortcut(&mut editor, false, &key('c')),
+            "没 Ctrl/Cmd 不算"
+        );
+        assert!(clipboard_shortcut(&mut editor, true, &key('c')));
+        assert!(!editor.has_clipboard());
+
+        // 选区 + 复制 -> 剪贴板有内容，粘贴后能贴回去。
+        editor.select_all();
+        assert!(clipboard_shortcut(&mut editor, true, &key('c')));
+        assert!(editor.has_clipboard());
+        assert!(clipboard_shortcut(&mut editor, true, &key('x')), "剪切");
+        assert!(clipboard_shortcut(&mut editor, true, &key('v')), "粘贴");
+    }
+
+    #[test]
+    fn selection_shortcuts_select_all_and_invert() {
+        let mut editor = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+        let a = InputEvent::KeyDown {
+            key: Key::Character('a'),
+        };
+        assert!(
+            !selection_shortcut(&mut editor, false, false, &a),
+            "没有 Ctrl/Cmd 时 A 不是全选"
+        );
+        assert!(selection_shortcut(&mut editor, true, false, &a));
+        assert_eq!(
+            editor.selection().map(|selection| selection.area()),
+            Some(128 * 128)
+        );
+
+        let i = InputEvent::KeyDown {
+            key: Key::Character('i'),
+        };
+        assert!(
+            !selection_shortcut(&mut editor, true, false, &i),
+            "反选要 Shift"
+        );
+        assert!(selection_shortcut(&mut editor, true, true, &i));
+        assert!(editor.selection().is_none(), "全选反选 = 取消选择");
     }
 
     #[test]

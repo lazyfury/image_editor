@@ -10,8 +10,9 @@
 use std::rc::Rc;
 
 use crate::canvas::Selection;
-use crate::document::{Color, PixelBuffer, Point};
+use crate::document::{Color, PixelBuffer, PixelRegion, Point};
 
+use super::tip::Symmetry;
 use super::BrushMode;
 
 /// 覆盖率蒙版：每个像素在本笔里的最大覆盖率（`0..=255`）。
@@ -64,18 +65,51 @@ pub struct Writer<'a> {
     pub clip: Option<Rc<Selection>>,
     /// 图层缓冲区原点（文档坐标）。
     pub offset: Point,
+    /// 对称绘画：每个落笔像素再镜像到其它通道（轴 = 文档中线）。
+    pub symmetry: Symmetry,
+    /// 文档尺寸（镜像轴用）。
+    pub document: (u32, u32),
     pub(super) before: &'a PixelBuffer,
     pub(super) mask: &'a mut StrokeMask,
     pub(super) target: &'a mut PixelBuffer,
+    /// 本笔**实际写过**的像素包围盒（文档坐标）：局部合成与撤销区域都用它。
+    pub(super) dirty: Option<PixelRegion>,
 }
 
 impl Writer<'_> {
-    /// 往文档坐标 `(doc_x, doc_y)` 合成 `coverage`；选区与图层边界在这里裁。
+    /// 往文档坐标 `(doc_x, doc_y)` 合成 `coverage`，再按对称模式镜像。
+    ///
+    /// 镜像在**像素级**做，所以像素画也严格对称；重复压到同一像素由蒙版去重。
     pub fn put(&mut self, doc_x: i64, doc_y: i64, coverage: f32) {
-        if let Some(clip) = self.clip.as_ref() {
-            if doc_x < 0 || doc_y < 0 || !clip.contains(doc_x as u32, doc_y as u32) {
-                return;
-            }
+        // 羽化过的选区让落笔按覆盖率衰减（硬选区里就是 0 / 1）。
+        let coverage = match self.clip.as_ref() {
+            Some(clip) => coverage * clip.coverage(doc_x.max(0) as u32, doc_y.max(0) as u32),
+            None => coverage,
+        };
+        if coverage <= 0.0 {
+            return;
+        }
+        self.put_one(doc_x, doc_y, coverage);
+        for lane in 1..self.symmetry.lanes() {
+            let Some((mx, my)) = self
+                .symmetry
+                .mirror_pixel(doc_x, doc_y, self.document, lane)
+            else {
+                continue;
+            };
+            self.put_one(mx, my, coverage);
+        }
+    }
+
+    /// 本笔到目前为止的脏矩形（文档坐标）；一个像素都没写过就是 `None`。
+    pub fn dirty(&self) -> Option<PixelRegion> {
+        self.dirty
+    }
+
+    /// 只压 `(doc_x, doc_y)` 这一个像素；选区与图层边界在这里裁。
+    fn put_one(&mut self, doc_x: i64, doc_y: i64, coverage: f32) {
+        if doc_x < 0 || doc_y < 0 {
+            return;
         }
         let bx = doc_x - self.offset.x as i64;
         let by = doc_y - self.offset.y as i64;
@@ -86,6 +120,9 @@ impl Writer<'_> {
         let Some(peak) = self.mask.raise(bx, by, coverage) else {
             return;
         };
+        // 只有真正合成过的像素才算脏（蒙版去重后的那些）。
+        let touched = PixelRegion::new(doc_x as u32, doc_y as u32, 1, 1);
+        self.dirty = Some(self.dirty.map_or(touched, |dirty| dirty.union(touched)));
         let alpha = peak * self.opacity;
         let base = self.before.get_pixel(bx, by);
         match self.mode {
@@ -123,6 +160,9 @@ mod tests {
                 opacity: 0.5,
                 clip: None,
                 offset: Point::ZERO,
+                dirty: None,
+                symmetry: Symmetry::Off,
+                document: (8, 8),
                 before: &self.before,
                 mask: &mut self.mask,
                 target: &mut self.target,
@@ -164,6 +204,41 @@ mod tests {
             writer.put(3, 3, 1.0);
         }
         assert!((fixture.pixel(3, 3).a as i32 - 128).abs() <= 1);
+    }
+
+    #[test]
+    fn symmetry_mirrors_the_composited_pixels() {
+        let mut fixture = Fixture::new();
+        let mut writer = fixture.writer();
+        writer.symmetry = Symmetry::Both;
+        writer.put(1, 1, 1.0);
+        drop(writer);
+        // 8×8 文档：四向镜像落在 (1,1) (6,1) (1,6) (6,6)。
+        for (x, y) in [(1, 1), (6, 1), (1, 6), (6, 6)] {
+            assert_ne!(fixture.pixel(x, y), Color::WHITE, "({x}, {y}) 应被压到");
+        }
+        assert_eq!(fixture.pixel(3, 3), Color::WHITE, "中间不该有东西");
+    }
+
+    #[test]
+    fn the_writer_reports_the_region_it_actually_touched() {
+        let mut fixture = Fixture::new();
+        let mut writer = fixture.writer();
+        writer.symmetry = Symmetry::Both;
+        writer.put(2, 2, 1.0);
+        writer.put(4, 5, 1.0);
+        // 四向镜像 + 两次落笔 -> 一个覆盖全部的包围盒。
+        assert_eq!(writer.dirty(), Some(PixelRegion::new(2, 2, 4, 4)));
+
+        // 被选区挡掉的像素不算脏。
+        let mut fixture = Fixture::new();
+        let mut writer = fixture.writer();
+        writer.clip = Some(Rc::new(Selection::rect(
+            PixelRegion::new(0, 0, 1, 1),
+            (8, 8),
+        )));
+        writer.put(6, 6, 1.0);
+        assert_eq!(writer.dirty(), None);
     }
 
     #[test]

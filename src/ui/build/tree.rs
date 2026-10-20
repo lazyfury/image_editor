@@ -75,6 +75,7 @@ pub(super) fn build_tree(
     let brush_preset_open: Rc<Cell<Option<NodeId>>> = Rc::new(Cell::new(None));
     let pixel_mode = Rc::new(Cell::new(true));
     let square_mode = Rc::new(Cell::new(true));
+    let symmetry_mode = Rc::new(Cell::new(crate::tools::Symmetry::Off));
     let mut toggle_refs: Vec<(BrushToggle, NodeRef)> = Vec::new();
     let pen_request: Rc<Cell<Option<crate::ui::PenAction>>> = Rc::new(Cell::new(None));
     let mut pen_refs: Vec<(crate::ui::PenAction, NodeRef)> = Vec::new();
@@ -134,7 +135,20 @@ pub(super) fn build_tree(
         .gap(0.0)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore)
-        .child(menu::menu_bar(theme, menu_request.clone(), &mut menu_refs))
+        .child(menu::menu_bar(
+            theme,
+            menu_request.clone(),
+            &mut menu_refs,
+            &refs.menu_bar,
+        ))
+        // 菜单栏和选项栏之间给宿主留一条带子画工作区标签条（默认 0 高）。
+        .child(
+            Flex::row()
+                .padding(Edges::ZERO)
+                .gap(0.0)
+                .mouse_filter(MouseFilter::Ignore)
+                .ref_(&refs.tab_band),
+        )
         .child(options_bar(
             theme,
             brush_request.clone(),
@@ -142,6 +156,7 @@ pub(super) fn build_tree(
             crate::tools::brush::preset::label(&BrushTool::paint()),
             pixel_mode.clone(),
             square_mode.clone(),
+            symmetry_mode.clone(),
             pen_request.clone(),
             bucket_request.clone(),
             bucket_contiguous.clone(),
@@ -276,6 +291,7 @@ pub(super) fn build_tree(
         brush_preset_open,
         pixel_mode,
         square_mode,
+        symmetry_mode,
         bucket_request,
         bucket_contiguous,
         gradient,

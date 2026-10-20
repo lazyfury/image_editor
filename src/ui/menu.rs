@@ -34,6 +34,18 @@ pub enum MenuAction {
     ZoomOut,
     ZoomReset,
     ZoomFit,
+    /// 全选（整个文档）。
+    SelectAll,
+    /// 反选（没有选区时等于全选）。
+    InvertSelection,
+    /// 羽化当前选区（半径固定 `FEATHER_RADIUS`）。
+    FeatherSelection,
+    /// 剪切选区内容。
+    Cut,
+    /// 复制选区内容。
+    Copy,
+    /// 粘贴剪贴板。
+    Paste,
     ClearSelection,
     /// 把当前图层裁到文档大小（丢掉画布外像素）。
     CropLayerToDocument,
@@ -49,6 +61,7 @@ pub fn menu_bar(
     theme: &'static dyn Theme,
     request: Rc<Cell<Option<usize>>>,
     refs: &mut Vec<NodeRef>,
+    bar_slot: &NodeRef,
 ) -> impl Component {
     let mut bar = Flex::row()
         .gap(space::XXS)
@@ -66,7 +79,7 @@ pub fn menu_bar(
                 .ref_(&slot),
         );
     }
-    bar
+    bar.ref_(bar_slot)
 }
 
 /// 构建第 `index` 个菜单的内容，挂到 `root`（覆盖层给的定位节点）下。
@@ -81,6 +94,7 @@ pub fn menu_content(
     can_undo: bool,
     can_redo: bool,
     has_selection: bool,
+    can_paste: bool,
 ) {
     let mut menu = Menu::new(theme);
     match index {
@@ -126,9 +140,18 @@ pub fn menu_content(
                     .disabled(!can_redo),
                 )
                 .separator()
-                .item(placeholder("剪切", theme, &action, "剪切：后续 Phase"))
-                .item(placeholder("复制", theme, &action, "复制：后续 Phase"))
-                .item(placeholder("粘贴", theme, &action, "粘贴：后续 Phase"));
+                .item(
+                    menu_item("剪切", Some("Ctrl+X"), theme, &action, MenuAction::Cut)
+                        .disabled(!has_selection),
+                )
+                .item(
+                    menu_item("复制", Some("Ctrl+C"), theme, &action, MenuAction::Copy)
+                        .disabled(!has_selection),
+                )
+                .item(
+                    menu_item("粘贴", Some("Ctrl+V"), theme, &action, MenuAction::Paste)
+                        .disabled(!can_paste),
+                );
         }
         2 => {
             menu = menu
@@ -192,8 +215,24 @@ pub fn menu_content(
         }
         4 => {
             menu = menu
-                .item(placeholder("全选", theme, &action, "全选：后续 Phase"))
-                .item(placeholder("反选", theme, &action, "反选：后续 Phase"))
+                .item(menu_item(
+                    "全选",
+                    Some("Ctrl+A"),
+                    theme,
+                    &action,
+                    MenuAction::SelectAll,
+                ))
+                .item(menu_item(
+                    "反选",
+                    Some("Shift+Ctrl+I"),
+                    theme,
+                    &action,
+                    MenuAction::InvertSelection,
+                ))
+                .item(
+                    menu_item("羽化", None, theme, &action, MenuAction::FeatherSelection)
+                        .disabled(!has_selection),
+                )
                 .item(
                     menu_item(
                         "取消选择",

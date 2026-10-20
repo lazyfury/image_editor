@@ -6,6 +6,7 @@
 //! [`crate::renderer::sample_pixel`] 完成。
 
 pub mod brush;
+mod clipboard;
 mod fill;
 mod gradient;
 mod move_tool;
@@ -14,7 +15,8 @@ mod shape_fill;
 mod stroke;
 mod tool;
 
-pub use brush::{BrushMode, BrushShape, BrushTool};
+pub use brush::{BrushMode, BrushShape, BrushTool, Symmetry};
+pub use clipboard::PixelClipboard;
 pub use fill::{fill_selection, magic_wand_region, PaintBucketTool};
 pub use gradient::{GradientKind, GradientTool};
 pub use move_tool::MoveTool;
