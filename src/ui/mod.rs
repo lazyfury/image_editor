@@ -34,6 +34,7 @@ mod new_document;
 mod options_bar;
 mod paint;
 mod palette;
+mod pen;
 mod properties_panel;
 mod rename;
 mod selection;
@@ -51,7 +52,7 @@ pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
 pub use options_bar::GradientAdjust;
-pub use options_bar::{BucketAdjust, BucketToggle};
+pub use options_bar::{BucketAdjust, BucketToggle, PenAction};
 pub use tabs::SidebarTab;
 
 /// 文件面板 / 快捷键留下的文件意图；宿主取走后弹原生对话框并执行。
@@ -100,8 +101,8 @@ use crate::document::{CropLayerCommand, Gradient, LayerId, LayerMetaCommand};
 use crate::icons::IconSet;
 use crate::renderer::{CpuRenderer, RenderTarget, Renderer};
 use crate::tools::{
-    BrushShape, BrushTool, GradientKind, GradientTool, MoveTool, PaintBucketTool, PointerEvent,
-    RectangleFillTool,
+    BrushShape, BrushTool, GradientKind, GradientTool, MoveTool, PaintBucketTool, PenTool,
+    PointerEvent, RectangleFillTool,
 };
 use crate::ui::options_bar::{options_hint, tool_has_brush};
 
@@ -126,6 +127,13 @@ const RESIZE_GUTTER: f32 = 6.0;
 const FIT_PADDING: f32 = 24.0;
 /// 一个滚轮刻度 / `+`/`-` 的缩放倍率。
 const ZOOM_STEP: f32 = 1.25;
+/// 钢笔锚点命中 / 「点回起点闭合」的屏幕半径（逻辑像素）。
+const PEN_HIT_RADIUS: f32 = 8.0;
+/// 钢笔预览的展平容差（屏幕像素，折成文档单位要给 `zoom` 除一下）。
+const PEN_PREVIEW_TOLERANCE: f32 = 0.25;
+/// 路径预览上锚点方块的边长、控制柄端点半径（逻辑像素）。
+const ANCHOR_SIZE: f32 = 5.0;
+const HANDLE_DOT: f32 = 2.5;
 /// 像素模式下，出现像素网格的最小缩放。
 const GRID_MIN_ZOOM: f32 = 6.0;
 /// 右侧栏「文件 / 历史 / 属性」标签页面板的默认高度 / 拖拽钳制（逻辑像素）。
@@ -225,6 +233,12 @@ pub struct EditorView {
     options_preset: NodeId,
     options_preset_label: NodeId,
     options_opacity: NodeId,
+    /// 钢笔选项行 / 路径摘要。
+    options_pen: NodeId,
+    options_pen_summary: NodeId,
+    /// 钢笔动作请求 + 动作按钮节点（测试 / 自检点击用）。
+    pen_request: Rc<Cell<Option<PenAction>>>,
+    pen_buttons: Vec<(PenAction, NodeId)>,
     options_bucket: NodeId,
     options_gradient: NodeId,
     options_tolerance: NodeId,
@@ -318,6 +332,8 @@ pub struct EditorView {
     brush: BrushTool,
     /// 移动工具（Phase 8）。
     move_tool: MoveTool,
+    /// 钢笔：多击建路径，收尾后由选项栏做「选区 / 填充 / 描边」。
+    pen: PenTool,
     /// 框选拖拽起点（文档坐标）；`Some` = 正在框选。
     select_anchor: Option<Vec2>,
     /// 套索拖动中收集的折线（文档坐标）；非空 = 正在套索。
@@ -397,6 +413,9 @@ impl EditorView {
         if let Some(index) = self.brush_preset_request.take() {
             self.overlays.close_all();
             self.apply_brush_preset(index);
+        }
+        if let Some(action) = self.pen_request.take() {
+            self.apply_pen_action(action);
         }
         if let Some(adjust) = self.bucket_request.take() {
             self.apply_bucket_adjust(adjust);
@@ -551,6 +570,7 @@ fn shortcut_tool(key: Key) -> Option<ActiveTool> {
         Key::Character('e') | Key::Character('E') => Some(ActiveTool::Eraser),
         Key::Character('m') | Key::Character('M') => Some(ActiveTool::RectangleSelect),
         Key::Character('l') | Key::Character('L') => Some(ActiveTool::LassoSelect),
+        Key::Character('p') | Key::Character('P') => Some(ActiveTool::Pen),
         Key::Character('g') | Key::Character('G') => Some(ActiveTool::PaintBucket),
         Key::Character('w') | Key::Character('W') => Some(ActiveTool::MagicWand),
         Key::Character('n') | Key::Character('N') => Some(ActiveTool::Gradient),

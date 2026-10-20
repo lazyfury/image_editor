@@ -76,6 +76,8 @@ pub(super) fn build_tree(
     let pixel_mode = Rc::new(Cell::new(true));
     let square_mode = Rc::new(Cell::new(true));
     let mut toggle_refs: Vec<(BrushToggle, NodeRef)> = Vec::new();
+    let pen_request: Rc<Cell<Option<crate::ui::PenAction>>> = Rc::new(Cell::new(None));
+    let mut pen_refs: Vec<(crate::ui::PenAction, NodeRef)> = Vec::new();
     let bucket_request: Rc<Cell<Option<BucketAdjust>>> = Rc::new(Cell::new(None));
     let mut bucket_refs: Vec<(BucketAdjust, NodeRef)> = Vec::new();
     let bucket_contiguous = Rc::new(Cell::new(true));
@@ -140,6 +142,7 @@ pub(super) fn build_tree(
             crate::tools::brush::preset::label(&BrushTool::paint()),
             pixel_mode.clone(),
             square_mode.clone(),
+            pen_request.clone(),
             bucket_request.clone(),
             bucket_contiguous.clone(),
             GradientOptions {
@@ -151,6 +154,7 @@ pub(super) fn build_tree(
             &options,
             &mut brush_refs,
             &mut toggle_refs,
+            &mut pen_refs,
             &mut bucket_refs,
             &mut bucket_toggle_refs,
             &mut gradient_refs,
@@ -251,6 +255,7 @@ pub(super) fn build_tree(
     let page = page_ref.get().expect("页面已挂载");
 
     let wiring = Wiring {
+        pen_request,
         message,
         file_request,
         workspace_path,
@@ -285,6 +290,7 @@ pub(super) fn build_tree(
         palette_refs,
         brush_refs,
         toggle_refs,
+        pen_refs,
         bucket_refs,
         bucket_toggle_refs,
         gradient_refs,

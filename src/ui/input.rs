@@ -56,6 +56,11 @@ impl EditorView {
                     self.adjust_brush_opacity(delta);
                     return EventResult::Handled;
                 }
+                // 钢笔优先：Esc 取消未完成的路径、Enter 收尾、Backspace 删锚点，
+                // 之后再轮到「Esc 清空选区」这些全局快捷键。
+                if self.handle_pen_key(*key) {
+                    return EventResult::Handled;
+                }
                 if matches!(key, Key::Escape) && self.clear_selection() {
                     return EventResult::Handled;
                 }
@@ -101,9 +106,15 @@ impl EditorView {
                     self.continue_tool(*position);
                     return EventResult::Handled;
                 }
+                // 钢笔的橡皮筋要跟手：不按键的移动也要转发（这里不消费事件，
+                // 免得抢掉 UI 的 hover）。
+                if self.state.borrow().active_tool == crate::app::state::ActiveTool::Pen {
+                    self.hover_pen(*position);
+                }
             }
             InputEvent::PointerLeave => {
                 self.pointer = None;
+                self.pen.set_hover(None);
             }
             InputEvent::PointerUp {
                 position,

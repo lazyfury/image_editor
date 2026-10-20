@@ -234,6 +234,28 @@ impl EditorView {
         self.brush.size
     }
 
+    /// 钢笔：当前路径的锚点数 / 是否闭合 / 选项栏摘要。
+    pub fn pen_anchor_count(&self) -> usize {
+        self.pen.path().len()
+    }
+
+    pub fn pen_path_closed(&self) -> bool {
+        self.pen.path().is_closed()
+    }
+
+    /// 钢笔动作按钮的中心点（测试与自检点击用）。
+    pub fn pen_action_node(&self, action: PenAction) -> Option<NodeId> {
+        self.pen_buttons
+            .iter()
+            .find(|(candidate, _)| *candidate == action)
+            .map(|(_, id)| *id)
+    }
+
+    pub fn pen_action_center(&self, action: PenAction) -> Option<Vec2> {
+        let id = self.pen_action_node(action)?;
+        igui_ui::control(&self.tree, id).map(|control| control.rect.center())
+    }
+
     /// 当前笔刷硬度（0..=1）。
     pub fn brush_hardness(&self) -> f32 {
         self.brush.hardness

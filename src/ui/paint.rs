@@ -9,7 +9,7 @@ use igui_render::{Paint, PaintContext};
 use crate::canvas::{pixel_selection, DOCUMENT_TEXTURE};
 
 use super::selection;
-use super::{EditorView, GRID_MIN_ZOOM};
+use super::{EditorView, ANCHOR_SIZE, GRID_MIN_ZOOM, HANDLE_DOT, PEN_PREVIEW_TOLERANCE};
 
 impl EditorView {
     /// 发出这一帧的绘制命令：先在画布区域的裁剪里画世界（文档图像 + 像素网格 +
@@ -27,6 +27,7 @@ impl EditorView {
         self.paint_pixel_grid(ctx);
         self.paint_selection(ctx);
         self.paint_lasso(ctx);
+        self.paint_pen(ctx);
         self.paint_rect_fill_preview(ctx);
         self.paint_gradient_preview(ctx);
         ctx.restore();
@@ -128,6 +129,67 @@ impl EditorView {
             .map(|point| camera.document_to_screen(*point))
             .collect();
         selection::paint_polyline(ctx, &points);
+    }
+
+    /// 钢笔画到一半 / 已收尾的路径：双色虚线 + 锚点 + 控制柄 + 橡皮筋。
+    ///
+    /// 全部画在屏幕空间（按相机换算），容差随缩放收紧 —— 放大看曲线也不会变折线。
+    fn paint_pen(&self, ctx: &mut PaintContext) {
+        // 只在钢笔是当前工具时显示路径（没有 Paths 面板，换工具就看不见了）。
+        if self.state.borrow().active_tool != crate::app::state::ActiveTool::Pen {
+            return;
+        }
+        let path = self.pen.path();
+        if path.is_empty() {
+            return;
+        }
+        let camera = self.state.borrow().canvas;
+        let tolerance = PEN_PREVIEW_TOLERANCE / camera.zoom.max(0.01);
+        let to_screen = |point: Vec2| camera.document_to_screen(point);
+        let palette = self.theme.palette();
+
+        // 已完成的段：闭合路径绕回起点，开放路径只连相邻锚点。
+        let points: Vec<Vec2> = path.flatten(tolerance).into_iter().map(to_screen).collect();
+        if path.is_closed() {
+            selection::paint_polyline(ctx, &points);
+        } else {
+            let edges: Vec<(Vec2, Vec2)> =
+                points.windows(2).map(|pair| (pair[0], pair[1])).collect();
+            selection::paint(ctx, &edges);
+        }
+
+        // 控制柄：锚点 -> 柄端细线 + 小圆点（只有平滑锚点才有）。
+        for anchor in path.anchors() {
+            let center = to_screen(anchor.point);
+            for handle in [anchor.handle_in, anchor.handle_out] {
+                if handle == Vec2::ZERO {
+                    continue;
+                }
+                let tip = to_screen(anchor.point + handle);
+                ctx.draw_line(center, tip, 1.0, Paint::new(palette.muted));
+                ctx.fill_circle(tip, HANDLE_DOT, Paint::new(palette.foreground));
+            }
+        }
+
+        // 锚点：空心方块；点回起点就能闭合时把起点画成实心提示。
+        let closable = self.pen.can_close();
+        for (index, anchor) in path.anchors().iter().enumerate() {
+            let center = to_screen(anchor.point);
+            let rect = Rect::from_center_size(center, Size::splat(ANCHOR_SIZE));
+            if index == 0 && closable {
+                ctx.fill_rect(rect, Paint::new(palette.foreground));
+            } else {
+                ctx.stroke_rect(rect, 1.0, Paint::new(palette.foreground));
+            }
+        }
+
+        // 橡皮筋：最后一个锚点 -> 光标（带控制柄时是曲线）。
+        if let Some(band) = self.pen.rubber_band(tolerance) {
+            let screen: Vec<Vec2> = band.into_iter().map(to_screen).collect();
+            for pair in screen.windows(2) {
+                ctx.draw_line(pair[0], pair[1], 1.0, Paint::new(palette.muted));
+            }
+        }
     }
 
     /// 矩形填充拖动中的预览：把两个角点裁成像素矩形，画一圈 marching ants。

@@ -21,6 +21,7 @@ pub enum ActiveTool {
     Eraser,
     RectangleSelect,
     LassoSelect,
+    Pen,
     PaintBucket,
     MagicWand,
     Gradient,
@@ -31,12 +32,13 @@ pub enum ActiveTool {
 
 impl ActiveTool {
     /// 工具栏从上到下的顺序。
-    pub const ALL: [ActiveTool; 11] = [
+    pub const ALL: [ActiveTool; 12] = [
         ActiveTool::Move,
         ActiveTool::Brush,
         ActiveTool::Eraser,
         ActiveTool::RectangleSelect,
         ActiveTool::LassoSelect,
+        ActiveTool::Pen,
         ActiveTool::PaintBucket,
         ActiveTool::MagicWand,
         ActiveTool::Gradient,
@@ -53,6 +55,7 @@ impl ActiveTool {
             Self::Eraser => "橡皮",
             Self::RectangleSelect => "框选",
             Self::LassoSelect => "套索",
+            Self::Pen => "钢笔",
             Self::PaintBucket => "油漆桶",
             Self::MagicWand => "魔棒",
             Self::Gradient => "渐变",
@@ -70,6 +73,7 @@ impl ActiveTool {
             Self::Eraser => "eraser",
             Self::RectangleSelect => "square-dashed",
             Self::LassoSelect => "lasso-select",
+            Self::Pen => "pen-tool",
             Self::PaintBucket => "paint-bucket",
             Self::MagicWand => "wand-sparkles",
             Self::Gradient => "gradient",
@@ -87,6 +91,7 @@ impl ActiveTool {
             Self::Eraser => "橡皮擦",
             Self::RectangleSelect => "矩形选择",
             Self::LassoSelect => "自由选区",
+            Self::Pen => "钢笔工具",
             Self::PaintBucket => "油漆桶",
             Self::MagicWand => "魔棒工具",
             Self::Gradient => "渐变工具",

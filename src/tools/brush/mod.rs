@@ -236,6 +236,67 @@ impl BrushTool {
         })
     }
 
+    /// 开一笔：把图层缓冲扩到覆盖整张文档、快照整层、开本笔的覆盖率蒙版。
+    ///
+    /// 落笔前扩大缓冲是为了「笔迹落在光标下」（选区外的文档区域也能画），
+    /// 并且移出画布的内容保留在缓冲区里、不裁掉；缓冲整体平移了，旧命令记录
+    /// 的区域要跟着平移。快照 + 蒙版让抬笔时能只提交差异、并且 `opacity` 按
+    /// 「一笔」生效。
+    fn begin_stroke(&mut self, ctx: &mut ToolContext) {
+        self.reset_sampling();
+        if let Some(id) = ctx.document.active_layer().map(|layer| layer.id) {
+            let (dx, dy) = ctx.document.ensure_layer_covers_document(id);
+            ctx.history.translate_layer(id, dx, dy);
+        }
+        self.pending = ctx.document.active_layer().map(|layer| PendingStroke {
+            layer: layer.id,
+            before: layer.pixels.clone(),
+            mask: StrokeMask::new(layer.pixels.width, layer.pixels.height),
+        });
+    }
+
+    /// 收一笔：整笔的像素差异提交成**一条**命令；没有变化就不入栈。
+    fn commit_stroke(&mut self, ctx: &mut ToolContext) {
+        let Some(pending) = self.pending.take() else {
+            return;
+        };
+        let command = match ctx.document.layer(pending.layer) {
+            Some(layer) => {
+                PaintCommand::capture(pending.layer, &pending.before, &layer.pixels, self.name())
+            }
+            None => None,
+        };
+        if let Some(command) = command {
+            ctx.history.execute(Box::new(command), ctx.document);
+        }
+    }
+
+    /// 沿一条折线描一遍（钢笔的「描边路径」用）。
+    ///
+    /// 段内是**直线**（控制点取段首，不做中点平滑，折角保持折角），但间距、
+    /// 每笔不透明度、硬度 / 预设、选区裁剪和「一条 undo」都和手画一笔一样。
+    pub fn stroke_path(&mut self, ctx: &mut ToolContext, points: &[Vec2]) {
+        let Some(&first) = points.first() else {
+            return;
+        };
+        self.drawing = true;
+        self.begin_stroke(ctx);
+
+        let mut dabs = std::mem::take(&mut self.dabs);
+        dabs.clear();
+        dabs.push(first);
+        self.paint_dabs(ctx.document, &mut dabs);
+        for pair in points.windows(2) {
+            dabs.clear();
+            stroke::curve_dabs(pair[0], pair[0], pair[1], self.spacing(), &mut dabs);
+            self.paint_dabs(ctx.document, &mut dabs);
+        }
+        self.dabs = dabs;
+
+        self.drawing = false;
+        self.commit_stroke(ctx);
+    }
+
     /// 清掉一条笔触的采样状态。
     fn reset_sampling(&mut self) {
         self.last = None;
@@ -297,21 +358,7 @@ impl Tool for BrushTool {
 
     fn on_pointer_down(&mut self, ctx: &mut ToolContext, event: PointerEvent) {
         self.drawing = true;
-        self.reset_sampling();
-        // 落笔前把当前图层缓冲区扩到覆盖整张文档：笔迹落在光标下（选区外的
-        // 文档区域也能画），并且移出画布的内容保留在缓冲区里、不裁掉。
-        if let Some(id) = ctx.document.active_layer().map(|layer| layer.id) {
-            let (dx, dy) = ctx.document.ensure_layer_covers_document(id);
-            // 缓冲区坐标整体平移了，旧命令记录的区域要跟着平移。
-            ctx.history.translate_layer(id, dx, dy);
-        }
-        // 快照当前图层，抬笔时用于算差异区域（撤销只存这一块）；同时开一个
-        // 本笔的覆盖率蒙版，让 `opacity` 按「一笔」生效。
-        self.pending = ctx.document.active_layer().map(|layer| PendingStroke {
-            layer: layer.id,
-            before: layer.pixels.clone(),
-            mask: StrokeMask::new(layer.pixels.width, layer.pixels.height),
-        });
+        self.begin_stroke(ctx);
         self.stroke_to(ctx.document, event.position);
     }
 
@@ -325,19 +372,7 @@ impl Tool for BrushTool {
         // 平滑只能画到「当前点与下一个点的中点」，最后半段在抬笔时补齐。
         self.finish_stroke(ctx.document, event.position);
         self.drawing = false;
-        let Some(pending) = self.pending.take() else {
-            return;
-        };
-        // 一笔成一条命令；整笔落在画布外等没有像素变化时不入栈。
-        let command = match ctx.document.layer(pending.layer) {
-            Some(layer) => {
-                PaintCommand::capture(pending.layer, &pending.before, &layer.pixels, self.name())
-            }
-            None => None,
-        };
-        if let Some(command) = command {
-            ctx.history.execute(Box::new(command), ctx.document);
-        }
+        self.commit_stroke(ctx);
     }
 }
 
@@ -485,6 +520,53 @@ mod tests {
         }
         let color = at(&document, 16, 16);
         assert!((color.r as i32 - 64).abs() <= 2, "r = {}", color.r);
+    }
+
+    #[test]
+    fn a_path_stroke_covers_every_segment_and_is_one_undo_step() {
+        // 钢笔墨径描边：折线两段都要打满，而且整条路径只算一步。
+        let mut document = document();
+        let mut history = History::new();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        {
+            let mut ctx = context(&mut document, &mut history);
+            brush.stroke_path(
+                &mut ctx,
+                &[
+                    Vec2::new(2.0, 2.0),
+                    Vec2::new(28.0, 2.0),
+                    Vec2::new(28.0, 28.0),
+                ],
+            );
+        }
+        assert_eq!(history.undo_len(), 1, "整条路径 = 一步 undo");
+        for x in 2..=28 {
+            assert_eq!(at(&document, x, 2).r, 255, "横段 x = {x}");
+        }
+        for y in 2..=28 {
+            assert_eq!(at(&document, 28, y).r, 255, "竖段 y = {y}");
+        }
+    }
+
+    #[test]
+    fn a_path_stroke_keeps_the_corner_and_does_not_bulge() {
+        // 折角不能被平滑抹圆：拐角像素要压到，拐角外侧的像素不压。
+        let mut document = document();
+        let mut history = History::new();
+        let mut brush = BrushTool::paint().with_color(Color::RED);
+        {
+            let mut ctx = context(&mut document, &mut history);
+            brush.stroke_path(
+                &mut ctx,
+                &[
+                    Vec2::new(4.0, 20.0),
+                    Vec2::new(20.0, 20.0),
+                    Vec2::new(20.0, 4.0),
+                ],
+            );
+        }
+        assert_eq!(at(&document, 20, 20).r, 255, "拐角要压到");
+        assert_eq!(at(&document, 18, 22).r, 255, "拐角内侧也要压到");
     }
 
     #[test]

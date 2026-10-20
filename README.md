@@ -89,6 +89,18 @@ cargo run -- --pixel-font
   像素模式 + `zoom >= 6` 时在画布上叠加屏幕空间的像素网格。`[`/`]` 调大小，
   `,`/`.` 调不透明度。
   “一笔 = 一次 Undo”：抬笔时提交成一条 [`PaintCommand`]，由 Phase 6 的历史栈接管。
+- [x] **Phase 5.x — 钢笔（路径）**：`canvas/path.rs` 放贝塞尔几何
+  （`Anchor` 两侧控制柄 + `Path`，自适应细分展平 —— 预览按 `0.25 / zoom` 展平、
+  光栅化按 0.25 文档像素），`tools/pen.rs` 是多击状态机：单击落尖角锚点、
+  按下拖动出对称控制柄、点回第一个锚点闭合、`Enter` 收尾（开放）、`Esc` 取消、
+  `Backspace` 删最后一个锚点；收尾后再点空白处就开始新路径。
+  收尾后的动作在选项栏（`ui/pen.rs`）：**建立选区**（`Selection::polygon` 偶奇
+  光栅化，开放路径按首尾相连）、**填充**（复用 `fill_selection`，按当前选区裁剪）、
+  **描边**（复用当前画笔：`BrushTool::stroke_path` 沿折线等距打点，段内是直线不
+  做中点平滑，所以折角保持折角；硬度 / 每笔不透明度 / 预设 / 像素模式全都跟着画笔
+  走）、**清除**。路径**本身不进撤销栈**（和选区一样），填充 / 描边各算一步 undo。
+  预览是屏幕空间的双色虚线路径 + 空心锚点方块 + 控制柄小圆点 + 跟手的橡皮筋，
+  点回起点可闭合时起点方块变实心。
 - [x] **Phase 6 — History**：`Command` 模式 + 两条栈
   （`src/document/history.rs`），一笔画笔 / 橡皮 = 一步 undo。命令只记录**差异
   区域的前后像素**（`PixelRegion`，靠落笔快照与抬笔缓冲求 diff），所以撤销内存
@@ -199,12 +211,14 @@ Phase 11），README 只留功能说明。要点：
 | `E` | 橡皮 |
 | `M` | 矩形选择 |
 | `L` | 套索 |
+| `P` | 钢笔（点击落锚点 / 拖动出曲线 / 点回起点闭合） |
 | `G` | 油漆桶 |
 | `W` | 魔棒 |
 | `N` | 渐变 |
 | `R` | 矩形填充 |
 | `U` | 自由填充 |
 | `I` | 吸管 |
+| `Enter` / `Esc` / `Backspace` | 钢笔：收尾 / 取消 / 删最后一个锚点（钢笔激活时） |
 | `Esc` | 清空选区 |
 | `Ctrl/Cmd+Z` | 撤销 |
 | `Shift+Ctrl/Cmd+Z` / `Ctrl+Y` | 重做 |
@@ -250,6 +264,7 @@ src/
 │   ├── mod.rs           # DOCUMENT_TEXTURE 约定
 │   ├── camera.rs        # CanvasCamera（zoom / offset / fit）
 │   ├── coordinate.rs    # screen -> document -> pixel + pixel_selection（框选）
+│   ├── path.rs          # Phase 5.x：贝塞路径（Anchor / Path / 自适应展平）
 │   └── selection.rs     # Selection：像素掩码 + 线段轮廓（矩形 / 套索 / 魔棒）
 ├── renderer/            # Phase 3：合成器
 │   ├── mod.rs           # Renderer trait
@@ -269,6 +284,7 @@ src/
 │   │   ├── mask.rs      #   一笔的覆盖率蒙版 + 按蒙版从快照合成（每笔不透明度）
 │   │   └── preset.rs    #   BrushPreset + 内置预设（选项栏「预设」菜单）
 │   ├── stroke.rs        # 笔触采样：二次中点平滑 + 按固定距离取点
+│   ├── pen.rs           # PenTool：多击建路径 -> 选区 / 填充 / 描边的状态机
 │   ├── fill.rs          # 洪水填充 flood_fill + PaintBucketTool + magic_wand_region
 │   ├── gradient.rs      # GradientKind / gradient_fill / GradientTool（多节点渐变）
 │   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）
@@ -278,7 +294,8 @@ src/
 │   ├── build/           # EditorView 构造：mod（Wiring / editor）+ tree + assemble
 │   ├── accessors.rs     # EditorView 的查询 / 点击目标访问器（宿主 / 测试 / 自检）
 │   ├── paint.rs         # 文档 / 像素网格 / 选区 / 预览的绘制
-│   ├── tools.rs         # 工具运行时（begin/continue/end_tool + 选区 / 吸管 / 选项调整）
+│   ├── tools.rs         # 工具运行时（begin/continue/end_tool + 选区 / 吸管 / 钢笔键位）
+│   ├── pen.rs           # 钢笔动作：路径 -> 选区 / 填充 / 描边（+ 清除）
 │   ├── sync.rs          # 状态 -> 控件同步（面板 / 选项栏）
 │   ├── menus.rs         # 菜单下拉 / 长按浮层 / 渐变编辑器开关与动作
 │   ├── input.rs         # 事件分发 + 画布缩放 / 平移 / 复位

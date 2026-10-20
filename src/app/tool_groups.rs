@@ -31,8 +31,8 @@ impl ToolGroup {
 
 /// 工具栏从上到下的分组。
 ///
-/// 画笔 / 橡皮各自单独一组；矩形填充和自由填充归一组；油漆桶单独一组。
-pub const TOOL_GROUPS: [ToolGroup; 7] = [
+/// 画笔 / 橡皮 / 钢笔各自单独一组；矩形填充和自由填充归一组；油漆桶单独一组。
+pub const TOOL_GROUPS: [ToolGroup; 8] = [
     ToolGroup {
         tools: &[ActiveTool::Move],
     },
@@ -48,6 +48,9 @@ pub const TOOL_GROUPS: [ToolGroup; 7] = [
             ActiveTool::LassoSelect,
             ActiveTool::MagicWand,
         ],
+    },
+    ToolGroup {
+        tools: &[ActiveTool::Pen],
     },
     ToolGroup {
         tools: &[ActiveTool::PaintBucket, ActiveTool::Gradient],
@@ -79,8 +82,9 @@ mod tests {
         assert_eq!(group_index(ActiveTool::Eraser), Some(2));
         assert_eq!(group_index(ActiveTool::LassoSelect), Some(3));
         assert_eq!(group_index(ActiveTool::MagicWand), Some(3));
-        assert_eq!(group_index(ActiveTool::Gradient), Some(4));
-        assert_eq!(group_index(ActiveTool::FreeFill), Some(5));
+        assert_eq!(group_index(ActiveTool::Pen), Some(4));
+        assert_eq!(group_index(ActiveTool::Gradient), Some(5));
+        assert_eq!(group_index(ActiveTool::FreeFill), Some(6));
     }
 
     #[test]
@@ -88,14 +92,15 @@ mod tests {
         assert_eq!(TOOL_GROUPS[1].face(), ActiveTool::Brush);
         assert_eq!(TOOL_GROUPS[2].face(), ActiveTool::Eraser);
         assert_eq!(TOOL_GROUPS[3].face(), ActiveTool::RectangleSelect);
-        assert_eq!(TOOL_GROUPS[4].face(), ActiveTool::PaintBucket);
-        assert_eq!(TOOL_GROUPS[5].face(), ActiveTool::RectangleFill);
-        // 画笔 / 橡皮 / 移动 / 吸管是单工具槽位；选区 / 油漆桶 / 填充形状可展开。        assert!(TOOL_GROUPS[0].is_single());
-        assert!(TOOL_GROUPS[1].is_single());
-        assert!(TOOL_GROUPS[2].is_single());
-        assert!(!TOOL_GROUPS[3].is_single());
-        assert!(!TOOL_GROUPS[4].is_single());
-        assert!(!TOOL_GROUPS[5].is_single());
-        assert!(TOOL_GROUPS[6].is_single());
+        assert_eq!(TOOL_GROUPS[4].face(), ActiveTool::Pen);
+        assert_eq!(TOOL_GROUPS[5].face(), ActiveTool::PaintBucket);
+        assert_eq!(TOOL_GROUPS[6].face(), ActiveTool::RectangleFill);
+        // 移动 / 画笔 / 橡皮 / 钢笔 / 吸管是单工具槽位；选区 / 油漆桶 / 填充形状可展开。
+        for single in [0, 1, 2, 4, 7] {
+            assert!(TOOL_GROUPS[single].is_single(), "组 {single}");
+        }
+        for expandable in [3, 5, 6] {
+            assert!(!TOOL_GROUPS[expandable].is_single(), "组 {expandable}");
+        }
     }
 }

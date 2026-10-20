@@ -1,6 +1,7 @@
 //! 解析 NodeRef -> NodeId，填出 [`EditorView`]（`build` 的最后一步）。
 
 use super::*;
+use crate::tools::PenTool;
 
 pub(super) fn finish(
     theme: &'static dyn Theme,
@@ -32,6 +33,7 @@ pub(super) fn finish(
         brush_preset_open,
         pixel_mode,
         square_mode,
+        pen_request,
         bucket_request,
         bucket_contiguous,
         gradient,
@@ -46,6 +48,7 @@ pub(super) fn finish(
         palette_refs,
         brush_refs,
         toggle_refs,
+        pen_refs,
         bucket_refs,
         bucket_toggle_refs,
         gradient_refs,
@@ -153,6 +156,13 @@ pub(super) fn finish(
             .expect("options preset button mounted"),
         options_preset_label: options.preset.get().expect("options preset label mounted"),
         options_opacity: options.opacity.get().expect("options opacity mounted"),
+        options_pen: options.pen_panel.get().expect("options pen mounted"),
+        options_pen_summary: options.pen.get().expect("options pen summary mounted"),
+        pen_request,
+        pen_buttons: pen_refs
+            .iter()
+            .map(|(action, slot)| (*action, slot.get().expect("pen button mounted")))
+            .collect(),
         options_bucket: options.bucket.get().expect("options bucket mounted"),
         options_gradient: options.gradient.get().expect("options gradient mounted"),
         options_tolerance: options.tolerance.get().expect("options tolerance mounted"),
@@ -218,6 +228,7 @@ pub(super) fn finish(
         pan_last: None,
         brush: BrushTool::paint(),
         move_tool: MoveTool::new(),
+        pen: PenTool::new(),
         select_anchor: None,
         lasso_points: Vec::new(),
         layer_count,

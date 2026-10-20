@@ -1,7 +1,7 @@
 //! 工具选项栏：菜单栏下面的一行，显示当前工具的配置。
 //!
-//! 画笔 / 橡皮显示笔刷预设、大小、硬度、不透明度（`−` / `+` 按钮）；其余工具
-//! 显示一句操作提示。按钮只写一个共享请求格（[`BrushAdjust`]），真正的改动由
+//! 画笔 / 橡皮显示笔刷预设、大小、硬度、不透明度（`−` / `+` 按钮）；钢笔显示
+//! 锚点数 + 「建立选区 / 填充 / 描边 / 清除」；其余工具显示一句操作提示。按钮只写一个共享请求格（[`BrushAdjust`]），真正的改动由
 //! [`EditorView::update`](crate::ui::EditorView) 统一执行 —— 回调拿不到
 //! `&mut self`，和菜单 / 文件面板一个套路。
 
@@ -61,6 +61,33 @@ impl BrushToggle {
     }
 }
 
+/// 选项栏里的一次钢笔动作（路径 -> 选区 / 像素）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PenAction {
+    /// 路径围成的区域变成选区。
+    Select,
+    /// 用前景色填充路径内部。
+    Fill,
+    /// 用当前画笔沿路径描一遍。
+    Stroke,
+    /// 丢掉当前路径。
+    Clear,
+}
+
+impl PenAction {
+    pub const ALL: [Self; 4] = [Self::Select, Self::Fill, Self::Stroke, Self::Clear];
+
+    /// 按钮标签 / 自检报告里的短名字。
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Select => "建立选区",
+            Self::Fill => "填充",
+            Self::Stroke => "描边",
+            Self::Clear => "清除",
+        }
+    }
+}
+
 /// 选项栏里的一次油漆桶调整。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BucketAdjust {
@@ -112,6 +139,9 @@ pub struct OptionsRefs {
     pub hardness: NodeRef,
     pub opacity: NodeRef,
     pub bucket: NodeRef,
+    /// 钢笔：整行容器 / 路径摘要文字 + 四个动作按钮。
+    pub pen_panel: NodeRef,
+    pub pen: NodeRef,
     pub tolerance: NodeRef,
     pub gradient: NodeRef,
     pub gradient_kind: NodeRef,
@@ -131,12 +161,14 @@ pub fn options_bar(
     preset_label: &str,
     hard_state: Rc<Cell<bool>>,
     square_state: Rc<Cell<bool>>,
+    pen_request: Rc<Cell<Option<PenAction>>>,
     bucket_request: Rc<Cell<Option<BucketAdjust>>>,
     contiguous_state: Rc<Cell<bool>>,
     gradient: GradientOptions,
     refs: &OptionsRefs,
     buttons: &mut Vec<(BrushAdjust, NodeRef)>,
     toggles: &mut Vec<(BrushToggle, NodeRef)>,
+    pen_buttons: &mut Vec<(PenAction, NodeRef)>,
     bucket_buttons: &mut Vec<(BucketAdjust, NodeRef)>,
     bucket_toggles: &mut Vec<(BucketToggle, NodeRef)>,
     gradient_buttons: &mut Vec<(GradientAdjust, NodeRef)>,
@@ -208,6 +240,26 @@ pub fn options_bar(
             toggles,
         ));
 
+    let pen = {
+        let mut row = Flex::row()
+            .align(Align::Center)
+            .gap(space::XS)
+            .padding(Edges::ZERO)
+            .mouse_filter(MouseFilter::Ignore)
+            .child(Text::small("", theme).ref_(&refs.pen));
+        for action in PenAction::ALL {
+            let slot = NodeRef::new();
+            pen_buttons.push((action, slot.clone()));
+            let request = pen_request.clone();
+            row = row.child(
+                Button::ghost(action.label(), theme)
+                    .on_click(move |_tree, _id| request.set(Some(action)))
+                    .ref_(&slot),
+            );
+        }
+        row
+    };
+
     let bucket = Flex::row()
         .align(Align::Center)
         .gap(space::XS)
@@ -278,6 +330,7 @@ pub fn options_bar(
         .mouse_filter(MouseFilter::Ignore)
         .child(Text::small("", theme).ref_(&refs.tool))
         .child(brush.ref_(&refs.brush))
+        .child(pen.ref_(&refs.pen_panel))
         .child(bucket.ref_(&refs.bucket))
         .child(gradient_row.ref_(&refs.gradient))
         .child(Text::caption("", theme).tone(Tone::Muted).ref_(&refs.hint))
@@ -289,6 +342,7 @@ pub const fn options_hint(tool: ActiveTool) -> &'static str {
         ActiveTool::Move => "在画布上拖动移动当前图层",
         ActiveTool::RectangleSelect => "拖动框选 · Esc 清空",
         ActiveTool::LassoSelect => "按住拖动套索 · 松手成选区 · Esc 清空",
+        ActiveTool::Pen => "点击落锚点 · 拖动出曲线 · 点回起点闭合 · Enter 收尾 · Esc 取消",
         ActiveTool::PaintBucket => "点击填充连通区域 · 容差可选",
         ActiveTool::MagicWand => "点击选中容差连通区域 · 容差可选",
         ActiveTool::Gradient => "拖一条轴定义方向 · 编辑… 调多节点颜色",

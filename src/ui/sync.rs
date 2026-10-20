@@ -228,6 +228,13 @@ impl EditorView {
             self.tree.set_visible(self.options_brush, show_brush);
             igui_ui::mark_dirty(&mut self.tree, self.options_brush);
         }
+        let pen_summary = self.pen_summary();
+        set_text(&mut self.tree, self.options_pen_summary, pen_summary);
+        let show_pen = tool == ActiveTool::Pen;
+        if self.tree.is_visible(self.options_pen) != Some(show_pen) {
+            self.tree.set_visible(self.options_pen, show_pen);
+            igui_ui::mark_dirty(&mut self.tree, self.options_pen);
+        }
         let show_bucket = matches!(tool, ActiveTool::PaintBucket | ActiveTool::MagicWand);
         if self.tree.is_visible(self.options_bucket) != Some(show_bucket) {
             self.tree.set_visible(self.options_bucket, show_bucket);

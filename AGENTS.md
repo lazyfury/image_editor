@@ -32,12 +32,14 @@ src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + co
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser (in `brush/`: mod = tool + stroke, tip = brush-tip
                 geometry/hardness, mask = per-stroke coverage mask + compositing,
-                preset = named parameter sets), Move, Paint-bucket flood fill,
+                preset = named parameter sets), Pen (`pen.rs`: multi-click bezier
+                path -> selection / fill / stroke), Move, Paint-bucket flood fill,
                 Magic wand (tolerance region -> selection), Gradient (multi-stop
                 ramp), Rectangle/Free fill; `stroke.rs` = smoothing + fixed-distance
                 sampling
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
-                Selection (pixel mask + outline: rect / lasso)
+                Path (bezier anchors + handles, adaptive flatten), Selection
+                (pixel mask + outline: rect / lasso / wand)
 src/io/         PNG encode/decode + `.igui` workspace files + recent list +
                 dialog.rs (hand-written native file dialogs: macOS NSOpenPanel /
                 NSSavePanel, Windows comdlg32, Unix zenity/kdialog; no `rfd`)

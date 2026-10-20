@@ -5,7 +5,7 @@
 
 use std::rc::Rc;
 
-use igui_core::Vec2;
+use igui_core::{Key, Vec2};
 
 use crate::app::state::{ActiveTool, AppState};
 use crate::canvas::{document_to_pixel, pixel_selection, Selection};
@@ -16,7 +16,7 @@ use crate::tools::{
     ToolContext,
 };
 
-use super::{left_pointer, BrushAdjust, BucketAdjust, EditorView};
+use super::{left_pointer, BrushAdjust, BucketAdjust, EditorView, PEN_HIT_RADIUS};
 
 impl EditorView {
     pub(super) fn is_dragging(&self) -> bool {
@@ -26,6 +26,7 @@ impl EditorView {
             || !self.lasso_points.is_empty()
             || self.rect_fill.is_filling()
             || self.gradient_tool.is_drawing()
+            || self.pen.is_dragging()
     }
 
     /// 左键落下：把屏幕点换算成文档坐标，交给当前工具。
@@ -71,6 +72,16 @@ impl EditorView {
             ActiveTool::LassoSelect | ActiveTool::FreeFill => {
                 self.lasso_points.clear();
                 self.lasso_points.push(position);
+            }
+            // 钢笔：每次按下要么落一个锚点、要么点回起点闭合；拖动出控制柄。
+            ActiveTool::Pen => {
+                self.sync_pen_radius();
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.pen.on_pointer_down(&mut ctx, left_pointer(position));
             }
             ActiveTool::PaintBucket => {
                 let (foreground, selection) = {
@@ -187,6 +198,14 @@ impl EditorView {
                 self.texture_dirty = true;
             }
             ActiveTool::RectangleSelect => self.update_selection(position),
+            ActiveTool::Pen if self.pen.is_dragging() => {
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.pen.on_pointer_move(&mut ctx, left_pointer(position));
+            }
             ActiveTool::LassoSelect | ActiveTool::FreeFill if !self.lasso_points.is_empty() => {
                 if self
                     .lasso_points
@@ -240,6 +259,14 @@ impl EditorView {
                 let mut ctx = ToolContext { document, history };
                 self.move_tool
                     .on_pointer_up(&mut ctx, left_pointer(position));
+            }
+            ActiveTool::Pen => {
+                let mut state = self.state.borrow_mut();
+                let AppState {
+                    document, history, ..
+                } = &mut *state;
+                let mut ctx = ToolContext { document, history };
+                self.pen.on_pointer_up(&mut ctx, left_pointer(position));
             }
             ActiveTool::RectangleSelect if self.select_anchor.take().is_some() => {
                 self.update_selection(position);
@@ -315,6 +342,45 @@ impl EditorView {
             }
             _ => {}
         }
+    }
+
+    /// 把「命中锚点 / 闭合」的半径换算到文档单位（屏幕上恒为 `PEN_HIT_RADIUS`）。
+    pub(super) fn sync_pen_radius(&mut self) {
+        let zoom = self.state.borrow().canvas.zoom.max(0.01);
+        self.pen.radius = PEN_HIT_RADIUS / zoom;
+    }
+
+    /// 钢笔画到一半时的悬停：更新橡皮筋与闭合提示。
+    ///
+    /// 不按键的移动不会走 `continue_tool`（那里要求 `is_dragging`），所以指针
+    /// 进 / 出画布都要单独转发一次。
+    pub(super) fn hover_pen(&mut self, screen: Vec2) {
+        self.sync_pen_radius();
+        let inside = self.canvas_area_contains(screen);
+        self.pen
+            .set_hover(inside.then(|| self.document_position(screen)));
+    }
+
+    /// 钢笔的键位：Esc 取消 / Enter 收尾 / Backspace 删最后一个锚点。
+    ///
+    /// 只在钢笔是当前工具、且确实有路径可动时消费事件。
+    pub(super) fn handle_pen_key(&mut self, key: Key) -> bool {
+        if self.state.borrow().active_tool != ActiveTool::Pen {
+            return false;
+        }
+        match key {
+            Key::Escape if self.pen.cancel() => {
+                *self.message.borrow_mut() = Some("钢笔：已取消路径".to_string());
+                return true;
+            }
+            Key::Enter => return self.finish_pen_path(),
+            Key::Backspace if self.pen.undo_anchor() => {
+                *self.message.borrow_mut() = Some(format!("钢笔：{}", self.pen_summary()));
+                return true;
+            }
+            _ => {}
+        }
+        false
     }
 
     /// 拖拽框选：起点 + 当前点 -> 裁剪到画布的整数选区。
