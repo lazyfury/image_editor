@@ -359,7 +359,12 @@ src/
 │   ├── build/           # EditorView 构造：mod（Wiring / editor）+ tree + assemble
 │   ├── accessors.rs     # EditorView 的查询 / 点击目标访问器（宿主 / 测试 / 自检）
 │   ├── paint.rs         # 文档 / 像素网格 / 选区 / 预览的绘制
-│   ├── tools.rs         # 工具运行时（begin/continue/end_tool + 选区 / 吸管 / 钢笔键位）
+│   ├── tools/           # 工具输入分发（指针事件 -> 当前工具）
+│   │   ├── mod.rs       #   分发（begin/continue/end_tool）+ 共用的 with_ctx / drive
+│   │   ├── paint.rs     #   画笔 / 橡皮 / 移动 / 油漆桶 / 矩形填充 / 渐变 / 吸管
+│   │   ├── select.rs    #   框选 / 套索 / 魔棒 / 自由填充 + 选区命令
+│   │   ├── pen.rs       #   钢笔指针 + 悬停 / 键位转发
+│   │   └── adjust.rs    #   选项栏数值请求 -> 工具参数（画笔 / 预设 / 容差）
 │   ├── pen.rs           # 钢笔动作：路径 -> 选区 / 填充 / 描边（+ 清除）
 │   ├── sync.rs          # 状态 -> 控件同步（面板 / 选项栏）
 │   ├── menus.rs         # 菜单下拉 / 长按浮层 / 渐变编辑器开关与动作
