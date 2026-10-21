@@ -340,6 +340,12 @@ impl EditorView {
         igui_ui::control(&self.tree, self.options.panel).map(|control| control.rect)
     }
 
+    /// 选项栏末尾「全部属性…」按钮的中心点（测试 / 自检点击用）。
+    pub fn settings_button_center(&self) -> Option<Vec2> {
+        igui_ui::control(&self.tree, self.options.settings_button)
+            .map(|control| control.rect.center())
+    }
+
     /// 选项栏「预设」触发按钮的中心点（测试与自检点击用）。
     pub fn brush_preset_center(&self) -> Option<Vec2> {
         igui_ui::control(&self.tree, self.options.preset).map(|control| control.rect.center())
@@ -575,6 +581,16 @@ impl EditorView {
     /// 文件面板 / 快捷键留下的文件意图；取走一个。
     pub fn take_file_request(&self) -> Option<FileRequest> {
         self.intents.take_file()
+    }
+
+    /// 菜单 / 选项栏要求打开模拟窗口（属性 / 关于 / 快捷键）；取走一个。
+    pub fn take_dialog_request(&self) -> Option<crate::ui::DialogKind> {
+        self.intents.take_dialog()
+    }
+
+    /// 意图队列（属性窗口与选项栏共用同一份：窗口里的 `−` / `+` 也进这个队列）。
+    pub fn intents(&self) -> Intents {
+        self.intents.clone()
     }
 
     /// 写一条状态栏提示（宿主保存 / 打开工作区后回报结果）。

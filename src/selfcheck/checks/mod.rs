@@ -18,8 +18,8 @@ pub(crate) use brush::{
     check_symmetry,
 };
 pub(crate) use chrome::{
-    check_chrome_order, check_native_chrome_order, options_bar, palette, resizable_panels,
-    view_menu,
+    check_chrome_order, check_dialogs, check_native_chrome_order, check_options_bar_height,
+    options_bar, palette, resizable_panels, view_menu,
 };
 pub(crate) use clipboard::check_clipboard;
 pub(crate) use fill::{check_bucket, check_gradient};

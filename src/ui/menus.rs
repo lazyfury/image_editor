@@ -224,9 +224,15 @@ impl EditorView {
                     "已隐藏棋盘格".to_string()
                 });
             }
-            menu::MenuAction::About => {
-                *self.message.borrow_mut() = Some(menu::about_text());
-            }
+            menu::MenuAction::About => self
+                .intents
+                .push(Intent::Dialog(crate::ui::DialogKind::About)),
+            menu::MenuAction::Settings => self
+                .intents
+                .push(Intent::Dialog(crate::ui::DialogKind::Settings)),
+            menu::MenuAction::Shortcuts => self
+                .intents
+                .push(Intent::Dialog(crate::ui::DialogKind::Shortcuts)),
             menu::MenuAction::Placeholder(note) => {
                 *self.message.borrow_mut() = Some(note.to_string());
             }

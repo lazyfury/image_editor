@@ -22,6 +22,12 @@ use super::{Intent, Intents};
 
 mod rows;
 
+/// 选项栏的固定高度（逻辑像素，= 主题的 `row_height`）。
+///
+/// 切工具时选项栏显示的行不一样（画笔 / 钢笔 / 油漆桶 / 渐变 / 只有提示），
+/// 内容高度会差 8~16px，不钉死的话画布会跟着上下跳。
+pub const OPTIONS_BAR_HEIGHT: f32 = 32.0;
+
 /// 选项栏里的一次笔刷调整。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrushAdjust {
@@ -167,6 +173,8 @@ pub struct OptionsState {
     pub gradient: NodeId,
     pub tolerance: NodeId,
     pub hint: NodeId,
+    /// 「全部属性…」按钮（打开设置窗口）。
+    pub settings_button: NodeId,
     /// 按钮表（测试 / 自检点击用）。
     pub brush_buttons: Vec<(BrushAdjust, NodeId)>,
     pub brush_toggles: Vec<(BrushToggle, NodeId)>,
@@ -208,6 +216,8 @@ pub struct OptionsRefs {
     pub gradient_preview: NodeRef,
     pub gradient_edit: NodeRef,
     pub hint: NodeRef,
+    /// 「全部属性…」按钮（选项栏放不下的属性在 `ui/dialogs` 的窗口里）。
+    pub settings: NodeRef,
 }
 
 /// 选项栏各行的共享输入：意图队列 + 各工具的开关格（显示源）。
@@ -255,7 +265,10 @@ pub fn options_bar(
     Flex::row()
         .align(Align::Center)
         .gap(space::MD)
-        .padding(Edges::symmetric(space::SM, space::XXS))
+        // 高度钉死：切工具只换行，不换高度（见 `OPTIONS_BAR_HEIGHT`）。
+        // 纵向不留 padding：常量算的是**整行**高度，别让 padding 再加 8px。
+        .min_size(0.0, OPTIONS_BAR_HEIGHT)
+        .padding(Edges::symmetric(space::SM, 0.0))
         .background(theme.surface(SurfaceLevel::Raised))
         .mouse_filter(MouseFilter::Ignore)
         .child(Text::small("", theme).ref_(&refs.tool))
@@ -264,7 +277,16 @@ pub fn options_bar(
         .child(bucket.ref_(&refs.bucket))
         .child(gradient.ref_(&refs.gradient))
         .child(Text::caption("", theme).tone(Tone::Muted).ref_(&refs.hint))
+        .child(settings_button(theme, &inputs.intents).ref_(&refs.settings))
         .ref_(&refs.panel)
+}
+
+/// 选项栏末尾的「全部属性…」：一行放不下的属性（笔刷 / 笔尖 / 油漆桶 / 记录）
+/// 都在它打开的模拟窗口里。
+fn settings_button(theme: &'static dyn Theme, intents: &Intents) -> impl Component {
+    let intents = intents.clone();
+    Button::ghost("全部属性…", theme)
+        .on_click(move |_tree, _id| intents.push(Intent::Dialog(crate::ui::DialogKind::Settings)))
 }
 
 pub const fn options_hint(tool: ActiveTool) -> &'static str {

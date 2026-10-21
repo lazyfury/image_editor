@@ -71,6 +71,9 @@ const SCRIM: Color = Color::new(0.0, 0.0, 0.0, 0.35);
 /// 窗口底色。用**最底层**而不是 `Raised`：`Button` 的 secondary / ghost 填充
 /// 就是 `surface_raised`，窗口也是 `Raised` 的话按钮只剩描边、看着比实心按钮小。
 const WINDOW_SURFACE: SurfaceLevel = SurfaceLevel::Base;
+/// 外框圆角（标题栏上沿跟着它）。比主题的 `radius::PANEL`（10）小一档：这个窗口
+/// 是「应用内的桌面窗口」，太大看着像气泡。
+const WINDOW_RADIUS: f32 = igui_theme::radius::MD;
 
 /// 一个浮动窗口。
 pub struct Window {

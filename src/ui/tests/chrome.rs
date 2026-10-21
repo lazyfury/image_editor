@@ -159,3 +159,32 @@ fn hiding_the_menu_bar_puts_the_options_bar_under_the_tab_band() {
     );
 }
 
+/// 切遍所有工具，选项栏高度不变（否则画布会跟着上下跳）。
+#[test]
+fn the_options_bar_keeps_one_height_across_tools() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.set_tab_band(TAB_STRIP_HEIGHT);
+    view.layout(viewport());
+    let mut bottoms = Vec::new();
+    for key in ['v', 'b', 'e', 'm', 'l', 'w', 'g', 'n', 'r', 'u', 'i', 'p'] {
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character(key),
+        });
+        view.update();
+        view.layout(viewport());
+        let rect = view.options_bar_rect().expect("选项栏");
+        let height = rect.bottom() - rect.top();
+        assert!(
+            (height - crate::ui::OPTIONS_BAR_HEIGHT).abs() < 0.01,
+            "工具 {key} 的选项栏高度是 {height}，应为 {}",
+            crate::ui::OPTIONS_BAR_HEIGHT
+        );
+        bottoms.push(rect.bottom());
+    }
+    assert!(
+        bottoms
+            .windows(2)
+            .all(|pair| (pair[0] - pair[1]).abs() < 0.01),
+        "切工具时选项栏下沿在动：{bottoms:?}"
+    );
+}

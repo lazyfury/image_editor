@@ -76,8 +76,22 @@ impl ImageEditorLogic {
             let path = workspace.path.clone();
             workspace.editor.set_workspace_path(path.as_deref());
             workspace.editor.update();
+            // 属性窗口能改「记录编辑过程」；以编辑器为准，变了就写回配置。
+            let record = workspace.editor.records_timeline();
+            let record_changed = self.preferences.record_timeline != record;
+            if record_changed {
+                self.preferences.record_timeline = record;
+            }
             if let Some(brush) = workspace.editor.take_preferences() {
                 self.preferences.brush = brush;
+                if let Err(error) = crate::io::save_preferences(&self.preferences) {
+                    tracing::warn!(
+                        target: "image_editor",
+                        %error,
+                        "preferences_write_failed"
+                    );
+                }
+            } else if record_changed {
                 if let Err(error) = crate::io::save_preferences(&self.preferences) {
                     tracing::warn!(
                         target: "image_editor",

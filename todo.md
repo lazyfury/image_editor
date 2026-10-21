@@ -382,7 +382,7 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
    - 验收：单测「每个带 key equivalent 的菜单项在 `shortcuts.rs` 里不再单独处理」
      （同一张表比对）；真机在重命名输入框里按 `Cmd+A` 只选文本。
 
-### 1.ac 工具选项栏：高度一致（计划）
+### 1.ac 工具选项栏：高度一致（已完成）
 
 实测（`EditorView::options_bar_rect()`，深色主题，1280×800）：
 
@@ -401,7 +401,12 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - 验收：单测「切遍 10 个工具，`options_bar_rect()` 高度都等于 `OPTIONS_BAR_HEIGHT`，
   且 `bottom()` 不变」；`--selfcheck` 里同一断言（切工具的循环与 §1.ac 的探针同款）。
 
-### 1.ad 模拟窗口：设置 / 关于 / 快捷键（计划）
+落地：`OPTIONS_BAR_HEIGHT = 32`（= 主题行高）钉在整行和四个 `*_row` 上，纵向
+padding 归零；渐变色带去掉 `Flex::new()` 默认的 16px padding（40px 的元凶）。
+单测 `the_options_bar_keeps_one_height_across_tools` + 自检
+`check_options_bar_height`（走 `ui::TOOL_KEYS` 的 12 个工具键）。
+
+### 1.ad 模拟窗口：设置 / 关于 / 快捷键（已完成）
 
 `ui/window/` 的 `Window`（模拟桌面的浮动窗口）已经被 `ui/confirm.rs`、`ui/new_document`
 用着。把「标题 + 正文 + 页脚按钮 + Esc / 关闭 = 取消」抽成 `ui/dialog.rs` 的
@@ -424,10 +429,31 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   验收：单测「表里的每一条在菜单表或工具表里能找到」（反向也查一遍）。
 - 入口：「帮助 → 关于 image_editor」「帮助 → 快捷键…」「编辑 → 首选项…」，
   原生菜单走同一批 `MenuAction`（§1.aa 的转发已通）。
-- **待确认**：「工具属性栏另外给一个单独的模拟窗口」两种读法 ——
-  (A) 选项栏里的编辑类子面板（渐变编辑器、笔刷预设表）从气泡改成独立浮窗；
-  (B) 整条选项栏可以脱离顶部、变成可拖动的浮窗（Photoshop 的「工具选项」面板）。
-  计划先按 (A) 落，`(B)` 只留接口（`Window` 已经支持拖动 / 缩放）。
+- **「工具属性栏另外给一个单独的模拟窗口」= 完整属性窗口**（已确认）：选项栏
+  空间不够，所以它只放紧凑子集，末尾「全部属性…」打开 `ui/dialogs/settings.rs`
+  的完整属性（笔刷 / 笔尖 / 油漆桶 / 记录）。
+
+落地：
+
+- `ui/dialogs/{mod,settings,about,shortcuts}.rs`：`DialogWindow` = 三个窗口之一，
+  共用 `ui/window` 外壳（圆角 10 → 6，`WINDOW_RADIUS = radius::MD`）、页脚「关闭」、
+  Esc / 关窗口 / 点外面都算关闭。
+- 属性窗口与选项栏**共用**四个开关（`EditorView::option_cells`）和同一个意图队列
+  （`EditorView::intents`），`−` / `+` 走 `Intent::Brush` / `Intent::Bucket`；
+  新增 `Intent::RecordTimeline(bool)`（写回 `EditorPreferences.record_timeline`，
+  宿主每帧比对后落盘）。
+- 关于窗口的数字现取：版本、igui tag、字体、文档尺寸 / 图层数、`menu_spec` 的
+  项数与占位项数、工具数；快捷键表 = `ui::TOOL_KEYS` + `menu_spec` 的 shortcut 列
+  + 8 条宿主层键（`HOST_KEYS`，等 §1.ab 第 5 批并进菜单表后这一列也自动来）。
+- 宿主：`popup: Option<DialogWindow>`（`application/dialogs.rs`），模态之前转发输入；
+  `open_popup_if_requested` 在 `update` 末尾取 `Intent::Dialog`；窗口开着时系统菜单栏
+  整张置灰；回主页 / 关掉那个工作区时窗口跟着关。
+- 验收：单测 5 条（选项栏按钮 → 意图、属性窗口显示实时值、三个窗口都能关、
+  关于数字与菜单表一致、快捷键表覆盖工具键与菜单键）+ 宿主 2 条（按钮开窗口且
+  吞输入、窗口开着菜单置灰）+ 自检 `check_dialogs`。
+- 顺手修的：`--frames N` 以前靠窗口碰巧有事件才推帧（`ControlFlow::Wait` 下第一帧
+  之后没人要帧），现在 `FrameLimiter::after_frame` 主动 `request_redraw`，N 帧是
+  确定性的。
 
 ### 1.ae 现有能力梳理（计划）
 

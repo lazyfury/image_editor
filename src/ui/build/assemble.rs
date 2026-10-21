@@ -133,6 +133,7 @@ pub(super) fn finish(
             gradient: options.gradient.get().expect("options gradient mounted"),
             tolerance: options.tolerance.get().expect("options tolerance mounted"),
             hint: options.hint.get().expect("options hint mounted"),
+            settings_button: options.settings.get().expect("options settings mounted"),
             brush_buttons,
             brush_toggles,
             bucket_buttons,

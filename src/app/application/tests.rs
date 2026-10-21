@@ -556,3 +556,84 @@ fn the_native_menu_is_greyed_out_while_a_modal_is_open() {
         "模态开着时菜单不该可点"
     );
 }
+
+/// 模拟窗口（属性 / 关于 / 快捷键）开着时系统菜单栏也整张置灰。
+#[test]
+fn the_native_menu_is_greyed_out_while_a_dialog_is_open() {
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic.screen = Screen::Editor;
+    assert!(logic.native_menu_state().has_document);
+    logic
+        .workspaces
+        .active()
+        .expect("一个工作区")
+        .editor
+        .intents()
+        .push(crate::ui::Intent::Dialog(crate::ui::DialogKind::Settings));
+    logic.open_popup_if_requested();
+    assert!(logic.popup.is_some());
+    assert!(
+        !logic.native_menu_state().has_document,
+        "窗口开着时菜单不该可点"
+    );
+}
+
+/// 选项栏的「全部属性…」→ 宿主建出属性窗口；Esc 关掉它，并且窗口开着时
+/// 编辑器收不到输入（工具不被改掉）。
+#[test]
+fn the_properties_window_opens_from_the_options_bar_and_swallows_input() {
+    use igui_core::{InputEvent, Key};
+
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic.screen = Screen::Editor;
+    let viewport = igui_core::ViewportSize::new(igui_core::Size::new(1280.0, 800.0));
+    logic
+        .workspaces
+        .active_mut()
+        .expect("一个工作区")
+        .editor
+        .layout(viewport);
+    let center = logic
+        .workspaces
+        .active()
+        .expect("一个工作区")
+        .editor
+        .settings_button_center()
+        .expect("全部属性…");
+    let workspace = logic.workspaces.active_mut().expect("一个工作区");
+    for event in [
+        InputEvent::PointerDown {
+            position: center,
+            button: igui_core::PointerButton::Left,
+        },
+        InputEvent::PointerUp {
+            position: center,
+            button: igui_core::PointerButton::Left,
+        },
+    ] {
+        assert!(!logic.tabs.event(&event).is_handled());
+        workspace.editor.event(&event);
+    }
+    // 真实流程是 `update` 末尾取走意图；这里直接跑那一步。
+    logic.open_popup_if_requested();
+    assert!(logic.popup.is_some(), "「全部属性…」应打开属性窗口");
+
+    // 窗口开着时按 G 不该把工具切到油漆桶。
+    logic.route_event(&InputEvent::KeyDown {
+        key: Key::Character('g'),
+    });
+    assert_eq!(
+        logic
+            .workspaces
+            .active()
+            .expect("一个工作区")
+            .editor
+            .active_tool(),
+        crate::app::state::ActiveTool::Brush,
+        "窗口开着时输入应被它吞掉"
+    );
+
+    // Esc 关闭。
+    logic.route_event(&InputEvent::KeyDown { key: Key::Escape });
+    assert!(logic.popup.is_none(), "Esc 应关掉窗口");
+}

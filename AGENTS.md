@@ -25,13 +25,15 @@ src/app/        state (AppState/document session) + workspaces (multi-workspace)
                 home requests), modal.rs (new-document modal + close confirm),
                 workspace.rs (workspace lifecycle + per-frame sync), files.rs
                 (save/open/import/export/close/drop), menu.rs (native menu bar
-                install / per-frame sync / action forwarding), shortcuts.rs,
+                install / per-frame sync / action forwarding), dialogs.rs
+                (simulated windows: open / input / sync / close), shortcuts.rs,
                 plugins.rs (text measure / frame limit), tests.rs (host-level
                 tests).
                 `native_menu/` = the macOS system menu bar (mod.rs = API, macos.rs
                 = objc2-app-kit `NSMenu` / `NSMenuItem`, other.rs = no-op).
 src/ui/         views + project-local components: home (recent gallery with
-                thumbnails),
+                thumbnails), dialogs/ (simulated windows: settings = full tool
+                properties, about, shortcuts; all built on ui/window),
                 new_document/ (mod = modal shell wiring, form = the form,
                 widgets = stepper / preset / swatch, tests), workspace_tabs,
                 menu, toolbar, options_bar, canvas,
@@ -56,6 +58,9 @@ src/ui/         views + project-local components: home (recent gallery with
                 `ui/options_bar/mod.rs` owns `OptionsState`: the bar's node ids,
                 button tables and its four "display source" cells (pixel / square /
                 symmetry / contiguous), so `EditorView` keeps one field for all 27.
+                The bar has a **fixed height** (`OPTIONS_BAR_HEIGHT`) and its last
+                button opens the full-properties window; the bar only carries the
+                compact subset.
                 `ui/intents.rs` is the callback -> view channel: widget callbacks
                 push an `Intent` (tool / menu / options bar / pen / rename / file)
                 into one queue; `EditorView::update` drains it in arrival order

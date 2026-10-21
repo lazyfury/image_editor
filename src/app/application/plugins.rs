@@ -103,12 +103,20 @@ pub(super) struct FrameLimiter {
 }
 
 impl FrameObserver for FrameLimiter {
-    fn after_frame(&mut self, _app: &App, _list: &DrawList) {
+    fn after_frame(&mut self, app: &App, _list: &DrawList) {
         self.remaining = self.remaining.saturating_sub(1);
         if self.remaining == 0 {
             eprintln!("--frames 跑完了，退出");
             // 运行时没有退出钩子；这个标志只用于验证，直接结束进程即可。
             std::process::exit(0);
+        }
+        // `igui_winit` 是 `ControlFlow::Wait`：第一帧之后没人要帧就会停住，等窗口
+        // 碰巧来个事件才有下一帧。`--frames N` 要的是**确定性**的 N 帧，所以这里
+        // 主动要下一帧（和原生菜单的动作入队后叫醒事件循环同一个道理）。
+        if let Some(window) = app.services().get::<SharedWindow>() {
+            if let Some(window) = window.borrow().as_ref() {
+                window.request_redraw();
+            }
         }
     }
 }

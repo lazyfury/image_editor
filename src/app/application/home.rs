@@ -114,6 +114,8 @@ impl ImageEditorLogic {
         }
         self.thumbnail_uploads = uploads;
         self.screen = Screen::Home(home);
+        // 属性 / 关于窗口显示的是工作区的数据：回主页就关掉。
+        self.close_popup();
         self.title_dirty = true;
     }
 

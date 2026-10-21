@@ -208,6 +208,10 @@ impl ImageEditorLogic {
         let closed_active = self.workspaces.active_index() == index;
         self.workspaces.remove(index);
         if closed_active {
+            // 窗口里显示的那个工作区没了，窗口跟着关。
+            self.close_popup();
+        }
+        if closed_active {
             if let Some(workspace) = self.workspaces.active_mut() {
                 workspace.editor.mark_texture_dirty();
             }

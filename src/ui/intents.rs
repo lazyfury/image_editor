@@ -47,6 +47,10 @@ pub enum Intent {
     Pen(PenAction),
     /// 点了图层面板的「重命名」，锚在这个按钮上。
     RenameLayer(NodeId),
+    /// 打开一个模拟窗口（属性 / 关于 / 快捷键；宿主执行）。
+    Dialog(crate::ui::DialogKind),
+    /// 打开 / 关闭「记录整段编辑过程」（属性窗口的开关）。
+    RecordTimeline(bool),
     /// 文件面板 / 快捷键的文件动作（宿主弹原生对话框并执行）。
     File(FileRequest),
 }
@@ -65,9 +69,21 @@ impl Intents {
         self.0.borrow_mut().push(intent);
     }
 
-    /// 取走视图自己能处理的意图；[`Intent::File`] 留给宿主。
+    /// 取走视图自己能处理的意图；[`Intent::File`] / [`Intent::Dialog`] 留给宿主。
     pub(crate) fn take(&self) -> Vec<Intent> {
-        self.take_where(|intent| !matches!(intent, Intent::File(_)))
+        self.take_where(|intent| !matches!(intent, Intent::File(_) | Intent::Dialog(_)))
+    }
+
+    /// 取走第一个「打开模拟窗口」的意图（宿主用）。
+    pub fn take_dialog(&self) -> Option<crate::ui::DialogKind> {
+        let mut queue = self.0.borrow_mut();
+        let index = queue
+            .iter()
+            .position(|intent| matches!(intent, Intent::Dialog(_)))?;
+        match queue.remove(index) {
+            Intent::Dialog(kind) => Some(kind),
+            _ => None,
+        }
     }
 
     /// 取走满足 `keep` 的意图，其余按原顺序留在队列里。

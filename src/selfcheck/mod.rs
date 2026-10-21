@@ -124,6 +124,16 @@ fn contains(frame: &RecordedFrame, needle: &str) -> bool {
 }
 
 /// 画一帧但不消费视图，供交互序列中反复读命令。
+/// 把模拟窗口录一帧（不给后端：窗口的 `paint` 直接写命令，不做像素）。
+fn paint_window(window: &crate::ui::DialogWindow) -> RecordedFrame {
+    let mut ctx = igui_render::PaintContext::new();
+    window.paint(&mut ctx);
+    RecordedFrame {
+        viewport: viewport(),
+        draw_list: ctx.into_draw_list(),
+    }
+}
+
 fn paint_frame(view: &EditorView) -> RecordedFrame {
     let viewport = viewport();
     let mut backend = RecordingBackend::new();
@@ -195,6 +205,8 @@ pub fn check() -> (usize, String) {
     check_clipboard(&mut failures);
     check_chrome_order(&mut failures);
     check_native_chrome_order(&mut failures);
+    check_options_bar_height(&mut failures);
+    check_dialogs(&mut failures);
     check_bucket(&mut failures);
     check_gradient(&mut failures);
     check_magic_wand(&mut failures);

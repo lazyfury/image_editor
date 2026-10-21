@@ -290,6 +290,9 @@ pub fn gradient_preview(
     slot: &NodeRef,
 ) -> impl Component {
     Flex::new()
+        // `Flex::new()` 默认带 16px padding；色带按 rect 画，padding 只会把
+        // 选项栏撑高，所以显式清零。
+        .padding(Edges::ZERO)
         .min_size(96.0, STRIP_HEIGHT)
         .mouse_filter(MouseFilter::Ignore)
         .foreground(move |ctx, rect, _| {

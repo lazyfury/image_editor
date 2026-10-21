@@ -18,6 +18,7 @@ pub(super) fn brush_row(
     Flex::row()
         .align(Align::Center)
         .gap(space::XS)
+        .min_size(0.0, OPTIONS_BAR_HEIGHT)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore)
         .child(
@@ -140,6 +141,7 @@ pub(super) fn pen_row(
     let mut row = Flex::row()
         .align(Align::Center)
         .gap(space::XS)
+        .min_size(0.0, OPTIONS_BAR_HEIGHT)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore)
         .child(Text::small("", theme).ref_(&refs.pen));
@@ -167,6 +169,7 @@ pub(super) fn bucket_row(
     Flex::row()
         .align(Align::Center)
         .gap(space::XS)
+        .min_size(0.0, OPTIONS_BAR_HEIGHT)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore)
         .child(Text::caption("容差", theme).tone(Tone::Muted))
@@ -204,6 +207,7 @@ pub(super) fn gradient_row(
     Flex::row()
         .align(Align::Center)
         .gap(space::XS)
+        .min_size(0.0, OPTIONS_BAR_HEIGHT)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore)
         .child(Text::caption("类型", theme).tone(Tone::Muted))

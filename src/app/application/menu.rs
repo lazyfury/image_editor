@@ -29,10 +29,11 @@ impl ImageEditorLogic {
 
     /// 系统菜单栏此刻该是什么状态。
     ///
-    /// 模态窗口（新建文档 / 未保存确认）开着时整张置灰：自绘下拉会被模态吞掉
-    /// 输入，系统菜单栏如果还能点，就等于绕过模态去改下面的文档。
+    /// 模态窗口（新建文档 / 未保存确认）和模拟窗口（属性 / 关于 / 快捷键）开着时
+    /// 整张置灰：自绘下拉会被窗口吞掉输入，系统菜单栏如果还能点，就等于绕过窗口
+    /// 去改下面的文档。
     pub(super) fn native_menu_state(&self) -> MenuState {
-        if self.modal.is_some() || self.confirm.is_some() {
+        if self.modal.is_some() || self.confirm.is_some() || self.popup.is_some() {
             return MenuState::none();
         }
         match self.screen {

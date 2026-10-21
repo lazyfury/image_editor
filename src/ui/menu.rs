@@ -56,6 +56,10 @@ pub enum MenuAction {
     CropLayerToDocument,
     /// 切换透明棋盘格背景。
     ToggleCheckerboard,
+    /// 打开「属性」窗口（完整的工具属性）。
+    Settings,
+    /// 打开「快捷键」窗口。
+    Shortcuts,
     About,
     /// 尚未实现的菜单项：只把提示写进状态栏。
     Placeholder(&'static str),
@@ -162,6 +166,33 @@ impl MenuState {
             checkerboard: false,
         }
     }
+}
+
+/// 菜单项总数与其中的占位项数（「关于」窗口与能力梳理用）。
+///
+/// 状态取「有文档、什么都能点」，所以只看表里有什么，不看当前能不能点。
+pub fn item_counts() -> (usize, usize) {
+    let state = MenuState {
+        has_document: true,
+        can_undo: true,
+        can_redo: true,
+        has_selection: true,
+        can_paste: true,
+        checkerboard: false,
+    };
+    let mut items = 0;
+    let mut placeholders = 0;
+    for index in 0..MENUS.len() {
+        for entry in menu_spec(index, state) {
+            if let MenuEntry::Item { action, .. } = entry {
+                items += 1;
+                if matches!(action, MenuAction::Placeholder(_)) {
+                    placeholders += 1;
+                }
+            }
+        }
+    }
+    (items, placeholders)
 }
 
 /// 第 `index` 个菜单的内容（和画法无关）。
@@ -318,6 +349,9 @@ fn edit_menu(state: MenuState) -> Vec<MenuEntry> {
             state.can_paste,
             false,
         ),
+        separator(),
+        // 完整的工具属性：选项栏只放得下紧凑子集，塞不下的在这里（见 `ui/dialogs`）。
+        item(state, "首选项…", None, MenuAction::Settings, true, false),
     ]
 }
 
@@ -438,13 +472,8 @@ fn help_menu(state: MenuState) -> Vec<MenuEntry> {
             false,
         ),
         separator(),
-        placeholder(state, "快捷键…", "快捷键：见窗口标题栏 / README"),
+        item(state, "快捷键…", None, MenuAction::Shortcuts, true, false),
     ]
-}
-
-/// 关于对话框 / 状态栏用的版本串。
-pub fn about_text() -> String {
-    format!("image_editor · 用 igui UI 栈绘制 · {} 个菜单", MENUS.len())
 }
 
 #[cfg(test)]
@@ -553,10 +582,5 @@ mod tests {
                 .label()
                 .contains('✓')
         );
-    }
-
-    #[test]
-    fn about_text_mentions_the_menu_count() {
-        assert!(about_text().contains("8"));
     }
 }

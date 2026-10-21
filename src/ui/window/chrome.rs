@@ -6,7 +6,7 @@
 use igui_components::{Component, Flex, NodeRef, Text};
 use igui_core::{Edges, Vec2};
 use igui_render::CornerRadii;
-use igui_theme::{radius, space};
+use igui_theme::space;
 use igui_ui::{Align, InteractState, Justify, MouseFilter, SizeBasis, SurfaceStyle};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -38,8 +38,8 @@ pub(super) fn frame(
         // 标题栏比窗口底色浅一档，上沿跟着外框的圆角走（下沿是直角）。
         .surface(
             SurfaceStyle::new(theme.surface(HEADER_SURFACE)).corners(CornerRadii::new(
-                radius::PANEL,
-                radius::PANEL,
+                WINDOW_RADIUS,
+                WINDOW_RADIUS,
                 0.0,
                 0.0,
             )),
@@ -101,7 +101,7 @@ pub(super) fn frame(
         .surface(
             SurfaceStyle::new(theme.surface(WINDOW_SURFACE))
                 .border(palette.border)
-                .radius(radius::PANEL),
+                .radius(WINDOW_RADIUS),
         )
         .mouse_filter(MouseFilter::Ignore)
         // 右下角的三道斜线：提示「这里可以拖动缩放」。

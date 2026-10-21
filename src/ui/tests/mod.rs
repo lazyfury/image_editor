@@ -18,6 +18,7 @@ use igui_render::{DrawCommand, PaintContext};
 mod brush;
 mod canvas;
 mod chrome;
+mod dialogs;
 mod fill;
 mod gradient;
 mod history;

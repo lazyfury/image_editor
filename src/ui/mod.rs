@@ -21,6 +21,7 @@ mod canvas;
 mod card;
 mod clipboard;
 mod confirm;
+mod dialogs;
 mod file_panel;
 mod gradient_editor;
 mod history_panel;
@@ -57,6 +58,11 @@ pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
 pub use options_bar::GradientAdjust;
 pub use options_bar::{BucketAdjust, BucketToggle, PenAction};
+// 选项栏固定高度：测试与 `--selfcheck` 量它（非测试构建也会用到）。
+/// 快捷键表（自检核对「表覆盖每个工具键」用）。
+pub use dialogs::shortcut_rows;
+pub use dialogs::{AboutSnapshot, DialogKind, DialogWindow, SettingsSnapshot, SettingsWindowInput};
+pub use options_bar::OPTIONS_BAR_HEIGHT;
 pub use tabs::SidebarTab;
 
 /// 文件面板 / 快捷键留下的文件意图；宿主取走后弹原生对话框并执行。
@@ -429,7 +435,8 @@ impl EditorView {
                 Intent::MenuAction(action) => request_menu_action = Some(action),
                 Intent::OpenMenu(index) => request_menu = Some(index),
                 Intent::Tool(tool) => request_tool = Some(tool),
-                Intent::File(_) => {}
+                Intent::RecordTimeline(enabled) => self.set_record_timeline(enabled),
+                Intent::File(_) | Intent::Dialog(_) => {}
             }
         }
         // 选项栏开关是显示源，`brush` / `paint_bucket` 是绘制源，这里每帧对齐。
@@ -567,23 +574,35 @@ fn left_pointer(position: Vec2) -> PointerEvent {
     }
 }
 
-/// 工具快捷键：`V` 移动、`B` 画笔、`E` 橡皮、`M` 框选、`L` 套索、`I` 吸管。
+/// 工具快捷键表：`V` 移动、`B` 画笔、`E` 橡皮、`M` 框选、`L` 套索、`I` 吸管 …
+///
+/// **一份数据两处用**：[`shortcut_tool`] 拿它做映射，快捷键窗口
+/// （`ui/dialogs/shortcuts.rs`）拿它生成表格 —— 加一个工具键只改这里。
+pub const TOOL_KEYS: [(char, ActiveTool); 12] = [
+    ('V', ActiveTool::Move),
+    ('B', ActiveTool::Brush),
+    ('E', ActiveTool::Eraser),
+    ('M', ActiveTool::RectangleSelect),
+    ('L', ActiveTool::LassoSelect),
+    ('P', ActiveTool::Pen),
+    ('G', ActiveTool::PaintBucket),
+    ('W', ActiveTool::MagicWand),
+    ('N', ActiveTool::Gradient),
+    ('R', ActiveTool::RectangleFill),
+    ('U', ActiveTool::FreeFill),
+    ('I', ActiveTool::Eyedropper),
+];
+
+/// 工具快捷键的查询（大小写都认）。
 fn shortcut_tool(key: Key) -> Option<ActiveTool> {
-    match key {
-        Key::Character('v') | Key::Character('V') => Some(ActiveTool::Move),
-        Key::Character('b') | Key::Character('B') => Some(ActiveTool::Brush),
-        Key::Character('e') | Key::Character('E') => Some(ActiveTool::Eraser),
-        Key::Character('m') | Key::Character('M') => Some(ActiveTool::RectangleSelect),
-        Key::Character('l') | Key::Character('L') => Some(ActiveTool::LassoSelect),
-        Key::Character('p') | Key::Character('P') => Some(ActiveTool::Pen),
-        Key::Character('g') | Key::Character('G') => Some(ActiveTool::PaintBucket),
-        Key::Character('w') | Key::Character('W') => Some(ActiveTool::MagicWand),
-        Key::Character('n') | Key::Character('N') => Some(ActiveTool::Gradient),
-        Key::Character('r') | Key::Character('R') => Some(ActiveTool::RectangleFill),
-        Key::Character('u') | Key::Character('U') => Some(ActiveTool::FreeFill),
-        Key::Character('i') | Key::Character('I') => Some(ActiveTool::Eyedropper),
-        _ => None,
-    }
+    let Key::Character(ch) = key else {
+        return None;
+    };
+    let upper = ch.to_ascii_uppercase();
+    TOOL_KEYS
+        .iter()
+        .find(|(candidate, _)| *candidate == upper)
+        .map(|(_, tool)| *tool)
 }
 
 #[cfg(test)]

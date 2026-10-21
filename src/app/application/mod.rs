@@ -46,11 +46,12 @@ use crate::document::{Document, PixelBuffer};
 use crate::io::{DialogOptions, FileDialog, FileFilter, NativeFileDialog};
 use crate::renderer::{CpuRenderer, RenderTarget, Renderer};
 use crate::ui::{
-    thumbnail_texture, ConfirmDialog, ConfirmResult, EditorView, FileRequest, HomeEntry,
-    HomeOpenRequest, HomeThumbnail, HomeView, NewDocumentModal, NewDocumentResult, NewDocumentSpec,
-    WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT,
+    thumbnail_texture, ConfirmDialog, ConfirmResult, DialogWindow, EditorView, FileRequest,
+    HomeEntry, HomeOpenRequest, HomeThumbnail, HomeView, NewDocumentModal, NewDocumentResult,
+    NewDocumentSpec, WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT,
 };
 
+mod dialogs;
 mod files;
 mod home;
 mod menu;
@@ -169,6 +170,9 @@ struct ImageEditorLogic {
     modal: Option<NewDocumentModal>,
     /// 「保存 / 不保存 / 取消」确认框（关闭脏工作区时）。
     confirm: Option<ConfirmDialog>,
+    /// 模拟窗口：属性（完整属性）/ 关于 / 快捷键；同一时刻只开一个，有它时
+    /// 输入全交给它（见 `dialogs.rs`）。
+    popup: Option<DialogWindow>,
     /// 正在等待确认关闭的工作区下标。
     pending_close: Option<usize>,
     modifiers: Modifiers,
@@ -209,6 +213,7 @@ impl ImageEditorLogic {
             tabs: WorkspaceTabs::new(theme),
             modal: None,
             confirm: None,
+            popup: None,
             pending_close: None,
             modifiers: Modifiers::NONE,
             preferences: crate::io::EditorPreferences::default(),
@@ -242,45 +247,16 @@ impl ImageEditorLogic {
     }
 }
 
-impl AppLogic for ImageEditorLogic {
-    fn init(&mut self, ctx: &InitContext<'_>) {
-        // 度量插件已经在 `resumed` 时把度量放进服务。
-        self.measurer = ctx.service::<Rc<dyn TextMeasurer>>().cloned();
-        self.clipboard = ctx.service::<Rc<RefCell<dyn Clipboard>>>().cloned();
-        if let Some(measurer) = self.measurer.clone() {
-            self.tabs.set_text_measurer(measurer.clone());
-            if let Screen::Home(home) = &mut self.screen {
-                home.set_text_measurer(measurer.clone());
-            }
-            if let Some(workspace) = self.workspaces.active_mut() {
-                workspace.editor.set_text_measurer(measurer);
-            }
-        }
-        if let Some(clipboard) = self.clipboard.clone() {
-            if let Some(workspace) = self.workspaces.active_mut() {
-                workspace.editor.set_clipboard(clipboard);
-            }
-        }
-        // 系统菜单栏要等 NSApp 起来之后才能装（`init` 已经是主线程 + 有窗口）。
-        // 动作入队后要叫醒事件循环：`igui_winit` 是 `ControlFlow::Wait`，系统菜单
-        // 的点击不产生 winit 事件，不主动要一帧的话界面会等下次鼠标移动才刷新。
-        let wake = ctx.service::<SharedWindow>().cloned().map(|window| {
-            Rc::new(move || {
-                if let Some(window) = window.borrow().as_ref() {
-                    window.request_redraw();
-                }
-            }) as crate::app::native_menu::Wake
-        });
-        self.install_native_menu(wake);
-        let native_menu = self.native_menu.is_some();
-        if let Some(workspace) = self.workspaces.active_mut() {
-            workspace.editor.set_menu_bar_visible(!native_menu);
-        }
-    }
-
-    fn event(&mut self, _ctx: &EventContext<'_>, event: &InputEvent) -> EventResult {
+impl ImageEditorLogic {
+    /// 输入路由（`AppLogic::event` 去掉 `ctx` 的部分；宿主测试直接调它）。
+    pub(super) fn route_event(&mut self, event: &InputEvent) -> EventResult {
         if let InputEvent::ModifiersChanged(modifiers) = event {
             self.modifiers = *modifiers;
+        }
+
+        // 模拟窗口（属性 / 关于 / 快捷键）在模态之前：它开着时输入全归它。
+        if self.popup_event(event) {
+            return EventResult::Handled;
         }
 
         // 模态窗口优先：在时它吞掉全部输入，底层 UI 收不到。
@@ -333,6 +309,47 @@ impl AppLogic for ImageEditorLogic {
             }
         }
     }
+}
+
+impl AppLogic for ImageEditorLogic {
+    fn init(&mut self, ctx: &InitContext<'_>) {
+        // 度量插件已经在 `resumed` 时把度量放进服务。
+        self.measurer = ctx.service::<Rc<dyn TextMeasurer>>().cloned();
+        self.clipboard = ctx.service::<Rc<RefCell<dyn Clipboard>>>().cloned();
+        if let Some(measurer) = self.measurer.clone() {
+            self.tabs.set_text_measurer(measurer.clone());
+            if let Screen::Home(home) = &mut self.screen {
+                home.set_text_measurer(measurer.clone());
+            }
+            if let Some(workspace) = self.workspaces.active_mut() {
+                workspace.editor.set_text_measurer(measurer);
+            }
+        }
+        if let Some(clipboard) = self.clipboard.clone() {
+            if let Some(workspace) = self.workspaces.active_mut() {
+                workspace.editor.set_clipboard(clipboard);
+            }
+        }
+        // 系统菜单栏要等 NSApp 起来之后才能装（`init` 已经是主线程 + 有窗口）。
+        // 动作入队后要叫醒事件循环：`igui_winit` 是 `ControlFlow::Wait`，系统菜单
+        // 的点击不产生 winit 事件，不主动要一帧的话界面会等下次鼠标移动才刷新。
+        let wake = ctx.service::<SharedWindow>().cloned().map(|window| {
+            Rc::new(move || {
+                if let Some(window) = window.borrow().as_ref() {
+                    window.request_redraw();
+                }
+            }) as crate::app::native_menu::Wake
+        });
+        self.install_native_menu(wake);
+        let native_menu = self.native_menu.is_some();
+        if let Some(workspace) = self.workspaces.active_mut() {
+            workspace.editor.set_menu_bar_visible(!native_menu);
+        }
+    }
+
+    fn event(&mut self, _ctx: &EventContext<'_>, event: &InputEvent) -> EventResult {
+        self.route_event(event)
+    }
 
     fn update(&mut self, ctx: &FrameContext<'_>) {
         while let Some(action) = self.tabs.take_request() {
@@ -360,6 +377,9 @@ impl AppLogic for ImageEditorLogic {
         self.sync_active_workspace(ctx);
         // 可点 / 勾选跟着当前工作区走；主页整张菜单置灰。
         self.sync_native_menu();
+        // 属性窗口的数值跟着编辑器走；打开请求在上一帧的意图队列里。
+        self.sync_popup();
+        self.open_popup_if_requested();
 
         if matches!(self.screen, Screen::Editor) {
             self.tabs
@@ -398,9 +418,25 @@ impl AppLogic for ImageEditorLogic {
         if let Some(confirm) = self.confirm.as_mut() {
             confirm.layout(viewport);
         }
+        if let Some(popup) = self.popup.as_mut() {
+            popup.layout(viewport);
+        }
     }
 
     fn paint(&mut self, _ctx: &FrameContext<'_>, paint: &mut PaintContext) {
+        if let Some(popup) = self.popup.as_ref() {
+            // 先画内容再画窗口：窗口带遮罩，压在编辑器上面。
+            paint_screen(
+                &self.screen,
+                &self.workspaces,
+                &self.tabs,
+                self.modal.as_ref(),
+                self.confirm.as_ref(),
+                paint,
+            );
+            popup.paint(paint);
+            return;
+        }
         paint_screen(
             &self.screen,
             &self.workspaces,

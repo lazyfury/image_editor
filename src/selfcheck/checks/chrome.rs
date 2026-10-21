@@ -314,3 +314,89 @@ pub(crate) fn resizable_panels(view: &mut EditorView, failures: &mut Vec<String>
         view.layout(viewport());
     }
 }
+
+/// 选项栏高度：切遍所有工具都一样（否则画布跟着上下跳）。
+///
+/// 单测里有同款断言；这里在自检里再跑一遍，因为布局常量（`OPTIONS_BAR_HEIGHT`）
+/// 是「界面对面」的契约，改主题 / 换控件时最容易悄悄破。
+pub(crate) fn check_options_bar_height(failures: &mut Vec<String>) {
+    let theme = crate::theme::editor_theme(false);
+    let mut view = EditorView::new(theme, AppState::default());
+    view.set_tab_band(crate::ui::TAB_STRIP_HEIGHT);
+    view.layout(viewport());
+    let expected = crate::ui::OPTIONS_BAR_HEIGHT;
+    let mut bottoms = Vec::new();
+    for (key, _tool) in crate::ui::TOOL_KEYS {
+        let key = key.to_ascii_lowercase();
+        view.event(&InputEvent::KeyDown {
+            key: Key::Character(key),
+        });
+        view.update();
+        view.layout(viewport());
+        let Some(rect) = view.options_bar_rect() else {
+            failures.push("取不到选项栏的矩形".to_string());
+            return;
+        };
+        let height = rect.bottom() - rect.top();
+        if (height - expected).abs() > 0.01 {
+            failures.push(format!(
+                "工具键 {key} 的选项栏高度 {height}，应为 {expected}"
+            ));
+        }
+        bottoms.push(rect.bottom());
+    }
+    if bottoms
+        .windows(2)
+        .any(|pair| (pair[0] - pair[1]).abs() > 0.01)
+    {
+        failures.push(format!("切工具时选项栏下沿在动：{bottoms:?}"));
+    }
+}
+
+/// 模拟窗口：选项栏的「全部属性…」留下打开意图；窗口能排版 / 绘制 / Esc 关闭；
+/// 快捷键表覆盖每个工具键。
+pub(crate) fn check_dialogs(failures: &mut Vec<String>) {
+    let theme = crate::theme::editor_theme(false);
+    let mut view = EditorView::new(theme, AppState::default());
+    view.layout(viewport());
+    let Some(center) = view.settings_button_center() else {
+        failures.push("取不到「全部属性…」按钮".to_string());
+        return;
+    };
+    click_at(&mut view, center);
+    view.update();
+    match view.take_dialog_request() {
+        Some(crate::ui::DialogKind::Settings) => {}
+        other => failures.push(format!("「全部属性…」应请求属性窗口，实际 {other:?}")),
+    }
+
+    let mut window = crate::ui::DialogWindow::new(
+        crate::ui::DialogKind::Settings,
+        theme,
+        crate::ui::SettingsWindowInput {
+            cells: view.option_cells(),
+            intents: view.intents(),
+        },
+        crate::ui::AboutSnapshot::default(),
+    );
+    window.sync(&view.settings_snapshot());
+    window.layout(viewport());
+    let frame = paint_window(&window);
+    if frame.commands().is_empty() {
+        failures.push("属性窗口没有画出任何命令".to_string());
+    }
+    window.event(&InputEvent::KeyDown { key: Key::Escape });
+    if !window.take_close() {
+        failures.push("属性窗口按 Esc 没有关闭".to_string());
+    }
+
+    let rows = crate::ui::shortcut_rows();
+    for (key, tool) in crate::ui::TOOL_KEYS {
+        if !rows
+            .iter()
+            .any(|(row_key, label)| row_key == &key.to_string() && label == tool.label())
+        {
+            failures.push(format!("快捷键表缺少工具键 {key}（{}）", tool.label()));
+        }
+    }
+}
