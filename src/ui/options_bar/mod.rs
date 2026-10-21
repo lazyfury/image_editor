@@ -10,7 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use igui_components::{Button, Component, Flex, NodeRef, Text};
-use igui_core::{Color, Edges};
+use igui_core::{Color, Edges, NodeId};
 use igui_theme::{radius, space, SurfaceLevel, Theme, Tone};
 use igui_ui::{Align, MouseFilter, SurfaceStyle};
 
@@ -136,6 +136,47 @@ pub struct GradientOptions {
     pub reverse: Rc<Cell<bool>>,
     /// 类型切换 / 「编辑…」都往这里塞意图。
     pub intents: Intents,
+}
+
+/// 选项栏在视图里的状态：控件句柄 + 按钮表 + 四个「显示源」共享格。
+///
+/// 这些都是「选项栏自己的东西」：`update` 每帧把共享格写进工具（`brush` /
+/// `paint_bucket`），`sync_options` 把状态写回文本。收成一组，`EditorView`
+/// 上就少 28 个散字段。
+pub struct OptionsState {
+    /// 整行（测试 / 自检验证「菜单 → 标签条 → 选项栏」的顺序）。
+    pub panel: NodeId,
+    pub tool: NodeId,
+    pub brush: NodeId,
+    pub size: NodeId,
+    pub hardness: NodeId,
+    pub smooth: NodeId,
+    pub spacing: NodeId,
+    pub opacity: NodeId,
+    /// 对称绘画的值标签 + 循环按钮。
+    pub symmetry: NodeId,
+    pub symmetry_button: NodeId,
+    /// 「预设」触发按钮 / 它的值标签。
+    pub preset: NodeId,
+    pub preset_label: NodeId,
+    /// 钢笔选项行 / 路径摘要 / 动作按钮。
+    pub pen: NodeId,
+    pub pen_summary: NodeId,
+    pub pen_buttons: Vec<(PenAction, NodeId)>,
+    pub bucket: NodeId,
+    pub gradient: NodeId,
+    pub tolerance: NodeId,
+    pub hint: NodeId,
+    /// 按钮表（测试 / 自检点击用）。
+    pub brush_buttons: Vec<(BrushAdjust, NodeId)>,
+    pub brush_toggles: Vec<(BrushToggle, NodeId)>,
+    pub bucket_buttons: Vec<(BucketAdjust, NodeId)>,
+    pub bucket_toggles: Vec<(BucketToggle, NodeId)>,
+    /// 显示源：选项栏按钮直接翻转，`update` 每帧同步进工具。
+    pub pixel_mode: Rc<Cell<bool>>,
+    pub square_mode: Rc<Cell<bool>>,
+    pub symmetry_mode: Rc<Cell<crate::tools::Symmetry>>,
+    pub bucket_contiguous: Rc<Cell<bool>>,
 }
 
 /// 选项栏里需要回写的文本 / 容器槽位。

@@ -233,47 +233,10 @@ pub struct EditorView {
     open_menu: Cell<Option<usize>>,
     /// 覆盖层：承载菜单下拉，画在 UI 之上并优先接收输入。
     overlays: Overlays,
-    /// 工具选项栏的文本 / 容器节点。
-    /// 选项栏整行（测试 / 自检验证「菜单 → 标签条 → 选项栏」的顺序）。
-    options_panel: NodeId,
-    options_tool: NodeId,
-    options_brush: NodeId,
-    options_size: NodeId,
-    options_hardness: NodeId,
-    options_smooth: NodeId,
-    options_spacing: NodeId,
-    /// 对称绘画的值标签 + 循环按钮。
-    options_symmetry: NodeId,
-    symmetry_button: NodeId,
-    /// 「预设」触发按钮 / 它的值标签。
-    options_preset: NodeId,
-    options_preset_label: NodeId,
-    options_opacity: NodeId,
-    /// 钢笔选项行 / 路径摘要。
-    options_pen: NodeId,
-    options_pen_summary: NodeId,
-    /// 钢笔动作按钮节点（测试 / 自检点击用）。
-    pen_buttons: Vec<(PenAction, NodeId)>,
-    options_bucket: NodeId,
-    options_gradient: NodeId,
-    options_tolerance: NodeId,
-    options_hint: NodeId,
-    /// `−` / `+` 按钮节点（测试 / 自检点击用）。
-    brush_buttons: Vec<(BrushAdjust, NodeId)>,
-    /// 像素模式 / 方形笔的共享开关状态（选项栏按钮直接翻转，`update` 同步进
-    /// `self.brush`）。
-    pixel_mode: Rc<Cell<bool>>,
-    square_mode: Rc<Cell<bool>>,
-    /// 对称绘画（选项栏按钮写、`update` 同步进画笔）。
-    symmetry_mode: Rc<Cell<crate::tools::Symmetry>>,
+    /// 选项栏的句柄 / 按钮表 / 显示源共享格（见 `options_bar::OptionsState`）。
+    options: options_bar::OptionsState,
     /// 上一次「已落盘」的偏好快照：变了才让宿主写配置（见 `take_preferences`）。
     saved_preferences: crate::io::BrushPreferences,
-    /// 开关按钮节点（测试 / 自检点击用）。
-    brush_toggles: Vec<(BrushToggle, NodeId)>,
-    /// 油漆桶选项栏的开关 / 按钮节点。
-    bucket_buttons: Vec<(BucketAdjust, NodeId)>,
-    bucket_toggles: Vec<(BucketToggle, NodeId)>,
-    bucket_contiguous: Rc<Cell<bool>>,
     /// 油漆桶工具（颜色 / 容差 / 连续 / 选区在落笔前同步）。
     paint_bucket: PaintBucketTool,
     /// 矩形填充工具（拖动中暴露预览角点）。
@@ -449,14 +412,14 @@ impl EditorView {
             }
         }
         // 选项栏开关是显示源，`brush` / `paint_bucket` 是绘制源，这里每帧对齐。
-        self.brush.hard = self.pixel_mode.get();
-        self.brush.shape = if self.square_mode.get() {
+        self.brush.hard = self.options.pixel_mode.get();
+        self.brush.shape = if self.options.square_mode.get() {
             BrushShape::Square
         } else {
             BrushShape::Round
         };
-        self.brush.symmetry = self.symmetry_mode.get();
-        self.paint_bucket.contiguous = self.bucket_contiguous.get();
+        self.brush.symmetry = self.options.symmetry_mode.get();
+        self.paint_bucket.contiguous = self.options.bucket_contiguous.get();
         // 渐变：未自定义时首尾跟随前景 / 背景；工具读类型 / 反向。
         if !self.gradient.customized.get() {
             let (foreground, background) = {

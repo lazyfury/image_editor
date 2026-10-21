@@ -388,10 +388,12 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   「自定义过」/ 选中节点 / 编辑器开关 / 3 个节点 / 按钮表）
   -> `ui/gradient_editor.rs::GradientState`。字段 102 -> 92（`NodeId` 31 -> 28）。
   验收：`--selfcheck` 逐字不变、渐变类型 / 编辑器的测试全过。
-- [ ] **`EditorView` 第三簇：选项栏共享格**（`pixel_mode` / `square_mode` /
-  `symmetry_mode` / `bucket_contiguous` / `saved_preferences` + 各工具引擎
-  `brush` / `paint_bucket` / `rect_fill` / `pen` / `move_tool`）。这一簇和绘制
-  逻辑交叉最多，先想清楚边界（「选项栏显示源」vs「工具绘制源」）再动。
+- [x] **`EditorView` 第三簇：选项栏**：27 个字段（19 个控件句柄 + 4 张按钮表 +
+  4 个「显示源」共享格）-> `options_bar::OptionsState`（`EditorView.options`）。
+  字段 92 -> 66。工具引擎（`brush` / `pen` / `paint_bucket` …）**保持散着**：
+  它们名字已经说明职责、且被绘制逻辑到处引用，包一层只是把 `self.brush` 变成
+  `self.tools.brush`。
+  验收：test 449 passed、`--selfcheck` 逐字不变。
 - [x] **拆 `ui/tests.rs`**（2435 行 / 88 个测试）-> `ui/tests/` 14 个功能文件 +
   `mod.rs`（夹具：`viewport` / 三种粒度的 `click*` / `label_text` /
   `paint_commands` / `paint_a_stroke` / `brush_view` / `select_tab` …）。

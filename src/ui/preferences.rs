@@ -16,9 +16,9 @@ impl EditorView {
             opacity: self.brush.opacity,
             hardness: self.brush.hardness,
             smooth: self.brush.smooth,
-            solid: self.pixel_mode.get(),
-            square: self.square_mode.get(),
-            symmetry: symmetry_code(self.symmetry_mode.get()),
+            solid: self.options.pixel_mode.get(),
+            square: self.options.square_mode.get(),
+            symmetry: symmetry_code(self.options.symmetry_mode.get()),
             spacing: self.brush.spacing_ratio,
         }
     }
@@ -30,9 +30,11 @@ impl EditorView {
         self.brush.opacity = prefs.opacity;
         self.brush.hardness = prefs.hardness;
         self.brush.smooth = prefs.smooth;
-        self.pixel_mode.set(prefs.solid);
-        self.square_mode.set(prefs.square);
-        self.symmetry_mode.set(symmetry_from_code(prefs.symmetry));
+        self.options.pixel_mode.set(prefs.solid);
+        self.options.square_mode.set(prefs.square);
+        self.options
+            .symmetry_mode
+            .set(symmetry_from_code(prefs.symmetry));
         self.brush.spacing_ratio = prefs.spacing;
         // 应用即视为「已落盘」，免得下一帧又写一遍。
         self.saved_preferences = self.preferences();

@@ -81,7 +81,7 @@ impl EditorView {
     /// 网格画在屏幕空间（相机换算后的坐标），线宽 1 逻辑像素、不随缩放变粗；
     /// 只画「文档矩形 ∩ 画布区域」里的那部分，所以命令数有界。
     fn paint_pixel_grid(&self, ctx: &mut PaintContext) {
-        if !self.pixel_mode.get() {
+        if !self.options.pixel_mode.get() {
             return;
         }
         let state = self.state.borrow();

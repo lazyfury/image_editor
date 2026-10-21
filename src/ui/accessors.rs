@@ -252,7 +252,8 @@ impl EditorView {
 
     /// 选项栏 `−` / `+` 按钮的节点。
     pub fn brush_adjust_node(&self, adjust: BrushAdjust) -> Option<NodeId> {
-        self.brush_buttons
+        self.options
+            .brush_buttons
             .iter()
             .find(|(candidate, _)| *candidate == adjust)
             .map(|(_, id)| *id)
@@ -280,7 +281,8 @@ impl EditorView {
 
     /// 钢笔动作按钮的中心点（测试与自检点击用）。
     pub fn pen_action_node(&self, action: PenAction) -> Option<NodeId> {
-        self.pen_buttons
+        self.options
+            .pen_buttons
             .iter()
             .find(|(candidate, _)| *candidate == action)
             .map(|(_, id)| *id)
@@ -293,11 +295,12 @@ impl EditorView {
 
     /// 当前对称绘画模式 / 循环按钮的中心点。
     pub fn symmetry_mode(&self) -> crate::tools::Symmetry {
-        self.symmetry_mode.get()
+        self.options.symmetry_mode.get()
     }
 
     pub fn symmetry_button_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.symmetry_button).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.options.symmetry_button)
+            .map(|control| control.rect.center())
     }
 
     /// 当前笔刷硬度（0..=1）。
@@ -322,12 +325,12 @@ impl EditorView {
 
     /// 选项栏整行的矩形（宿主与测试验证自上而下的顺序用）。
     pub fn options_bar_rect(&self) -> Option<Rect> {
-        igui_ui::control(&self.tree, self.options_panel).map(|control| control.rect)
+        igui_ui::control(&self.tree, self.options.panel).map(|control| control.rect)
     }
 
     /// 选项栏「预设」触发按钮的中心点（测试与自检点击用）。
     pub fn brush_preset_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.options_preset).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.options.preset).map(|control| control.rect.center())
     }
 
     /// 选项栏显示的笔刷预设名（命中不到预设时是「自定义」）。
@@ -347,17 +350,18 @@ impl EditorView {
 
     /// 像素模式开关是否打开（硬边）。
     pub fn pixel_mode(&self) -> bool {
-        self.pixel_mode.get()
+        self.options.pixel_mode.get()
     }
 
     /// 方形笔开关是否打开。
     pub fn square_mode(&self) -> bool {
-        self.square_mode.get()
+        self.options.square_mode.get()
     }
 
     /// 选项栏开关按钮的节点。
     pub fn brush_toggle_node(&self, toggle: BrushToggle) -> Option<NodeId> {
-        self.brush_toggles
+        self.options
+            .brush_toggles
             .iter()
             .find(|(candidate, _)| *candidate == toggle)
             .map(|(_, id)| *id)
@@ -371,7 +375,8 @@ impl EditorView {
 
     /// 油漆桶选项栏按钮 / 开关的节点与中心点（测试 / 自检点击用）。
     pub fn bucket_button_node(&self, adjust: BucketAdjust) -> Option<NodeId> {
-        self.bucket_buttons
+        self.options
+            .bucket_buttons
             .iter()
             .find(|(candidate, _)| *candidate == adjust)
             .map(|(_, id)| *id)
@@ -383,7 +388,8 @@ impl EditorView {
     }
 
     pub fn bucket_toggle_node(&self, toggle: BucketToggle) -> Option<NodeId> {
-        self.bucket_toggles
+        self.options
+            .bucket_toggles
             .iter()
             .find(|(candidate, _)| *candidate == toggle)
             .map(|(_, id)| *id)

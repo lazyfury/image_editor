@@ -48,9 +48,9 @@ fn each_pen_click_adds_one_anchor() {
     assert_eq!(view.pen_anchor_count(), 3);
     assert!(!view.pen_path_closed(), "还没点回起点，路径是开放的");
     assert!(
-        label_text(&view, view.options_pen_summary).contains("3 个锚点"),
+        label_text(&view, view.options.pen_summary).contains("3 个锚点"),
         "选项栏应显示锚点数：{}",
-        label_text(&view, view.options_pen_summary)
+        label_text(&view, view.options.pen_summary)
     );
 }
 

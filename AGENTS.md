@@ -42,6 +42,9 @@ src/ui/         views + project-local components: home (recent gallery),
                 `EditorView.layout` field instead of 14 loose fields).
                 `ui/gradient_editor.rs` owns `GradientState` the same way: ramp +
                 engine + kind/reverse + editor state + options-bar nodes.
+                `ui/options_bar/mod.rs` owns `OptionsState`: the bar's node ids,
+                button tables and its four "display source" cells (pixel / square /
+                symmetry / contiguous), so `EditorView` keeps one field for all 27.
                 `ui/intents.rs` is the callback -> view channel: widget callbacks
                 push an `Intent` (tool / menu / options bar / pen / rename / file)
                 into one queue; `EditorView::update` drains it in arrival order

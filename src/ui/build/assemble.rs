@@ -4,6 +4,7 @@ use super::*;
 use crate::tools::PenTool;
 use crate::ui::gradient_editor::GradientState;
 use crate::ui::layout::Layout;
+use crate::ui::options_bar::OptionsState;
 
 pub(super) fn finish(
     theme: &'static dyn Theme,
@@ -81,7 +82,6 @@ pub(super) fn finish(
     let mut view = EditorView {
         tree,
         menu_bar: refs.menu_bar.get().expect("menu bar mounted"),
-        options_panel: options.panel.get().expect("options panel mounted"),
         tab_band: refs.tab_band.get().expect("tab band mounted"),
         theme,
         state,
@@ -104,43 +104,46 @@ pub(super) fn finish(
         menu_nodes,
         open_menu: Cell::new(None),
         overlays: Overlays::new(theme),
-        options_tool: options.tool.get().expect("options tool mounted"),
-        options_brush: options.brush.get().expect("options brush mounted"),
-        options_size: options.size.get().expect("options size mounted"),
-        options_hardness: options.hardness.get().expect("options hardness mounted"),
-        options_smooth: options.smooth.get().expect("options smooth mounted"),
-        options_spacing: options.spacing.get().expect("options spacing mounted"),
-        options_preset: options
-            .preset_button
-            .get()
-            .expect("options preset button mounted"),
-        options_preset_label: options.preset.get().expect("options preset label mounted"),
-        options_opacity: options.opacity.get().expect("options opacity mounted"),
-        options_pen: options.pen_panel.get().expect("options pen mounted"),
-        options_pen_summary: options.pen.get().expect("options pen summary mounted"),
-        pen_buttons: pen_refs
-            .iter()
-            .map(|(action, slot)| (*action, slot.get().expect("pen button mounted")))
-            .collect(),
-        options_bucket: options.bucket.get().expect("options bucket mounted"),
-        options_gradient: options.gradient.get().expect("options gradient mounted"),
-        options_tolerance: options.tolerance.get().expect("options tolerance mounted"),
-        options_hint: options.hint.get().expect("options hint mounted"),
-        brush_buttons,
-        pixel_mode,
-        square_mode,
-        symmetry_mode,
-        options_symmetry: options.symmetry.get().expect("options symmetry mounted"),
-        symmetry_button: options
-            .symmetry_button
-            .get()
-            .expect("symmetry button mounted"),
+        options: OptionsState {
+            panel: options.panel.get().expect("options panel mounted"),
+            tool: options.tool.get().expect("options tool mounted"),
+            brush: options.brush.get().expect("options brush mounted"),
+            size: options.size.get().expect("options size mounted"),
+            hardness: options.hardness.get().expect("options hardness mounted"),
+            smooth: options.smooth.get().expect("options smooth mounted"),
+            spacing: options.spacing.get().expect("options spacing mounted"),
+            opacity: options.opacity.get().expect("options opacity mounted"),
+            symmetry: options.symmetry.get().expect("options symmetry mounted"),
+            symmetry_button: options
+                .symmetry_button
+                .get()
+                .expect("symmetry button mounted"),
+            preset: options
+                .preset_button
+                .get()
+                .expect("options preset button mounted"),
+            preset_label: options.preset.get().expect("options preset label mounted"),
+            pen: options.pen_panel.get().expect("options pen mounted"),
+            pen_summary: options.pen.get().expect("options pen summary mounted"),
+            pen_buttons: pen_refs
+                .iter()
+                .map(|(action, slot)| (*action, slot.get().expect("pen button mounted")))
+                .collect(),
+            bucket: options.bucket.get().expect("options bucket mounted"),
+            gradient: options.gradient.get().expect("options gradient mounted"),
+            tolerance: options.tolerance.get().expect("options tolerance mounted"),
+            hint: options.hint.get().expect("options hint mounted"),
+            brush_buttons,
+            brush_toggles,
+            bucket_buttons,
+            bucket_toggles,
+            pixel_mode,
+            square_mode,
+            symmetry_mode,
+            bucket_contiguous,
+        },
         // 默认参数就是 `BrushPreferences::default()`，所以启动时不会立刻写配置。
         saved_preferences: crate::io::BrushPreferences::default(),
-        brush_toggles,
-        bucket_buttons,
-        bucket_toggles,
-        bucket_contiguous,
         paint_bucket: PaintBucketTool::new(),
         rect_fill: RectangleFillTool::new(),
         gradient: GradientState {

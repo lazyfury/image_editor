@@ -188,42 +188,42 @@ impl EditorView {
     /// 工具选项栏：工具名 / 提示 / 笔刷配置，按当前工具显示。
     pub(super) fn sync_options(&mut self) {
         let tool = self.state.borrow().active_tool;
-        set_text(&mut self.tree, self.options_tool, tool.label());
+        set_text(&mut self.tree, self.options.tool, tool.label());
         set_text(
             &mut self.tree,
-            self.options_size,
+            self.options.size,
             format!("{:.0}px", self.brush.size),
         );
         set_text(
             &mut self.tree,
-            self.options_hardness,
+            self.options.hardness,
             format!("{:.0}%", self.brush.hardness * 100.0),
         );
         set_text(
             &mut self.tree,
-            self.options_smooth,
+            self.options.smooth,
             format!("{:.0}%", self.brush.smooth * 100.0),
         );
         set_text(
             &mut self.tree,
-            self.options_spacing,
+            self.options.spacing,
             format!("{:.0}%", self.brush.spacing_ratio * 100.0),
         );
         // 参数不命中任何预设时显示「自定义」（见 `tools::brush::preset`）。
         set_text(
             &mut self.tree,
-            self.options_preset_label,
+            self.options.preset_label,
             crate::tools::brush::preset::label(crate::tools::brush::preset::PRESETS, &self.brush),
         );
         set_text(
             &mut self.tree,
-            self.options_opacity,
+            self.options.opacity,
             format!("{:.0}%", self.brush.opacity * 100.0),
         );
-        set_text(&mut self.tree, self.options_hint, options_hint(tool));
+        set_text(&mut self.tree, self.options.hint, options_hint(tool));
         set_text(
             &mut self.tree,
-            self.options_tolerance,
+            self.options.tolerance,
             format!("{}", self.paint_bucket.tolerance),
         );
         set_text(
@@ -234,30 +234,30 @@ impl EditorView {
 
         set_text(
             &mut self.tree,
-            self.options_symmetry,
-            self.symmetry_mode.get().label(),
+            self.options.symmetry,
+            self.options.symmetry_mode.get().label(),
         );
         let show_brush = tool_has_brush(tool);
-        if self.tree.is_visible(self.options_brush) != Some(show_brush) {
-            self.tree.set_visible(self.options_brush, show_brush);
-            igui_ui::mark_dirty(&mut self.tree, self.options_brush);
+        if self.tree.is_visible(self.options.brush) != Some(show_brush) {
+            self.tree.set_visible(self.options.brush, show_brush);
+            igui_ui::mark_dirty(&mut self.tree, self.options.brush);
         }
         let pen_summary = self.pen_summary();
-        set_text(&mut self.tree, self.options_pen_summary, pen_summary);
+        set_text(&mut self.tree, self.options.pen_summary, pen_summary);
         let show_pen = tool == ActiveTool::Pen;
-        if self.tree.is_visible(self.options_pen) != Some(show_pen) {
-            self.tree.set_visible(self.options_pen, show_pen);
-            igui_ui::mark_dirty(&mut self.tree, self.options_pen);
+        if self.tree.is_visible(self.options.pen) != Some(show_pen) {
+            self.tree.set_visible(self.options.pen, show_pen);
+            igui_ui::mark_dirty(&mut self.tree, self.options.pen);
         }
         let show_bucket = matches!(tool, ActiveTool::PaintBucket | ActiveTool::MagicWand);
-        if self.tree.is_visible(self.options_bucket) != Some(show_bucket) {
-            self.tree.set_visible(self.options_bucket, show_bucket);
-            igui_ui::mark_dirty(&mut self.tree, self.options_bucket);
+        if self.tree.is_visible(self.options.bucket) != Some(show_bucket) {
+            self.tree.set_visible(self.options.bucket, show_bucket);
+            igui_ui::mark_dirty(&mut self.tree, self.options.bucket);
         }
         let show_gradient = tool == ActiveTool::Gradient;
-        if self.tree.is_visible(self.options_gradient) != Some(show_gradient) {
-            self.tree.set_visible(self.options_gradient, show_gradient);
-            igui_ui::mark_dirty(&mut self.tree, self.options_gradient);
+        if self.tree.is_visible(self.options.gradient) != Some(show_gradient) {
+            self.tree.set_visible(self.options.gradient, show_gradient);
+            igui_ui::mark_dirty(&mut self.tree, self.options.gradient);
         }
     }
 }

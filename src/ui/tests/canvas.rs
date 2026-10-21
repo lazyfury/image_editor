@@ -85,13 +85,13 @@ fn the_pixel_grid_shows_only_when_zoomed_in_and_in_pixel_mode() {
     };
 
     // 像素模式关：放大也不画网格。
-    view.pixel_mode.set(false);
+    view.options.pixel_mode.set(false);
     view.state.borrow_mut().canvas.zoom = 12.0;
     view.state.borrow_mut().canvas.offset = Vec2::new(120.0, 120.0);
     let without = line_count(&view);
 
     // 打开像素模式：多出网格线。
-    view.pixel_mode.set(true);
+    view.options.pixel_mode.set(true);
     let with = line_count(&view);
     assert!(
         with > without,

@@ -61,8 +61,10 @@ impl EditorView {
             return;
         };
         preset.apply(&mut self.brush);
-        self.pixel_mode.set(self.brush.hard);
-        self.square_mode.set(self.brush.shape == BrushShape::Square);
+        self.options.pixel_mode.set(self.brush.hard);
+        self.options
+            .square_mode
+            .set(self.brush.shape == BrushShape::Square);
         *self.message.borrow_mut() = Some(format!("笔刷预设 {}", preset.name));
     }
 

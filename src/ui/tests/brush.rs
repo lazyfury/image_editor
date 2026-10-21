@@ -107,7 +107,7 @@ fn the_symmetry_button_cycles_and_the_brush_follows() {
         click_at(&mut view, center);
         assert_eq!(view.symmetry_mode(), expected);
         // 选项栏是显示源，`update` 每帧同步进画笔。
-        assert_eq!(label_text(&view, view.options_symmetry), expected.label());
+        assert_eq!(label_text(&view, view.options.symmetry), expected.label());
     }
 }
 
@@ -167,7 +167,7 @@ fn the_round_brush_draws_a_circle_cursor() {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
     view.layout(viewport());
     // 关掉「方形」= 圆头笔。
-    view.square_mode.set(false);
+    view.options.square_mode.set(false);
     view.update();
     view.brush.size = 20.0;
     let pointer = view
@@ -248,14 +248,14 @@ fn picking_a_preset_sets_the_brush_and_the_options_bar_toggles() {
     assert_eq!(view.brush_shape(), BrushShape::Round);
     // 选项栏的开关是显示源，预设必须回写它，否则下一帧就被覆盖回去。
     assert!(!view.pixel_mode() && !view.square_mode());
-    assert_eq!(label_text(&view, view.options_preset_label), preset.name);
+    assert_eq!(label_text(&view, view.options.preset_label), preset.name);
 }
 
 #[test]
 fn the_preset_label_falls_back_to_custom() {
     let mut view = brush_view();
     click_adjust(&mut view, BrushAdjust::HardnessDown);
-    assert_eq!(label_text(&view, view.options_preset_label), "自定义");
+    assert_eq!(label_text(&view, view.options.preset_label), "自定义");
 }
 
 #[test]
