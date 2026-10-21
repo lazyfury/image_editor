@@ -32,7 +32,8 @@ pub use document::{Document, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 pub use gradient::{Gradient, GradientStop};
 pub use history::{
     AddLayerCommand, Command, CropLayerCommand, History, LayerMetaCommand, LayerStackMeta,
-    PaintCommand, RemoveLayerCommand, SetLayerPositionCommand,
+    PaintCommand, RecordedStep, Recorder, RemoveLayerCommand, ReplayPatch, SetLayerPositionCommand,
+    StepPatch,
 };
 pub use id::{DocumentId, LayerId};
 pub use layer::{BlendMode, Layer};

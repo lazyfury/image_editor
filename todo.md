@@ -463,6 +463,40 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - [ ] **工具元数据表**：新增一个工具要改 7+ 处（枚举 / `ALL` / 标签 / 图标 /
   `tool_groups` / `begin..end` 的 match / 快捷键）；可收成一张 `ToolSpec` 表。
 
+## 编辑过程记录（延时动画的口子）
+
+需求：把整段编辑过程「**全部保存**」下来，后面做「延时动画 / 过程回放」。
+
+选型（结论）：**内存里录，落盘只在自然断点。**
+
+- 录制跟着编辑会话长：每步 = 时间戳 + 命令名 + 一块像素补丁（区域 + **改后**
+  像素）。不做「每笔写一次盘」——编辑期间碰磁盘会拖住 UI 线程；而且时间线必须
+  独立于撤销栈（被撤销 / 被 32 步上限挤掉的步骤也要留着，否则回放会缺帧）。
+- 落盘只在**保存工作区 / 关闭工作区**时，写同名 `.igtl`（`x.igui` -> `x.igtl`）。
+  格式手写二进制、像素不压缩（保存时一次性写，换来回放零解码依赖）；读写一对在
+  `io/timeline.rs`，`--selfcheck` 里有「录一笔 -> 落盘 -> 读回一致」的回环检查。
+- 默认**关**：一步一个补丁（4 字节/像素），4K 长画会吃内存。开关是偏好
+  `preferences` 里的 `record_timeline=0|1`，宿主在开工作区时套到 `History`。
+
+落地：
+
+- [x] `Command::replay()` + `ReplayPatch`（只有 `PaintCommand` 有；图层结构类
+  命令只留 label，回放时当一次「切」）。
+- [x] `document/history/recorder.rs`：`Recorder` / `RecordedStep` / `StepPatch`，
+  时间戳记到毫秒，默认 4096 步上限（到上限丢最旧）。
+- [x] `io/timeline.rs`：`encode/decode_timeline`、`write/read_timeline`、
+  `timeline_path_for`（`io/bytes.rs` 的读写器与 `.igui` 共用）。
+- [x] 偏好：`EditorPreferences { brush, record_timeline }`（原来只存笔刷外观的
+  `BrushPreferences` 成为它的一个字段）。
+- [x] 宿主：开工作区按偏好设、保存 / 关闭时 `flush_timeline`，状态栏报步数与路径。
+- [x] 验证：`--selfcheck` 的 `check_timeline`（录一笔 -> 落盘 -> 读回一致 -> 关掉
+  后不再累加）、宿主级 `saving_also_writes_the_timeline_when_recording_is_on`、
+  格式 / 偏好的单测。
+- [ ] **延时动画本身**：读 `.igtl` 按 `at` 排节奏、补丁按区域贴回一张画布逐帧
+  出图；再决定是应用内播放还是导出 GIF / MP4（`png` 已有，GIF 要新依赖）。
+- [ ] **图层结构类命令的补丁**（现在时间线里只有 label）：要么存「变化那层的
+  整层像素」，要么记「层 id + 增删 / 顺序」，回放时重建图层栈。
+
 ## 4. 计划阶段（Phase 10+）
 
 复用 `igui_components::Overlays` 与 `examples/file_browser` 的工作线程 /

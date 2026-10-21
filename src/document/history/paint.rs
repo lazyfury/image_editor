@@ -5,7 +5,7 @@ use super::super::document::Document;
 use super::super::id::LayerId;
 use super::super::pixel_buffer::PixelBuffer;
 use super::super::region::PixelRegion;
-use super::Command;
+use super::{Command, ReplayPatch};
 
 /// 一次画笔 / 橡皮笔触：记录受影响区域的前后像素。
 #[derive(Debug)]
@@ -79,6 +79,14 @@ impl PaintCommand {
 impl Command for PaintCommand {
     fn region(&self) -> Option<PixelRegion> {
         Some(self.region)
+    }
+
+    fn replay(&self) -> Option<ReplayPatch<'_>> {
+        Some(ReplayPatch {
+            layer: self.layer,
+            region: self.region,
+            pixels: &self.after,
+        })
     }
 
     fn execute(&mut self, document: &mut Document) {

@@ -12,12 +12,14 @@
 
 use std::fmt;
 
+use super::color::Color;
 use super::document::Document;
 use super::id::LayerId;
 use super::region::PixelRegion;
 
 mod layers;
 mod paint;
+mod recorder;
 
 #[cfg(test)]
 mod tests;
@@ -27,6 +29,7 @@ pub use layers::{
     SetLayerPositionCommand,
 };
 pub use paint::PaintCommand;
+pub use recorder::{RecordedStep, Recorder, StepPatch, DEFAULT_STEP_LIMIT};
 
 /// 一条可撤销的编辑。
 pub trait Command: fmt::Debug {
@@ -44,6 +47,21 @@ pub trait Command: fmt::Debug {
     fn region(&self) -> Option<PixelRegion> {
         None
     }
+
+    /// 过程回放（延时动画）要的数据：这一步把哪块像素改成了什么。
+    ///
+    /// 默认 `None`（图层结构类命令暂时只留 label，回放时当作一次「切」）。
+    fn replay(&self) -> Option<ReplayPatch<'_>> {
+        None
+    }
+}
+
+/// 一条命令的像素补丁（回放用）：区域内的 `after` 像素，行优先。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ReplayPatch<'a> {
+    pub layer: LayerId,
+    pub region: PixelRegion,
+    pub pixels: &'a [Color],
 }
 
 /// 撤销 / 重做栈。超过上限时丢弃最旧的命令，内存有界。
@@ -51,6 +69,8 @@ pub struct History {
     undo: Vec<Box<dyn Command>>,
     redo: Vec<Box<dyn Command>>,
     limit: usize,
+    /// 全量过程记录（延时动画用）；默认关，由偏好打开。
+    recorder: Option<Recorder>,
 }
 
 impl History {
@@ -66,6 +86,7 @@ impl History {
             undo: Vec::new(),
             redo: Vec::new(),
             limit,
+            recorder: None,
         }
     }
 
@@ -75,6 +96,9 @@ impl History {
     /// 命令写的是记录下来的字节，所以是幂等的。
     pub fn execute(&mut self, mut command: Box<dyn Command>, document: &mut Document) {
         command.execute(document);
+        if let Some(recorder) = &mut self.recorder {
+            recorder.record(command.as_ref());
+        }
         self.undo.push(command);
         self.redo.clear();
         self.trim();
@@ -106,6 +130,20 @@ impl History {
 
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
+    }
+
+    /// 打开 / 关闭全量过程记录（延时动画用）。关掉会丢弃已记录的步骤。
+    pub fn record_timeline(&mut self, enabled: bool) {
+        match (enabled, self.recorder.is_some()) {
+            (true, false) => self.recorder = Some(Recorder::new()),
+            (false, true) => self.recorder = None,
+            _ => {}
+        }
+    }
+
+    /// 正在记录的过程流水账（只读）。
+    pub fn recorder(&self) -> Option<&Recorder> {
+        self.recorder.as_ref()
     }
 
     pub fn can_redo(&self) -> bool {
@@ -160,6 +198,7 @@ impl Default for History {
 }
 
 /// 克隆出来的历史是空的：撤销栈是编辑会话状态，不随文档复制。
+/// 克隆只带撤销栈：录制是「当前会话」的行为，不跟着文档状态走。
 impl Clone for History {
     fn clone(&self) -> Self {
         Self::with_limit(self.limit)

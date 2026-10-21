@@ -26,6 +26,7 @@ use std::path::Path;
 
 use crate::document::{Color, Document, Layer};
 
+use super::bytes::{write_string, Reader};
 use super::{decode_png, encode_png, IoError};
 
 /// 文件扩展名（不带点）。
@@ -148,11 +149,6 @@ pub fn read_workspace(path: &Path) -> Result<Document, IoError> {
     decode_workspace(&bytes)
 }
 
-fn write_string(out: &mut Vec<u8>, value: &str) {
-    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
-    out.extend_from_slice(value.as_bytes());
-}
-
 fn blend_code(mode: crate::document::BlendMode) -> u8 {
     match mode {
         crate::document::BlendMode::Normal => 0,
@@ -163,51 +159,6 @@ fn decode_blend(code: u8) -> Result<crate::document::BlendMode, IoError> {
     match code {
         0 => Ok(crate::document::BlendMode::Normal),
         other => Err(IoError::Invalid(format!("未知的混合模式 {other}"))),
-    }
-}
-
-/// 一个带边界检查的小端读取器。
-struct Reader<'a> {
-    bytes: &'a [u8],
-    cursor: usize,
-}
-
-impl<'a> Reader<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, cursor: 0 }
-    }
-
-    fn take(&mut self, len: usize) -> Result<&'a [u8], IoError> {
-        let end = self
-            .cursor
-            .checked_add(len)
-            .filter(|end| *end <= self.bytes.len())
-            .ok_or_else(|| IoError::Invalid("工作区文件被截断".into()))?;
-        let slice = &self.bytes[self.cursor..end];
-        self.cursor = end;
-        Ok(slice)
-    }
-
-    fn u8(&mut self) -> Result<u8, IoError> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u32(&mut self) -> Result<u32, IoError> {
-        Ok(u32::from_le_bytes(
-            self.take(4)?.try_into().expect("4 bytes"),
-        ))
-    }
-
-    fn i32(&mut self) -> Result<i32, IoError> {
-        Ok(i32::from_le_bytes(
-            self.take(4)?.try_into().expect("4 bytes"),
-        ))
-    }
-
-    fn string(&mut self) -> Result<String, IoError> {
-        let len = self.u32()? as usize;
-        let bytes = self.take(len)?;
-        String::from_utf8(bytes.to_vec()).map_err(|_| IoError::Invalid("文本不是 UTF-8".into()))
     }
 }
 

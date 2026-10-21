@@ -11,6 +11,7 @@ mod layer;
 mod pen;
 mod pipeline;
 mod selection;
+mod timeline;
 
 pub(crate) use brush::{
     check_brush_cursor, check_brush_presets, check_brush_smooth, check_pixel_mode_edges,
@@ -23,3 +24,4 @@ pub(crate) use layer::check_rename;
 pub(crate) use pen::check_pen;
 pub(crate) use pipeline::{first_stroke, png_io, pointer_tools, undo_redo};
 pub(crate) use selection::{check_magic_wand, check_selection_menu, check_selection_merge};
+pub(crate) use timeline::check_timeline;

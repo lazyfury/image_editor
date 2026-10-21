@@ -52,7 +52,10 @@ src/ui/         views + project-local components: home (recent gallery),
                 panels.rs (options strip / tool row / sidebar), page.rs (the
                 top-to-bottom column order), tree.rs (orchestrator -> SceneTree),
                 assemble.rs (`NodeRef` -> `NodeId`, then the `EditorView` literal).
-src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + commands
+src/document/   Document / Layer / PixelBuffer / Color / Gradient;
+                `history/` = Command + undo/redo stacks (mod), pixel command
+                (paint), layer commands (layers), full-session recorder
+                (recorder: timestamps + after-patches for the future timelapse)
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser (in `brush/`: mod = tool + stroke, tip = brush-tip
                 geometry/hardness, mask = per-stroke coverage mask + compositing,
@@ -64,7 +67,8 @@ src/tools/      Brush/Eraser (in `brush/`: mod = tool + stroke, tip = brush-tip
 src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
                 Path (bezier anchors + handles, adaptive flatten), Selection
                 (pixel mask + outline: rect / lasso / wand)
-src/io/         PNG encode/decode + `.igui` workspace files + recent list +
+src/io/         PNG encode/decode + `.igui` workspace files + `.igtl` edit
+                timeline (timeline.rs; byte helpers in bytes.rs) + recent list +
                 dialog.rs (hand-written native file dialogs: macOS NSOpenPanel /
                 NSSavePanel, Windows comdlg32, Unix zenity/kdialog; no `rfd`)
 src/fonts.rs    bundled-font discovery (assets/fonts/)

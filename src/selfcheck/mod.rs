@@ -198,6 +198,7 @@ pub fn check() -> (usize, String) {
     check_gradient(&mut failures);
     check_magic_wand(&mut failures);
     check_rename(&mut failures);
+    check_timeline(&mut failures);
 
     palette(&mut view, &mut failures);
     resizable_panels(&mut view, &mut failures);

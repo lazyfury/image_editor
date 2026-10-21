@@ -9,20 +9,27 @@
 //!
 //! [`PixelBuffer`]: crate::document::PixelBuffer
 
+mod bytes;
 mod clipboard;
 mod codec;
 mod dialog;
 mod file;
 mod preferences;
 mod recent;
+mod timeline;
 mod workspace;
 
 pub use clipboard::{read_image as read_clipboard_image, write_image as write_clipboard_image};
 pub use codec::{decode_png, encode_png};
 pub use dialog::{DialogOptions, FileDialog, FileFilter, NativeFileDialog};
 pub use file::{file_label, read_png, write_png};
-pub use preferences::{load as load_preferences, save as save_preferences, BrushPreferences};
+pub use preferences::{
+    load as load_preferences, save as save_preferences, BrushPreferences, EditorPreferences,
+};
 pub use recent::{load_recent, record_recent};
+pub use timeline::{
+    read_timeline, timeline_path_for, write_timeline, EXTENSION as TIMELINE_EXTENSION,
+};
 pub use workspace::{
     read_workspace, read_workspace_summary, write_workspace, EXTENSION as WORKSPACE_EXTENSION,
 };

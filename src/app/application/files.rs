@@ -78,6 +78,7 @@ impl ImageEditorLogic {
                     path = target.to_string_lossy().as_ref(),
                     "workspace_saved"
                 );
+                self.flush_timeline(index);
                 self.title_dirty = true;
                 true
             }
@@ -194,12 +195,45 @@ impl ImageEditorLogic {
 
     /// 真正移除一个工作区。
     pub(super) fn close_workspace(&mut self, index: usize) {
+        // 关闭前把过程记录落盘，否则加载到一半的延时动画就随着工作区丢了。
+        self.flush_timeline(index);
         self.workspaces.remove(index);
         if self.workspaces.is_empty() {
             self.go_home();
         } else {
             self.title_dirty = true;
         }
+    }
+
+    /// 把当前记录的过程写到工作区旁边的 `.igtl`（`x.igui` -> `x.igtl`）。
+    ///
+    /// 这是「全部保存」的口子：只在**保存 / 关闭**这种自然断点写盘，编辑期间
+    /// 时间线只在内存里长（每笔一个补丁），不碰磁盘。没有路径（从没保存过）
+    /// 或没开记录时静默跳过。
+    pub(super) fn flush_timeline(&mut self, index: usize) {
+        let Some(workspace) = self.workspaces.get_mut(index) else {
+            return;
+        };
+        let Some(path) = workspace.path.clone() else {
+            return;
+        };
+        let Some(steps) = workspace.editor.timeline() else {
+            return;
+        };
+        let target = crate::io::timeline_path_for(&path);
+        let message = match crate::io::write_timeline(&target, &steps) {
+            Ok(()) => {
+                tracing::info!(
+                    target: "image_editor",
+                    steps = steps.len(),
+                    path = target.to_string_lossy().as_ref(),
+                    "timeline_saved"
+                );
+                format!("已记录 {} 步：{}", steps.len(), target.display())
+            }
+            Err(error) => format!("时间线写入失败：{error}"),
+        };
+        workspace.editor.set_message(message);
     }
 
     /// 确认框出结果（或被动关闭）后收尾。

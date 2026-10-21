@@ -1,9 +1,14 @@
 //! 编辑器偏好：配置目录里的 `preferences`（`key=value` 纯文本，跨会话保留）。
 //!
-//! 只存**笔刷外观**（直径 / 不透明度 / 硬度 / 平滑 / 像素模式 / 方形笔 / 对称 /
-//! 间距）——
-//! 颜色、选区、路径属于文档或会话，不在这里。读的时候坏行直接跳过、越界值夹到
-//! 合法范围，所以手改坏了最多是回到默认值，不会画出 0.001px 的笔。
+//! 两类：
+//!
+//! - **笔刷外观**（[`BrushPreferences`]：直径 / 不透明度 / 硬度 / 平滑 / 像素模式 /
+//!   方形笔 / 对称 / 间距）——颜色、选区、路径属于文档或会话，不在这里；
+//! - **过程记录开关**（[`EditorPreferences::record_timeline`]）——给延时动画 /
+//!   回放用，默认关（要存每一步的像素补丁，占内存）。
+//!
+//! 读的时候坏行直接跳过、越界值夹到合法范围，所以手改坏了最多是回到默认值，
+//! 不会画出 0.001px 的笔。
 
 use std::path::{Path, PathBuf};
 
@@ -101,35 +106,67 @@ spacing={}\n",
     }
 }
 
+/// 编辑器偏好（`preferences` 文件的完整内容）。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EditorPreferences {
+    /// 笔刷外观（视图每帧同步进画笔）。
+    pub brush: BrushPreferences,
+    /// 记录整段编辑过程（延时动画 / 过程回放用）；默认关。
+    pub record_timeline: bool,
+}
+
+impl EditorPreferences {
+    fn to_text(&self) -> String {
+        let mut text = self.brush.clamped().to_text();
+        text.push_str(&format!(
+            "record_timeline={}\n",
+            u8::from(self.record_timeline)
+        ));
+        text
+    }
+
+    fn parse(text: &str) -> Self {
+        // 笔刷那几行交给 `BrushPreferences::parse`（不认识的键它会跳过）。
+        let record_timeline = text.lines().any(|line| match line.split_once('=') {
+            Some((key, value)) => key.trim() == "record_timeline" && value.trim() != "0",
+            None => false,
+        });
+        Self {
+            brush: BrushPreferences::parse(text),
+            record_timeline,
+        }
+    }
+}
+
 /// 偏好文件路径。
 pub fn preferences_path() -> PathBuf {
     config_dir().join("preferences")
 }
 
 /// 读偏好（没有文件 / 读不动都返回默认值）。
-pub fn load() -> BrushPreferences {
+pub fn load() -> EditorPreferences {
     load_at(&preferences_path())
 }
 
 /// 写偏好（失败只报错，不 panic）。
-pub fn save(prefs: &BrushPreferences) -> Result<(), IoError> {
+pub fn save(prefs: &EditorPreferences) -> Result<(), IoError> {
     save_at(&preferences_path(), prefs)
 }
 
 /// [`load`] 的显式路径版本（测试注入用）。
-pub fn load_at(path: &Path) -> BrushPreferences {
+pub fn load_at(path: &Path) -> EditorPreferences {
     match std::fs::read_to_string(path) {
-        Ok(text) => BrushPreferences::parse(&text),
-        Err(_) => BrushPreferences::default(),
+        Ok(text) => EditorPreferences::parse(&text),
+        Err(_) => EditorPreferences::default(),
     }
 }
 
 /// [`save`] 的显式路径版本（测试注入用）。
-pub fn save_at(path: &Path, prefs: &BrushPreferences) -> Result<(), IoError> {
+pub fn save_at(path: &Path, prefs: &EditorPreferences) -> Result<(), IoError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(path, prefs.clamped().to_text())?;
+    std::fs::write(path, prefs.to_text())?;
     Ok(())
 }
 
@@ -163,18 +200,38 @@ mod tests {
     #[test]
     fn preferences_round_trip_through_the_file() {
         let path = temp_path("roundtrip");
-        let prefs = BrushPreferences {
-            size: 24.0,
-            opacity: 0.35,
-            hardness: 0.6,
-            smooth: 0.0,
-            solid: false,
-            square: false,
-            symmetry: 3,
-            spacing: 0.12,
+        let prefs = EditorPreferences {
+            brush: BrushPreferences {
+                size: 24.0,
+                opacity: 0.35,
+                hardness: 0.6,
+                smooth: 0.0,
+                solid: false,
+                square: false,
+                symmetry: 3,
+                spacing: 0.12,
+            },
+            record_timeline: true,
         };
         save_at(&path, &prefs).expect("写偏好");
         assert_eq!(load_at(&path), prefs);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 「记录整段编辑过程」默认关（占内存），打开后能往返。
+    #[test]
+    fn the_timeline_recording_flag_defaults_off_and_round_trips() {
+        assert!(!EditorPreferences::default().record_timeline);
+        let path = temp_path("timeline");
+        save_at(
+            &path,
+            &EditorPreferences {
+                record_timeline: true,
+                ..EditorPreferences::default()
+            },
+        )
+        .expect("写偏好");
+        assert!(load_at(&path).record_timeline);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -186,7 +243,7 @@ mod tests {
             "size=not-a-number\n\n# 注释\nwat=1\nopacity=0.5\nsymmetry=99\n",
         )
         .expect("写坏文件");
-        let prefs = load_at(&path);
+        let prefs = load_at(&path).brush;
         assert_eq!(prefs.size, 1.0, "解析不出来的值保留默认");
         assert_eq!(prefs.opacity, 0.5, "能解析的照常生效");
         assert_eq!(prefs.symmetry, 3, "越界的枚举夹到最大值");
@@ -195,6 +252,6 @@ mod tests {
 
     #[test]
     fn a_missing_file_loads_the_defaults() {
-        assert_eq!(load_at(&temp_path("missing")), BrushPreferences::default());
+        assert_eq!(load_at(&temp_path("missing")), EditorPreferences::default());
     }
 }

@@ -15,7 +15,9 @@ impl ImageEditorLogic {
             editor.set_clipboard(clipboard);
         }
         editor.set_tab_band(TAB_STRIP_HEIGHT);
-        editor.apply_preferences(&self.preferences);
+        editor.apply_preferences(&self.preferences.brush);
+        // 过程记录（延时动画用）跟随偏好；关着时 `History` 不建录制器。
+        editor.set_record_timeline(self.preferences.record_timeline);
         editor.set_image_clipboard(self.image_clipboard.clone());
     }
 
@@ -72,15 +74,15 @@ impl ImageEditorLogic {
             let path = workspace.path.clone();
             workspace.editor.set_workspace_path(path.as_deref());
             workspace.editor.update();
-            if let Some(preferences) = workspace.editor.take_preferences() {
-                if let Err(error) = crate::io::save_preferences(&preferences) {
+            if let Some(brush) = workspace.editor.take_preferences() {
+                self.preferences.brush = brush;
+                if let Err(error) = crate::io::save_preferences(&self.preferences) {
                     tracing::warn!(
                         target: "image_editor",
                         %error,
                         "preferences_write_failed"
                     );
                 }
-                self.preferences = preferences;
             }
             if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
                 let scale = backend.borrow().scale_factor();

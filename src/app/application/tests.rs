@@ -131,6 +131,75 @@ fn save_as_uses_the_dialog_and_clears_the_dirty_flag() {
     let _ = std::fs::remove_file(&path);
 }
 
+/// 开了「记录过程」之后，保存工作区会顺手写下同名 `.igtl`；
+/// 没开记录就不会多出文件（这个口子默认对用户透明）。
+#[test]
+fn saving_also_writes_the_timeline_when_recording_is_on() {
+    use igui_core::{InputEvent, PointerButton, Size, Vec2, ViewportSize};
+
+    let path = temp_workspace("timeline");
+    let viewport = ViewportSize::new(Size::new(1280.0, 800.0));
+
+    /// 在工作区里真实画一笔（走事件 -> 画笔 -> 历史）。
+    fn stroke(workspace: &mut Workspace, viewport: ViewportSize) {
+        let editor = &mut workspace.editor;
+        editor.layout(viewport);
+        let point = editor
+            .canvas_camera()
+            .document_to_screen(Vec2::new(8.5, 8.5));
+        for event in [
+            InputEvent::PointerDown {
+                position: point,
+                button: PointerButton::Left,
+            },
+            InputEvent::PointerMove {
+                position: point + Vec2::new(6.0, 0.0),
+            },
+            InputEvent::PointerUp {
+                position: point + Vec2::new(6.0, 0.0),
+                button: PointerButton::Left,
+            },
+        ] {
+            editor.event(&event);
+        }
+        editor.update();
+    }
+
+    // 关着：保存只写工作区。
+    let mut off = logic_with_dialog(Rc::new(FakeFileDialog::saving(path.clone())));
+    {
+        let index = off.workspaces.active_index();
+        let workspace = off.workspaces.get_mut(index).expect("工作区");
+        workspace.editor.set_record_timeline(false);
+        stroke(workspace, viewport);
+        assert!(off.save_workspace_at(index, true));
+    }
+    assert!(
+        !crate::io::timeline_path_for(&path).exists(),
+        "没开记录不该写时间线"
+    );
+    let _ = std::fs::remove_file(&path);
+
+    // 开着：保存顺手把当前记录写到 `x.igtl`。
+    let mut on = logic_with_dialog(Rc::new(FakeFileDialog::saving(path.clone())));
+    {
+        let index = on.workspaces.active_index();
+        on.preferences.record_timeline = true;
+        let workspace = on.workspaces.get_mut(index).expect("工作区");
+        workspace.editor.set_record_timeline(true);
+        stroke(workspace, viewport);
+        assert_eq!(workspace.editor.timeline_len(), Some(1), "一笔一步");
+        assert!(on.save_workspace_at(index, true));
+    }
+    let timeline = crate::io::timeline_path_for(&path);
+    let steps = crate::io::read_timeline(&timeline).expect("时间线应能读回");
+    assert_eq!(steps.len(), 1, "一步笔触应在时间线里");
+    assert_eq!(steps[0].label, "画笔");
+    assert!(steps[0].patch.is_some(), "笔触应有像素补丁");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&timeline);
+}
+
 #[test]
 fn cancelling_save_as_leaves_the_workspace_unsaved() {
     let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));

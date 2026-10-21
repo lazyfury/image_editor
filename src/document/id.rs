@@ -35,6 +35,16 @@ impl LayerId {
     pub fn next() -> Self {
         Self(next())
     }
+
+    /// 原始位（只给文件读写用：把 id 原样存进工作区 / 时间线）。
+    pub fn to_bits(self) -> u64 {
+        self.0
+    }
+
+    /// 从文件里读回来的原始位。
+    pub fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
 }
 
 impl fmt::Display for LayerId {

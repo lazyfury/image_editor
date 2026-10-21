@@ -152,7 +152,7 @@ struct ImageEditorLogic {
     pending_close: Option<usize>,
     modifiers: Modifiers,
     /// 笔刷偏好（启动读配置、编辑器改了就写回去）。
-    preferences: crate::io::BrushPreferences,
+    preferences: crate::io::EditorPreferences,
     /// 上一次设给后端的文档纹理采样方式（变了才调 `set_texture_filter`）。
     image_smoothing: crate::canvas::ImageSmoothing,
     /// 像素剪贴板：所有工作区共用一块（跨工作区复制粘贴）。
@@ -183,7 +183,7 @@ impl ImageEditorLogic {
             confirm: None,
             pending_close: None,
             modifiers: Modifiers::NONE,
-            preferences: crate::io::BrushPreferences::default(),
+            preferences: crate::io::EditorPreferences::default(),
             image_smoothing: crate::canvas::ImageSmoothing::Linear,
             image_clipboard: Rc::new(RefCell::new(None)),
             title_dirty: false,
@@ -196,8 +196,11 @@ impl ImageEditorLogic {
     }
 
     /// 带上从配置读出来的笔刷偏好（宿主装配时用；测试用默认值）。
-    fn with_preferences(mut self, preferences: crate::io::BrushPreferences) -> Self {
-        self.preferences = preferences.clamped();
+    fn with_preferences(mut self, preferences: crate::io::EditorPreferences) -> Self {
+        self.preferences = crate::io::EditorPreferences {
+            brush: preferences.brush.clamped(),
+            record_timeline: preferences.record_timeline,
+        };
         self
     }
 }

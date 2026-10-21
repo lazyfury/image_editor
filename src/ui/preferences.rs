@@ -38,6 +38,32 @@ impl EditorView {
         self.saved_preferences = self.preferences();
     }
 
+    /// 打开 / 关闭「记录整段编辑过程」（延时动画用）。
+    ///
+    /// 宿主在开工作区时按偏好设一次；关掉会丢弃已记录的步骤。
+    pub fn set_record_timeline(&mut self, enabled: bool) {
+        self.state.borrow_mut().history.record_timeline(enabled);
+    }
+
+    /// 当前记录的步骤条数（没开记录时为 `None`）。
+    pub fn timeline_len(&self) -> Option<usize> {
+        self.state
+            .borrow()
+            .history
+            .recorder()
+            .map(crate::document::Recorder::len)
+    }
+
+    /// 已记录的过程（没开记录 / 一步都没有都返回 `None`）。
+    pub fn timeline(&self) -> Option<Vec<crate::document::RecordedStep>> {
+        let state = self.state.borrow();
+        let recorder = state.history.recorder()?;
+        if recorder.is_empty() {
+            return None;
+        }
+        Some(recorder.steps().to_vec())
+    }
+
     /// 偏好变了就返回新的一份（宿主拿去写盘）；没变返回 `None`。
     pub fn take_preferences(&mut self) -> Option<BrushPreferences> {
         let current = self.preferences();
