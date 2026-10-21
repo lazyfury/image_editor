@@ -420,8 +420,13 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   `workspace.rs`（107，含从 `update()` 抽出的 `sync_active_workspace`）+
   `tests.rs`（336，宿主级测试）。`update()` 66 -> 60 行但只剩一串「步骤调用」。
   验收：test 437 passed、`--selfcheck` 逐字不变。
-- [ ] **拆 `ui/new_document.rs`（843）/ `ui/window/mod.rs`（698）/
-  `document/history.rs`（694）/ `canvas/selection.rs`（627）**。
+- [x] **`ui/new_document.rs`**（843）-> `new_document/{mod 234, form 189,
+  widgets 159, tests 324}`：对话框壳的转接 / 表单布局 / 小控件 / 测试各一层；
+  `build_content` 的 8 个参数收成 `FormWiring`（共享格），去掉 `too_many_arguments`。
+  评估过「把 `Window` 的转接再抽一层 `Modal`」：`new_document` 与 `confirm` 各只有
+  6 行转发（measurer / event / layout / paint），抽出来只是多一层转发 —— 不做。
+- [ ] **拆 `ui/window/mod.rs`（824，含 300 行测试）/ `document/history.rs`（694）/
+  `canvas/selection.rs`（627）**。
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
   `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
   不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。

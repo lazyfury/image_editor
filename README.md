@@ -415,7 +415,11 @@ src/
 │   ├── history_panel.rs # 历史面板（List：undo/redo 栈，点一步跳过去）
 │   ├── properties_panel.rs  # 当前图层属性（只读）
 │   ├── rename.rs        # 图层重命名浮层（`Overlays::popover` + `TextInput`）
-│   ├── new_document.rs  # 「新建文档」浮动窗口（尺寸 / 背景色）
+│   ├── new_document/    # 「新建文档」浮动窗口
+│   │   ├── mod.rs       #   共享格 + NewDocumentModal（对话框壳的转接）
+│   │   ├── form.rs      #   表单：尺寸步进 / 预设 / 背景色 + 页脚按钮
+│   │   ├── widgets.rs   #   步进行 / 预设按钮 / 背景色块（透明色棋盘格）
+│   │   └── tests.rs     #   模态的行为测试
 │   ├── window/          # 模拟桌面的浮动窗口（拖动移动 / 拖动缩放）
 │   └── status_bar.rs
 ├── selfcheck/           # 无头自检（录制 DrawList + igui_profile 体检）

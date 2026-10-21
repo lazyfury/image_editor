@@ -21,7 +21,9 @@ src/app/        state (AppState/document session) + workspaces (multi-workspace)
                 (save/open/import/export/close/drop), shortcuts.rs, plugins.rs
                 (text measure / frame limit), tests.rs (host-level tests).
 src/ui/         views + project-local components: home (recent gallery),
-                new_document, workspace_tabs, menu, toolbar, options_bar, canvas,
+                new_document/ (mod = modal shell wiring, form = the form,
+                widgets = stepper / preset / swatch, tests), workspace_tabs,
+                menu, toolbar, options_bar, canvas,
                 layer/file/properties/tabs/palette panels, rename (TextInput
                 popover), window (floating window), confirm (unsaved-changes
                 dialog).
