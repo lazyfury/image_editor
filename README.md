@@ -118,7 +118,7 @@ cargo run -- --pixel-font
   预览是屏幕空间的双色虚线路径 + 空心锚点方块 + 控制柄小圆点 + 跟手的橡皮筋，
   点回起点可闭合时起点方块变实心。
 - [x] **Phase 6 — History**：`Command` 模式 + 两条栈
-  （`src/document/history.rs`），一笔画笔 / 橡皮 = 一步 undo。命令只记录**差异
+  （`src/document/history/`），一笔画笔 / 橡皮 = 一步 undo。命令只记录**差异
   区域的前后像素**（`PixelRegion`，靠落笔快照与抬笔缓冲求 diff），所以撤销内存
   跟笔画大小成正比，不是整层快照；新命令清空 redo 栈，栈有上限（默认 32 步）。
   工具栏加了 `↶ 撤销` / `↷ 重做` 按钮，快捷键 `Ctrl/Cmd+Z` 撤销、
@@ -329,7 +329,11 @@ src/
 │   ├── gradient.rs      # 多节点渐变 Gradient + GradientStop（ramp 采样 / 增删移）
 │   ├── pixel_buffer.rs  # 行优先 RGBA
 │   ├── layer.rs         # Layer + BlendMode
-│   ├── history.rs       # Phase 6：Command / History / PaintCommand
+│   ├── history/         # Phase 6：撤销 / 重做
+│   │   ├── mod.rs       #   Command trait + History（两条栈 / 上限 / 平移）
+│   │   ├── paint.rs     #   PaintCommand（区域前后像素）
+│   │   ├── layers.rs    #   图层增删 / 元数据 / 移动 / 裁到文档
+│   │   └── tests.rs     #   栈语义与命令的测试
 │   └── document.rs      # Document + 图层栈操作
 ├── canvas/              # Phase 3：画布相机与坐标转换
 │   ├── mod.rs           # DOCUMENT_TEXTURE 约定

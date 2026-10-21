@@ -429,7 +429,10 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   geometry 161, tests 361}`：状态与生命周期 / 三段外观 / 手势 / 纯几何 / 测试各一层。
   `Window::new` 从 120 行降到 45 行（外观交给 `chrome::frame`）。
   验收：test 437 passed、`--selfcheck` 逐字不变。
-- [ ] **拆 `document/history.rs`（694）/ `canvas/selection.rs`（627）**。
+- [x] **`document/history.rs`**（694）-> `history/{mod 185, paint 106, layers 262,
+  tests 165}`：接口与栈 / 像素命令 / 图层命令 / 测试各一层；`document/mod.rs` 的
+  `pub use` 路径不变。
+- [ ] **拆 `canvas/selection.rs`（627）**。
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
   `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
   不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。
