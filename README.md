@@ -420,7 +420,12 @@ src/
 │   │   ├── form.rs      #   表单：尺寸步进 / 预设 / 背景色 + 页脚按钮
 │   │   ├── widgets.rs   #   步进行 / 预设按钮 / 背景色块（透明色棋盘格）
 │   │   └── tests.rs     #   模态的行为测试
-│   ├── window/          # 模拟桌面的浮动窗口（拖动移动 / 拖动缩放）
+│   ├── window/          # 模拟桌面的浮动窗口
+│   │   ├── mod.rs       #   窗口状态 + layout / event / paint
+│   │   ├── chrome.rs    #   三段外观：标题栏 / 内容区 / 页脚 + 缩放手柄
+│   │   ├── gesture.rs   #   拖动 / 缩放手势（命中顺序）
+│   │   ├── geometry.rs  #   纯几何：命中带 / 改矩形 / 钳进视口
+│   │   └── tests.rs     #   拖动 / 缩放 / 关闭 / 外观的测试
 │   └── status_bar.rs
 ├── selfcheck/           # 无头自检（录制 DrawList + igui_profile 体检）
 │   ├── mod.rs           #   录制 / 点击 / 取文字等夹具 + check() 主流程 + 报告
