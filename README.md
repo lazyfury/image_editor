@@ -340,7 +340,12 @@ src/
 │   ├── camera.rs        # CanvasCamera（zoom / offset / fit）
 │   ├── coordinate.rs    # screen -> document -> pixel + pixel_selection（框选）
 │   ├── path.rs          # Phase 5.x：贝塞路径（Anchor / Path / 自适应展平）
-│   └── selection.rs     # Selection：像素掩码 + 线段轮廓（矩形 / 套索 / 魔棒）
+│   └── selection/       # 选区：与文档同尺寸的覆盖率掩码 + 描边轮廓
+│       ├── mod.rs       #   Selection（矩形 / 多边形 / 掩码）+ 查询 + finish
+│       ├── feather.rs   #   羽化（两遍盒式模糊）
+│       ├── merge.rs     #   Shift 并集 / Alt 差集 + MergeMode
+│       ├── outline.rs   #   点串 / 掩码 -> 合并过的边界线段
+│       └── tests.rs     #   选区的行为测试
 ├── renderer/            # Phase 3：合成器
 │   ├── mod.rs           # Renderer trait
 │   ├── target.rs        # RenderTarget
