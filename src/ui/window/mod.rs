@@ -9,8 +9,12 @@
 //! 标题栏与边框是「空」的（`MouseFilter::Ignore`），指针落在上面时窗口自己起一个
 //! [`Gesture`]；落在内容控件（按钮 / 色块）上则转发给树，不抢交互。
 //!
-//! 结构固定为三段：**标题栏**（贴边、只有标题左边距 + 关闭按钮贴右）、
-//! **内容区**（`grow`，自带 padding）和**页脚**（按钮右对齐）。
+//! 结构固定为三段：**标题栏**（贴边、只有标题左边距 + 关闭按钮贴右；底色比窗口
+//! 正文浅一档，上沿跟着外框圆角）、**内容区**（`grow`，自带 padding）和**页脚**
+//! （按钮右对齐、垂直居中，有 [`FOOTER_MIN_HEIGHT`] 的最小高度）。
+//!
+//! 外框右下角画三道 45° 斜线（[`GRIP_LINES`]），提示「这里可以拖动缩放」——
+//! 缩放命中带仍是贴边的 [`RESIZE_BORDER`](geometry::RESIZE_BORDER) 宽那一圈。
 //!
 //! [`NewDocumentModal`](crate::ui::NewDocumentModal) 与
 //! [`ConfirmDialog`](crate::ui::ConfirmDialog) 是它的使用者。
@@ -23,7 +27,7 @@ use igui_core::{
     Color, Edges, EventResult, InputEvent, Key, NodeId, PointerButton, Rect, Size, Vec2,
     ViewportSize,
 };
-use igui_render::PaintContext;
+use igui_render::{CornerRadii, PaintContext};
 use igui_scene::SceneTree;
 use igui_theme::{radius, space, SurfaceLevel, Theme};
 use igui_ui::{Align, InteractState, Justify, MouseFilter, SizeBasis, SurfaceStyle, TextMeasurer};
@@ -43,6 +47,15 @@ const CLOSE_HOVER: Color = Color::new(0.86, 0.22, 0.20, 1.0);
 /// 页脚按钮的最小宽度：让「保存 / 不保存 / 取消」看起来一样大
 /// （否则宽度会跟着文字长度与字形宽度跑，长短不一）。
 pub const FOOTER_BUTTON_MIN_WIDTH: f32 = 72.0;
+/// 页脚最小高度：内容再挤也留出这一条，底部操作区不会缩没。
+pub const FOOTER_MIN_HEIGHT: f32 = 52.0;
+/// 标题栏底色：比窗口底色高一档（`Base` -> `Raised`），把标题区从内容里分出来。
+const HEADER_SURFACE: SurfaceLevel = SurfaceLevel::Raised;
+/// 右下角「可缩放」提示：三道 45° 斜线、每道比上一道长 [`GRIP_STEP`]。
+const GRIP_LINES: usize = 3;
+const GRIP_STEP: f32 = 3.5;
+/// 斜线离窗口右下角的间距（要小于页脚的水平 padding，别压到按钮）。
+const GRIP_INSET: f32 = 4.0;
 /// 模态遮罩。
 const SCRIM: Color = Color::new(0.0, 0.0, 0.0, 0.35);
 /// 窗口底色。用**最底层**而不是 `Raised`：`Button` 的 secondary / ghost 填充
@@ -118,6 +131,15 @@ impl Window {
             .align(Align::Center)
             .padding(Edges::new(TITLE_PADDING_X, 0.0, 0.0, 0.0))
             .mouse_filter(MouseFilter::Ignore)
+            // 标题栏比窗口底色浅一档，上沿跟着外框的圆角走（下沿是直角）。
+            .surface(
+                SurfaceStyle::new(theme.surface(HEADER_SURFACE)).corners(CornerRadii::new(
+                    radius::PANEL,
+                    radius::PANEL,
+                    0.0,
+                    0.0,
+                )),
+            )
             .foreground(move |ctx, rect, _| {
                 // 标题栏下沿一条细线，把可拖区域画清楚。
                 ctx.draw_line(
@@ -147,6 +169,9 @@ impl Window {
         // 页脚：操作按钮右对齐，上沿一条细线。
         let footer = Flex::row()
             .grow(0.0)
+            .shrink(0.0)
+            .min_size(0.0, FOOTER_MIN_HEIGHT)
+            .align(Align::Center)
             .justify(Justify::End)
             .gap(space::SM)
             .padding(Edges::symmetric(space::LG, space::MD))
@@ -175,6 +200,19 @@ impl Window {
                     .radius(radius::PANEL),
             )
             .mouse_filter(MouseFilter::Ignore)
+            // 右下角的三道斜线：提示「这里可以拖动缩放」。
+            .foreground(move |ctx, rect, _| {
+                let corner = Vec2::new(rect.right() - GRIP_INSET, rect.bottom() - GRIP_INSET);
+                for index in 1..=GRIP_LINES {
+                    let arm = GRIP_STEP * index as f32;
+                    ctx.draw_line(
+                        Vec2::new(corner.x - arm, corner.y),
+                        Vec2::new(corner.x, corner.y - arm),
+                        1.0,
+                        palette.subtle,
+                    );
+                }
+            })
             .child(header)
             .child(content)
             .child(footer);
@@ -684,6 +722,94 @@ mod tests {
             button.bottom() > rect.bottom() - 60.0,
             "页脚按钮应贴近底边：button={button:?} rect={rect:?}"
         );
+    }
+
+    /// 标题栏比窗口正文浅一档（深色主题下更亮），把标题区从内容里分出来。
+    #[test]
+    fn the_header_band_is_lighter_than_the_window_body() {
+        fn luminance(color: Color) -> f32 {
+            let [r, g, b, _] = color.to_rgba8();
+            0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32
+        }
+
+        let dark = crate::theme::editor_theme(false);
+        assert!(
+            luminance(dark.surface(HEADER_SURFACE)) > luminance(dark.surface(WINDOW_SURFACE)),
+            "深色主题下标题栏应更浅"
+        );
+        let light = crate::theme::editor_theme(true);
+        assert_ne!(
+            light.surface(HEADER_SURFACE),
+            light.surface(WINDOW_SURFACE),
+            "浅色主题下标题栏也要和正文区分开"
+        );
+    }
+
+    /// 页脚有固定最小高度：内容再挤，底部操作区也不会缩没。
+    #[test]
+    fn the_footer_keeps_a_minimum_height() {
+        let (mut window, _, _) = window_with_button();
+        window.layout(viewport());
+        let footer = |window: &Window| {
+            igui_ui::control(&window.tree, window.footer)
+                .map(|control| control.rect)
+                .expect("页脚 rect")
+        };
+        let height = footer(&window).size.height;
+        assert!(
+            height >= FOOTER_MIN_HEIGHT - 0.5,
+            "页脚应至少 {FOOTER_MIN_HEIGHT} 高，实际 {height}"
+        );
+
+        // 视口缩到放不下初始尺寸时也不该被压扁。
+        window.layout(ViewportSize::new(Size::new(360.0, 280.0)));
+        let height = footer(&window).size.height;
+        assert!(
+            height >= FOOTER_MIN_HEIGHT - 0.5,
+            "小视口下页脚应保持最小高度，实际 {height}"
+        );
+    }
+
+    /// 右下角画了缩放提示：三道 45° 斜线，位置在窗口右下角附近。
+    #[test]
+    fn the_resize_grip_is_painted_in_the_bottom_right_corner() {
+        use igui_render::DrawCommand;
+
+        let (mut window, _, _) = window_with_button();
+        window.layout(viewport());
+        let rect = window.rect();
+        let corner = Rect::from_min_size(
+            Vec2::new(rect.right() - 24.0, rect.bottom() - 24.0),
+            Size::splat(24.0),
+        );
+
+        let mut ctx = PaintContext::new();
+        window.paint(&mut ctx);
+        let lines: Vec<(Vec2, Vec2)> = ctx
+            .into_draw_list()
+            .into_commands()
+            .into_iter()
+            .filter_map(|command| match command {
+                DrawCommand::Line { from, to, .. }
+                    if corner.contains(from) && corner.contains(to) =>
+                {
+                    Some((from, to))
+                }
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            lines.len(),
+            GRIP_LINES,
+            "右下角应有 {GRIP_LINES} 道缩放手柄线：{lines:?}"
+        );
+        for (from, to) in &lines {
+            assert!(
+                (to.x - from.x - (from.y - to.y)).abs() < 0.01,
+                "手柄斜线应为 45°：{from:?} → {to:?}"
+            );
+        }
     }
 
     #[test]
