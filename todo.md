@@ -335,6 +335,115 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - 已知：真机用手点系统菜单项没做（没有截图 / 辅助功能自动化可用，只验到上面那条
   链路）；原生项不显示 ⌘ 提示（快捷键仍归 `shortcuts.rs`，见上）。
 
+### 1.ab 菜单栏能力补齐（计划）
+
+现在 `ui/menu.rs` 的 `menu_spec` 里还有 12 个占位项（`MenuAction::Placeholder`），
+按「便宜 -> 贵」分四批做，每批一个 commit + 一次验收：
+
+1. **文件 / 编辑（几乎不用新领域代码）**
+   - 文件：`保存` / `另存为…` / `关闭工作区` / `最近打开`（子菜单或平铺前 5 条）。
+     全部复用现有 `Intent::File(FileRequest::*)` 与宿主 `handle_file_requests`；
+     没有路径时「保存」等同另存为（宿主已这样实现）。`最近打开` 读
+     `io::load_recent()`（主页已经在用）。
+   - 编辑：`首选项…`（打开 §1.ad 的设置窗口）、`键盘快捷键…`（§1.ad）。
+   - 改哪里：`ui/menu.rs` 的 `file_menu` / `edit_menu` + `ui/menus.rs::apply_menu_action`
+     （`MenuAction` 加 `Save` / `SaveAs` / `CloseWorkspace` / `OpenRecent(i)` /
+     `OpenSettings` / `OpenShortcuts`）。宿主转发本来就是通的（§1.aa）。
+   - 验收：单测「占位项数量降到 0 之后 `menu_spec` 里没有 Placeholder」；宿主单测
+     「菜单『保存』真的写出文件」（假对话框，和现有保存测试同一套夹具）。
+2. **图层（命令层已有大半）**
+   - `新建图层` / `复制图层` / `删除图层` / `上移一层` / `下移一层` / `向下合并` /
+     `不透明度`（最后一条要输入框，先给 25/50/75/100 四档子菜单）。
+   - 改哪里：`document/history/layers.rs` 补 `DuplicateLayer` / `MergeDown`，
+     `PixelBuffer::blend_over` 做合并；`ui/menus.rs` 接 `Manager` 的现有命令。
+   - 验收：单测「复制图层不改像素且可一步撤销」「向下合并后像素 == 两层合成」
+     「上移/下移不越过首尾」。
+3. **图像（要新领域 API）**
+   - `图像大小…` / `裁剪` / `水平翻转` / `垂直翻转` / `旋转 90°`。
+   - 改哪里：`document/mod.rs` 加 `Document::resize`（最近邻缩放，尺寸输入复用
+     §1.ad 的窗口或新建文档表单）/ `crop(rect)`；`document/pixel_buffer.rs` 加
+     `flip_h` / `flip_v` / `rotate90`（都是 `PixelBuffer -> PixelBuffer`，纯函数最好测）。
+     每个动作一条 `PaintCommand`（整层替换）或图层结构命令，撤销一步到位。
+   - 验收：单测逐像素（翻转两次回到原图、旋转四次回到原图、crop 后尺寸与像素、
+     resize 后角点颜色）；`--selfcheck` 走一次「翻转 -> 撤销」。
+4. **滤镜（先搭框架，再做三个）**
+   - `滤镜/灰度` / `反相` / `高斯模糊…`（半径取固定几档）。
+   - 改哪里：新 `src/filters/`（`mod.rs` = `Trait`? 不引依赖，纯 `PixelBuffer` 变换：
+     `grayscale` / `invert` / `blur(radius)`，可分离盒式模糊近似高斯）；
+     `ui/menus.rs` 包成 `PaintCommand`（只在选区内生效，`Selection` 已有掩码）。
+   - 验收：单测灰度系数 / 反相两次复原 / 模糊后总亮度守恒、边缘不越界；
+     大图耗时记一条（4K 一次模糊的目标值）。
+5. **原生菜单的 ⌘ 提示（最后做）**
+   - 现在原生菜单项不设 key equivalent（`Cmd+A` 会被菜单抢走，重命名输入框全选失效，
+     见 §1.aa）。做法：把快捷键字符串变成**菜单表的一列**（`MenuEntry::shortcut`
+     已有），`native_menu` 按它 `setKeyEquivalent` + modifier mask，然后从
+     `app/application/shortcuts.rs` 删掉重复处理的键，只留非菜单键（工具字母、
+     `[` `]`、`+`/`-` 等）。
+   - 验收：单测「每个带 key equivalent 的菜单项在 `shortcuts.rs` 里不再单独处理」
+     （同一张表比对）；真机在重命名输入框里按 `Cmd+A` 只选文本。
+
+### 1.ac 工具选项栏：高度一致（计划）
+
+实测（`EditorView::options_bar_rect()`，深色主题，1280×800）：
+
+| 工具 | 高度 |
+|---|---|
+| 移动 / 框选 / 套索 / 矩形填充 / 自由填充 / 吸管 | 24.25 |
+| 画笔 / 橡皮 / 魔棒 / 油漆桶 / 钢笔 | 32 |
+| 渐变 | 40 |
+
+所以切工具时**画布整体上下跳 16px**（选项栏 top 恒为 32，bottom 24.25~72）。
+
+- 改哪里：`ui/options_bar/mod.rs::options_bar` 给整行和每个 `*_row` 定死
+  `min_size.height = OPTIONS_BAR_HEIGHT`（取 `theme.row_height()`，约 32）+
+  `Align::Center`；渐变行的色带预览压到 ~20px（它现在是 40 的元凶）；提示文字用
+  单行 `Text::caption` 不换行。
+- 验收：单测「切遍 10 个工具，`options_bar_rect()` 高度都等于 `OPTIONS_BAR_HEIGHT`，
+  且 `bottom()` 不变」；`--selfcheck` 里同一断言（切工具的循环与 §1.ac 的探针同款）。
+
+### 1.ad 模拟窗口：设置 / 关于 / 快捷键（计划）
+
+`ui/window/` 的 `Window`（模拟桌面的浮动窗口）已经被 `ui/confirm.rs`、`ui/new_document`
+用着。把「标题 + 正文 + 页脚按钮 + Esc / 关闭 = 取消」抽成 `ui/dialog.rs` 的
+`Dialog` 壳，三个新窗口都建在它上面，宿主把 `modal: Option<Dialog>` 换成一个枚举
+（新建文档 / 设置 / 关于 / 快捷键），输入全吞、Esc 关、同一时刻只开一个。
+
+- **设置**（`ui/settings.rs`）：编辑 `io::EditorPreferences`（笔刷默认值
+  size/opacity/hardness/smooth/pixel/square/symmetry/spacing、`record_timeline`），
+  保存即 `save_preferences` 并套到当前工作区；「菜单栏用系统菜单栏（重启生效）」
+  这类开关只读显示。
+  验收：单测「改一个值 -> 写回配置文件 -> 重新读出一致」；模态开着时系统菜单栏
+  整张置灰（已有 `native_menu_state` 测试覆盖）。
+- **关于**（`ui/about.rs`）：版本（`CARGO_PKG_VERSION`）、igui tag、字体（随包
+  老宋体 / 系统字体）、当前文档尺寸 / 图层数、渲染后端。数据从 `EditorView` 与
+  `fonts::bundled_face()` 现取，不写死。
+  验收：单测「文本里出现版本号与当前文档尺寸」。
+- **快捷键**（`ui/shortcuts.rs`）：一张 `ScrollView` 表，数据来自
+  `app/application/shortcuts.rs` + `app/tool_groups.rs` + 菜单表的 shortcut 列 ——
+  **一份数据两处显示**（菜单 / 这个窗口），不手抄。
+  验收：单测「表里的每一条在菜单表或工具表里能找到」（反向也查一遍）。
+- 入口：「帮助 → 关于 image_editor」「帮助 → 快捷键…」「编辑 → 首选项…」，
+  原生菜单走同一批 `MenuAction`（§1.aa 的转发已通）。
+- **待确认**：「工具属性栏另外给一个单独的模拟窗口」两种读法 ——
+  (A) 选项栏里的编辑类子面板（渐变编辑器、笔刷预设表）从气泡改成独立浮窗；
+  (B) 整条选项栏可以脱离顶部、变成可拖动的浮窗（Photoshop 的「工具选项」面板）。
+  计划先按 (A) 落，`(B)` 只留接口（`Window` 已经支持拖动 / 缩放）。
+
+### 1.ae 现有能力梳理（计划）
+
+三件事，避免 README / todo / 应用内说法三份漂移：
+
+1. **一张能力表**（`README.md` 新节「能力矩阵」）：按 工具 / 文件 / 编辑 / 图像 /
+   图层 / 选择 / 滤镜 / 视图 / 面板 / 快捷键 十行，每项标 `可用` / `占位` /
+   `未做`。来源：`ui/menu.rs::menu_spec`（菜单能点到的）+ `app/tool_groups.rs`
+   （工具）+ `app/application/shortcuts.rs`（键）；新增菜单项时这张表跟着改。
+2. **清 todo**：把已完成但还写着「[ ]」的条目核对一遍（§1.ab 落地后占位项归零，
+   §2 的绘画线也要同步），过时条目删掉而不是留着「已完成」。
+3. **应用内可见**：关于 / 快捷键两个窗口（§1.ad）读同一批数据；状态栏的占位
+   提示句改成「该功能见 帮助 → 快捷键 / 能力」这种指向，而不是各写一句。
+   验收：单测「`menu_spec` 里的占位项数量」当作一个数字断言住（只减不增），
+   README 的能力矩阵与它一致（手工核对一次，之后由 1 的同一张表兜住）。
+
 ## 性能：实测与优化计划（4K 很卡的调查）
 
 用一次性探针实测（已删除），对象是 128² / 1080p / 4K 三种文档，单位为「一次操作」。
