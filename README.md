@@ -356,7 +356,13 @@ src/
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）
 ├── ui/
 │   ├── mod.rs           # EditorView：状态字段 + new()（转交 build）+ update()
-│   ├── build/           # EditorView 构造：mod（Wiring / editor）+ tree + assemble
+│   ├── build/           # EditorView 构造，按步骤拆开
+│   │   ├── mod.rs       #   Wiring / Lists + editor()
+│   │   ├── cells.rs     #   Wiring::new()：所有共享格的默认值
+│   │   ├── panels.rs    #   选项栏 / 工具栏 | 调色盘 | 画布 | 右栏
+│   │   ├── page.rs      #   页面纵列顺序（菜单 → 标签条 → 选项栏 → 主行 → 状态栏）
+│   │   ├── tree.rs      #   串起来 + 挂到 SceneTree 根上
+│   │   └── assemble.rs  #   NodeRef -> NodeId，填出 EditorView
 │   ├── accessors.rs     # EditorView 的查询 / 点击目标访问器（宿主 / 测试 / 自检）
 │   ├── paint.rs         # 文档 / 像素网格 / 选区 / 预览的绘制
 │   ├── tools/           # 工具输入分发（指针事件 -> 当前工具）

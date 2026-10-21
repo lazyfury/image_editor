@@ -53,50 +53,18 @@ pub(super) fn finish(
         layer_state,
         history_state,
     } = lists;
-    let tool_group_nodes: Vec<NodeId> = group_refs
-        .iter()
-        .map(|slot| slot.get().expect("tool group button mounted"))
-        .collect();
-    let tool_face_labels: Vec<NodeId> = label_refs
-        .iter()
-        .map(|slot| slot.get().expect("tool face label mounted"))
-        .collect();
-    let history_nodes: Vec<(HistoryAction, NodeId)> = history_refs
-        .into_iter()
-        .map(|(action, slot)| (action, slot.get().expect("history button mounted")))
-        .collect();
-    let palette_nodes: Vec<NodeId> = palette_refs
-        .iter()
-        .map(|slot| slot.get().expect("palette swatch mounted"))
-        .collect();
-    let file_nodes: Vec<(FileRequest, NodeId)> = file_refs
-        .into_iter()
-        .map(|(action, slot)| (action, slot.get().expect("file button mounted")))
-        .collect();
-    let menu_nodes: Vec<NodeId> = menu_refs
-        .iter()
-        .map(|slot| slot.get().expect("menu button mounted"))
-        .collect();
-    let brush_buttons: Vec<(BrushAdjust, NodeId)> = brush_refs
-        .into_iter()
-        .map(|(adjust, slot)| (adjust, slot.get().expect("brush button mounted")))
-        .collect();
-    let brush_toggles: Vec<(BrushToggle, NodeId)> = toggle_refs
-        .into_iter()
-        .map(|(toggle, slot)| (toggle, slot.get().expect("brush toggle mounted")))
-        .collect();
-    let bucket_buttons: Vec<(BucketAdjust, NodeId)> = bucket_refs
-        .into_iter()
-        .map(|(adjust, slot)| (adjust, slot.get().expect("bucket button mounted")))
-        .collect();
-    let bucket_toggles: Vec<(BucketToggle, NodeId)> = bucket_toggle_refs
-        .into_iter()
-        .map(|(toggle, slot)| (toggle, slot.get().expect("bucket toggle mounted")))
-        .collect();
-    let gradient_buttons: Vec<(GradientAdjust, NodeId)> = gradient_refs
-        .into_iter()
-        .map(|(adjust, slot)| (adjust, slot.get().expect("gradient button mounted")))
-        .collect();
+    // `NodeRef` -> `NodeId`：构造期的「控件一定挂上了」不变式就在这里兑现。
+    let tool_group_nodes = slots(&group_refs);
+    let tool_face_labels = slots(&label_refs);
+    let history_nodes = ids(&history_refs);
+    let palette_nodes = slots(&palette_refs);
+    let file_nodes = ids(&file_refs);
+    let menu_nodes = slots(&menu_refs);
+    let brush_buttons = ids(&brush_refs);
+    let brush_toggles = ids(&toggle_refs);
+    let bucket_buttons = ids(&bucket_refs);
+    let bucket_toggles = ids(&bucket_toggle_refs);
+    let gradient_buttons = ids(&gradient_refs);
     let tab_buttons: Vec<(SidebarTab, NodeId)> = tab_refs
         .iter()
         .map(|(tab, button, _)| (*tab, button.get().expect("tab button mounted")))
@@ -249,4 +217,19 @@ pub(super) fn finish(
     };
     view.update();
     view
+}
+
+/// `NodeRef` 列表 -> `NodeId` 列表。构造期不变式：这些控件在 `build_tree` 里
+/// 一定已经挂到树上了，取不到就是构建代码漏挂了。
+fn slots(refs: &[NodeRef]) -> Vec<NodeId> {
+    refs.iter()
+        .map(|slot| slot.get().expect("控件已挂载"))
+        .collect()
+}
+
+/// 带键的 `NodeRef` 列表 -> 带键的 `NodeId` 列表（按钮表 / 色块表 / 图标表）。
+fn ids<T: Copy>(refs: &[(T, NodeRef)]) -> Vec<(T, NodeId)> {
+    refs.iter()
+        .map(|(key, slot)| (*key, slot.get().expect("控件已挂载")))
+        .collect()
 }

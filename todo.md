@@ -397,9 +397,12 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   `paint_commands` / `paint_a_stroke` / `brush_view` / `select_tab` …）。
   最大 397 行（brush），测试数 88 -> 88。
   验收：`cargo test` 434 passed 不变、`--selfcheck` 逐字不变。
-- [ ] **构造函数**：`ui/build/tree.rs::build_tree`（319）/ `assemble.rs::finish`
-  （262）按区域拆（menu_bar / toolbar / options / canvas / panels / palette /
-  status）。验收：`--selfcheck` 控件数 / 命令数不变。
+- [x] **构造函数**：`build_tree`（294）拆成 `build/` 四步 —— `cells.rs`
+  （`Wiring::new`：所有共享格默认值）/ `panels.rs`（选项栏、工具栏 | 调色盘 |
+  画布 | 右栏）/ `page.rs`（纵列顺序）/ `tree.rs`（27 行，只串起来挂树）；
+  `assemble.rs` 的 11 段 `NodeRef -> NodeId` 收成 `slots()` / `ids()` 两个小函数，
+  245 -> 213（剩下的是一条 `EditorView` 字面量，不再拆）。
+  验收：`--selfcheck` 控件数 / 命令数逐字不变。
 - [ ] **单函数过长**：`ui/menu.rs::menu_content`（234）、`ui/options_bar.rs::options_bar`
   （226）、`ui/new_document.rs::build_content`（147）、`ui/layer_panel.rs::action_buttons`
   （137）。改：菜单按 `MENUS` 每项一个 fn、选项栏按工具一组。

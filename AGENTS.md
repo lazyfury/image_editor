@@ -43,8 +43,11 @@ src/ui/         views + project-local components: home (recent gallery),
                 into one queue; `EditorView::update` drains it in arrival order
                 and `Intent::File` stays queued for the host. One queue instead of
                 per-action `Rc<Cell<Option<T>>>` fields.
-                `ui/build/` is the constructor: mod.rs (Wiring + `editor`),
-                tree.rs (panels + scene tree), assemble.rs (NodeRef -> EditorView).
+                `ui/build/` is the constructor in steps: mod.rs (Wiring / Lists +
+                `editor`), cells.rs (`Wiring::new` — every shared cell's default),
+                panels.rs (options strip / tool row / sidebar), page.rs (the
+                top-to-bottom column order), tree.rs (orchestrator -> SceneTree),
+                assemble.rs (`NodeRef` -> `NodeId`, then the `EditorView` literal).
 src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + commands
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser (in `brush/`: mod = tool + stroke, tip = brush-tip

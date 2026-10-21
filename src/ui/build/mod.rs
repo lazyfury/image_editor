@@ -4,6 +4,9 @@
 //! [`finish`]（解析 NodeRef -> NodeId 并填 `EditorView`）。
 
 mod assemble;
+mod cells;
+mod page;
+mod panels;
 mod tree;
 
 use std::cell::{Cell, RefCell};
