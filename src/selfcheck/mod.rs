@@ -194,6 +194,7 @@ pub fn check() -> (usize, String) {
     check_selection_merge(&mut failures);
     check_clipboard(&mut failures);
     check_chrome_order(&mut failures);
+    check_native_chrome_order(&mut failures);
     check_bucket(&mut failures);
     check_gradient(&mut failures);
     check_magic_wand(&mut failures);

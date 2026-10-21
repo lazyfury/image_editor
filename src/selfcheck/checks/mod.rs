@@ -17,7 +17,10 @@ pub(crate) use brush::{
     check_brush_cursor, check_brush_presets, check_brush_smooth, check_pixel_mode_edges,
     check_symmetry,
 };
-pub(crate) use chrome::{check_chrome_order, options_bar, palette, resizable_panels, view_menu};
+pub(crate) use chrome::{
+    check_chrome_order, check_native_chrome_order, options_bar, palette, resizable_panels,
+    view_menu,
+};
 pub(crate) use clipboard::check_clipboard;
 pub(crate) use fill::{check_bucket, check_gradient};
 pub(crate) use layer::check_rename;

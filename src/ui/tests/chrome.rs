@@ -136,3 +136,25 @@ fn without_a_tab_band_the_options_bar_follows_the_menu() {
         options.top()
     );
 }
+
+/// 系统菜单栏接管时窗口里那一行折叠：菜单栏不再报矩形，标签带落到最顶上，
+/// 选项栏接在标签带下面（宿主按 `menu_bar_rect()` 落空把标签条钉到 `y = 0`）。
+#[test]
+fn hiding_the_menu_bar_puts_the_options_bar_under_the_tab_band() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.set_tab_band(TAB_STRIP_HEIGHT);
+    view.layout(viewport());
+    let before = view.options_bar_rect().expect("选项栏").top();
+    view.set_menu_bar_visible(false);
+    view.layout(viewport());
+    assert!(view.menu_bar_rect().is_none(), "折叠后不该再报菜单栏矩形");
+    let options = view.options_bar_rect().expect("选项栏").top();
+    assert!(
+        options < before,
+        "折叠后选项栏应上移：{before} -> {options}"
+    );
+    assert!(
+        (options - TAB_STRIP_HEIGHT).abs() < 0.5,
+        "选项栏应正好接在标签带下面，实际 top = {options}"
+    );
+}

@@ -39,6 +39,7 @@ use igui_winit::{
     SharedWindow, WgpuPlugin, WindowConfig, WinitPlugin,
 };
 
+use crate::app::native_menu::NativeMenu;
 use crate::app::state::AppState;
 use crate::app::workspaces::{Workspace, Workspaces};
 use crate::document::{Document, PixelBuffer};
@@ -52,6 +53,7 @@ use crate::ui::{
 
 mod files;
 mod home;
+mod menu;
 mod modal;
 mod plugins;
 mod shortcuts;
@@ -68,7 +70,7 @@ const WINDOW_WIDTH: f64 = 1280.0;
 const WINDOW_HEIGHT: f64 = 800.0;
 
 /// 命令行选项（由 [`crate::main`] 解析）。
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Options {
     /// 渲染这么多帧后退出（`None` = 一直跑）。
     pub frames: Option<u32>,
@@ -76,6 +78,23 @@ pub struct Options {
     pub light: bool,
     /// 使用内置点阵字体（不含中文；默认系统字体）。
     pub pixel_font: bool,
+    /// 把菜单栏放进 **macOS 系统菜单栏**（默认开；`--ui-menu` 切回窗口里自绘）。
+    ///
+    /// 无头自检不走这里（它直接建视图），非 macOS 没有实现
+    /// （[`NativeMenu::install`] 返回 `None`），两种情况都继续画自绘菜单。
+    pub native_menu: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            frames: None,
+            light: false,
+            pixel_font: false,
+            // 默认用系统菜单栏（`todo.md` §1.aa）；画不出来的环境会自动退回自绘。
+            native_menu: true,
+        }
+    }
 }
 
 /// 用 `igui_app` 运行时打开窗口跑编辑器。
@@ -127,8 +146,9 @@ fn build_app(options: Options) -> App {
     }
 
     let dialog: Rc<dyn FileDialog> = Rc::new(NativeFileDialog);
-    let logic =
-        ImageEditorLogic::new(theme, dialog).with_preferences(crate::io::load_preferences());
+    let logic = ImageEditorLogic::new(theme, dialog)
+        .with_native_menu(options.native_menu)
+        .with_preferences(crate::io::load_preferences());
     builder.logic(logic).build()
 }
 
@@ -162,6 +182,10 @@ struct ImageEditorLogic {
     title_dirty: bool,
     /// 画廊缩略图待上传的像素（每条一张纹理，id 见 `ui::thumbnail_texture`）。
     thumbnail_uploads: Vec<(TextureId, PixelBuffer)>,
+    /// 要不要用系统菜单栏（`Options::native_menu`；装了之后窗口里那一行折叠）。
+    native_menu_wanted: bool,
+    /// macOS 系统菜单栏；`None` = 这个平台没有 / 没装，继续画自绘菜单。
+    native_menu: Option<NativeMenu>,
 }
 
 /// 主窗口当前显示哪一屏。编辑器的工作区在 `ImageEditorLogic::workspaces`。
@@ -192,12 +216,20 @@ impl ImageEditorLogic {
             image_clipboard: Rc::new(RefCell::new(None)),
             title_dirty: false,
             thumbnail_uploads,
+            native_menu_wanted: false,
+            native_menu: None,
         }
     }
 
     /// Ctrl/Cmd 按下：此时字母键是快捷键，不该再当文本送进输入框。
     fn shortcut_modifier(&self) -> bool {
         self.modifiers.ctrl || self.modifiers.meta
+    }
+
+    /// 用系统菜单栏（`build_app` 从 [`Options::native_menu`] 传进来）。
+    fn with_native_menu(mut self, wanted: bool) -> Self {
+        self.native_menu_wanted = wanted;
+        self
     }
 
     /// 带上从配置读出来的笔刷偏好（宿主装配时用；测试用默认值）。
@@ -228,6 +260,21 @@ impl AppLogic for ImageEditorLogic {
             if let Some(workspace) = self.workspaces.active_mut() {
                 workspace.editor.set_clipboard(clipboard);
             }
+        }
+        // 系统菜单栏要等 NSApp 起来之后才能装（`init` 已经是主线程 + 有窗口）。
+        // 动作入队后要叫醒事件循环：`igui_winit` 是 `ControlFlow::Wait`，系统菜单
+        // 的点击不产生 winit 事件，不主动要一帧的话界面会等下次鼠标移动才刷新。
+        let wake = ctx.service::<SharedWindow>().cloned().map(|window| {
+            Rc::new(move || {
+                if let Some(window) = window.borrow().as_ref() {
+                    window.request_redraw();
+                }
+            }) as crate::app::native_menu::Wake
+        });
+        self.install_native_menu(wake);
+        let native_menu = self.native_menu.is_some();
+        if let Some(workspace) = self.workspaces.active_mut() {
+            workspace.editor.set_menu_bar_visible(!native_menu);
         }
     }
 
@@ -291,6 +338,8 @@ impl AppLogic for ImageEditorLogic {
         while let Some(action) = self.tabs.take_request() {
             self.handle_tab_action(action);
         }
+        // 系统菜单里点下来的动作（原生菜单栏；自绘那条路走 `Intent::MenuAction`）。
+        self.handle_native_menu_actions();
 
         self.open_modal_if_requested();
         self.sync_modal();
@@ -309,6 +358,8 @@ impl AppLogic for ImageEditorLogic {
         self.handle_dropped_files(ctx);
 
         self.sync_active_workspace(ctx);
+        // 可点 / 勾选跟着当前工作区走；主页整张菜单置灰。
+        self.sync_native_menu();
 
         if matches!(self.screen, Screen::Editor) {
             self.tabs
@@ -330,12 +381,14 @@ impl AppLogic for ImageEditorLogic {
                     workspace.editor.layout(viewport);
                 }
                 // 菜单栏在最上：标签条钉在菜单栏下面（编辑器给它留了 `TAB_STRIP_HEIGHT`
-                // 的带子）。菜单栏高度由布局算出来，所以每帧同步一次。
-                if let Some(workspace) = self.workspaces.active() {
-                    if let Some(rect) = workspace.editor.menu_bar_rect() {
-                        self.tabs.set_top(rect.bottom());
-                    }
-                }
+                // 的带子）。菜单栏高度由布局算出来，所以每帧同步一次；用了系统菜单栏
+                // 时那一行被折叠（`menu_bar_rect() == None`），标签条直接贴顶。
+                let top = self
+                    .workspaces
+                    .active()
+                    .and_then(|workspace| workspace.editor.menu_bar_rect())
+                    .map_or(0.0, |rect| rect.bottom());
+                self.tabs.set_top(top);
                 self.tabs.layout(viewport);
             }
         }

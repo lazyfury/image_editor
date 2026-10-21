@@ -31,24 +31,27 @@ impl EditorView {
         self.open_tool_group.set(None);
         let theme = self.theme;
         let intents = self.intents.clone();
-        let (can_undo, can_redo, has_selection) = {
-            let state = self.state.borrow();
-            (
-                state.can_undo(),
-                state.can_redo(),
-                state.selection.is_some(),
-            )
-        };
-        let state = menu::MenuState {
-            can_undo,
-            can_redo,
-            has_selection,
-            can_paste: self.has_clipboard(),
-        };
+        let state = self.menu_state();
         self.overlays.menu(anchor, move |tree, root| {
             menu::menu_content(tree, root, theme, index, intents.clone(), state);
         });
         self.open_menu.set(Some(index));
+    }
+
+    /// 菜单项要的状态位（自绘下拉与原生菜单栏共用，见 [`menu::MenuState`]）。
+    ///
+    /// 编辑器里调用时 `has_document` 恒为 `true` —— 自绘下拉只在工作区里存在；
+    /// 宿主在主页把 [`MenuState::none`] 交给原生菜单栏，整张菜单置灰。
+    pub fn menu_state(&self) -> menu::MenuState {
+        let state = self.state.borrow();
+        menu::MenuState {
+            has_document: true,
+            can_undo: state.can_undo(),
+            can_redo: state.can_redo(),
+            has_selection: state.selection.is_some(),
+            can_paste: self.has_clipboard(),
+            checkerboard: self.show_checkerboard,
+        }
     }
 
     /// 打开选项栏的笔刷预设下拉（锚在「预设」触发按钮下）。
@@ -170,7 +173,10 @@ impl EditorView {
     }
 
     /// 执行一个菜单动作（[`EditorView::update`] 在关闭菜单后调用）。
-    pub(super) fn apply_menu_action(&mut self, action: menu::MenuAction) {
+    ///
+    /// `pub(crate)`：宿主也要转发 —— macOS 原生菜单栏的项在
+    /// `crate::app::native_menu` 里被点，动作回到工作区执行（见 `todo.md` §1.aa）。
+    pub(crate) fn apply_menu_action(&mut self, action: menu::MenuAction) {
         match action {
             menu::MenuAction::Undo => {
                 self.undo();

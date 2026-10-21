@@ -36,6 +36,18 @@ fn text_center(view: &EditorView, needle: &str) -> Option<Vec2> {
         })
 }
 
+/// 棋盘格开着时「视图 → 显示棋盘格」带勾选（自绘下拉画 `✓ ` 前缀）。
+#[test]
+fn the_view_menu_marks_the_checkerboard_when_it_is_on() {
+    let view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    let spec = crate::ui::menu::menu_spec(6, view.menu_state());
+    let entry = spec
+        .iter()
+        .find(|entry| entry.action() == Some(crate::ui::menu::MenuAction::ToggleCheckerboard))
+        .expect("视图菜单里有棋盘格开关");
+    assert!(entry.label().starts_with('✓'), "开着的开关应带勾选");
+}
+
 #[test]
 fn clicking_a_menu_title_opens_its_dropdown() {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());

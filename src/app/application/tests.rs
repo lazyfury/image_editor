@@ -499,3 +499,60 @@ fn closing_a_background_workspace_keeps_the_active_texture() {
         "关后台标签不该触发重合成"
     );
 }
+
+/// 系统菜单栏点下来的动作由宿主转给当前工作区执行（那条路没有 `Intent` 队列）。
+#[test]
+fn a_native_menu_action_runs_in_the_active_workspace() {
+    use crate::ui::menu::MenuAction;
+
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic.screen = Screen::Editor;
+    assert!(
+        logic
+            .workspaces
+            .active()
+            .expect("一个工作区")
+            .editor
+            .menu_state()
+            .checkerboard,
+        "棋盘格默认是开的"
+    );
+    logic.apply_menu_action(MenuAction::ToggleCheckerboard);
+    assert!(
+        !logic
+            .workspaces
+            .active()
+            .expect("一个工作区")
+            .editor
+            .menu_state()
+            .checkerboard,
+        "宿主应把菜单动作交给当前工作区"
+    );
+    assert!(logic.title_dirty, "动作之后标题要在下一帧写回窗口");
+}
+
+/// 没有工作区（主页）时菜单是灰的：动作丢掉，不碰任何编辑器，也不重写窗口标题。
+#[test]
+fn a_native_menu_action_without_a_workspace_is_dropped() {
+    use crate::ui::menu::MenuAction;
+
+    let theme = crate::theme::editor_theme(false);
+    let mut logic = ImageEditorLogic::new(theme, Rc::new(FakeFileDialog::default()));
+    logic.screen = Screen::Home(crate::ui::HomeView::new(theme, Vec::new()));
+    logic.apply_menu_action(MenuAction::Undo);
+    assert!(logic.workspaces.active().is_none());
+    assert!(!logic.title_dirty, "没执行的动作不该改标题");
+}
+
+/// 模态窗口开着时系统菜单栏整张置灰（不然就绕过了模态直接改下面的文档）。
+#[test]
+fn the_native_menu_is_greyed_out_while_a_modal_is_open() {
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic.screen = Screen::Editor;
+    assert!(logic.native_menu_state().has_document);
+    logic.open_new_document_modal();
+    assert!(
+        !logic.native_menu_state().has_document,
+        "模态开着时菜单不该可点"
+    );
+}

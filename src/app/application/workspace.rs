@@ -15,6 +15,8 @@ impl ImageEditorLogic {
             editor.set_clipboard(clipboard);
         }
         editor.set_tab_band(TAB_STRIP_HEIGHT);
+        // 系统菜单栏装了就把窗口里那一行折叠（标签条贴顶，见 `layout`）。
+        editor.set_menu_bar_visible(self.native_menu.is_none());
         editor.apply_preferences(&self.preferences.brush);
         // 过程记录（延时动画用）跟随偏好；关着时 `History` 不建录制器。
         editor.set_record_timeline(self.preferences.record_timeline);

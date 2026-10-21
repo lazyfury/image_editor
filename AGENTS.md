@@ -5,6 +5,12 @@ A standalone, Photoshop-style 2D image editor whose entire UI is drawn by the
 `igui_theme` / `igui_ui` / `igui_components` / `igui_svg` /
 `igui_backend_wgpu`). No `egui`, no DOM.
 
+One deliberate exception: the **macOS system menu bar** (`src/app/native_menu/`,
+hand-written `NSMenu` FFI) is the default menu (it lives outside the window, so
+it cannot be drawn). The drawn in-window menu bar (`ui/menu.rs`) stays for
+`--ui-menu`, headless self-check and other platforms; both read the same
+`menu_spec` table.
+
 This file is the short source of truth for rules. Details live in `README.md`
 (features, phases) and `todo.md` (project backlog).
 
@@ -18,8 +24,12 @@ src/app/        state (AppState/document session) + workspaces (multi-workspace)
                 + ImageEditorLogic fields + AppLogic), home.rs (gallery entries +
                 home requests), modal.rs (new-document modal + close confirm),
                 workspace.rs (workspace lifecycle + per-frame sync), files.rs
-                (save/open/import/export/close/drop), shortcuts.rs, plugins.rs
-                (text measure / frame limit), tests.rs (host-level tests).
+                (save/open/import/export/close/drop), menu.rs (native menu bar
+                install / per-frame sync / action forwarding), shortcuts.rs,
+                plugins.rs (text measure / frame limit), tests.rs (host-level
+                tests).
+                `native_menu/` = the macOS system menu bar (mod.rs = API, macos.rs
+                = objc2-app-kit `NSMenu` / `NSMenuItem`, other.rs = no-op).
 src/ui/         views + project-local components: home (recent gallery with
                 thumbnails),
                 new_document/ (mod = modal shell wiring, form = the form,

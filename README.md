@@ -2,7 +2,9 @@
 
 一个精简版 Photoshop 风格的 2D 图像编辑器。**界面用 igui 的 UI 栈**
 （`igui_theme` / `igui_components` / `igui_ui` + `igui_backend_wgpu`）实现，
-不用 `egui`。
+不用 `egui`。唯一的例外是 macOS 的**系统菜单栏**（`src/app/native_menu/`）：
+菜单属于操作系统、不在窗口里，画不出来；窗口里的自绘菜单保留给
+`--ui-menu` / 无头自检 / 其它平台。
 
 这是一个独立项目（自己的 git 仓库），通过 **git 依赖**引用上游的 igui
 （`Cargo.toml` 里的 `https://github.com/lazyfury/igui`，按 `release.md` 记录
@@ -19,6 +21,7 @@ cargo run -- --dump
 cargo run -- --frames 120
 cargo run -- --light
 cargo run -- --pixel-font
+cargo run -- --ui-menu         # 菜单栏画在窗口里（默认用 macOS 系统菜单栏）
 ```
 
 ## 主页与单窗口模态框
@@ -209,6 +212,12 @@ cargo run -- --pixel-font
   `zenity`/`kdialog`）；文件面板按钮只发 `FileRequest` 意图，宿主解析路径后执行
   「保存 vs 另存为」；`ui/confirm.rs` 关闭脏工作区前确认；`app/drop_files.rs`
   把 `winit` 的 `DroppedFile` 转成新图层导入。
+- [x] **Phase 24 — 原生菜单栏（默认）/ 一张菜单表**：`ui/menu.rs` 收成
+  `menu_spec` 一张表（自绘下拉与系统菜单栏共用），`src/app/native_menu/`
+  手写 objc2-app-kit 的 `NSMenu`（App 菜单 + 八个下拉，`tag` → 动作表 →
+  静态队列），宿主每帧同步 `MenuState`、转发动作给当前工作区；`--ui-menu`
+  退回自绘，无头自检 / 非 macOS 不受影响。快捷键仍走 `shortcuts.rs`（菜单项
+  不设 key equivalent，`Cmd+A` 不会被抢走）。
 
 ### 计划（Phase 10+）
 
@@ -255,9 +264,22 @@ Phase 11），README 只留功能说明。要点：
 [工具栏] [画布] [调色盘] [右栏：文件·图层·属性 / 历史]  状态栏
 ```
 
+- **菜单栏默认在 macOS 系统菜单栏里**（`src/app/native_menu/`，手写
+  `NSMenu` / `NSMenuItem` FFI，和原生文件对话框同一套风格，不引 `muda`）：
+  `NSApp.mainMenu` 是 App 菜单（隐藏 / 退出）+ 上面八个下拉；窗口里那一行
+  `set_menu_bar_visible(false)` 折叠，标签条直接贴顶。菜单内容来自 `ui/menu.rs`
+  的**一张表**（`menu_spec`：标题 / 快捷键 / 禁用 / 勾选 / 动作），自绘下拉读同一张
+  表，所以两条路只有画法不同。宿主每帧 `sync(editor.menu_state())` 同步可点 / 勾选，
+  并把点下来的动作转给当前工作区；没有工作区（主页）时整张菜单置灰。
+  `igui_winit` 是 `ControlFlow::Wait`，系统菜单的点击不产生 winit 事件，所以动作
+  入队后回调里会 `window.request_redraw()` 叫醒事件循环 —— 否则界面要等下一次
+  鼠标移动才刷新（菜单看起来「点了没反应」）。
+  `--ui-menu`、无头自检、其它平台仍用自绘菜单（`menu_bar_rect()` 报矩形，
+  标签条钉在它下沿）。
 - **菜单栏属于编辑器**（动作要读当前文档 / 历史 / 选区），工作区标签条属于**宿主**
   （跨工作区、能回主页）。两者靠「标签带」协作：编辑器在菜单栏和选项栏之间留出
-  `TAB_STRIP_HEIGHT` 的空行，宿主把标签条钉在 `menu_bar_rect().bottom()` 上。
+  `TAB_STRIP_HEIGHT` 的空行，宿主把标签条钉在 `menu_bar_rect().bottom()` 上
+  （系统菜单栏时那一行为 0，标签条钉到 `y = 0`）。
 - **绘制顺序是「标签条 → 内容 → 浮层」**（`application::paint_screen`）：标签条是窗口
   chrome，必须先画，编辑器的 `Overlays`（菜单下拉、预设菜单、重命名浮层）才能盖在
   它上面 —— 否则菜单弹窗会被标签条切掉一条。

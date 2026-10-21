@@ -362,8 +362,29 @@ impl EditorView {
     }
 
     /// 菜单栏占的矩形（宿主据此把标签条钉在它下面）。
+    ///
+    /// 原生菜单栏接管时这一行被折叠（[`EditorView::set_menu_bar_visible`]），
+    /// 返回 `None`，宿主把标签条钉到 `y = 0`。
     pub fn menu_bar_rect(&self) -> Option<Rect> {
+        if self.tree.is_visible(self.menu_bar) == Some(false) {
+            return None;
+        }
         igui_ui::control(&self.tree, self.menu_bar).map(|control| control.rect)
+    }
+
+    /// 把画出来的菜单栏折叠 / 恢复（macOS 原生菜单栏在系统那边，见
+    /// `crate::app::native_menu`；无头自检与非 macOS 仍是自绘菜单）。
+    pub fn set_menu_bar_visible(&mut self, visible: bool) {
+        if self.tree.is_visible(self.menu_bar) == Some(visible) {
+            return;
+        }
+        if !visible {
+            // 折叠的瞬间若有下拉开着，先收起来（不然锚点跟着消失）。
+            self.overlays.close_all();
+            self.open_menu.set(None);
+        }
+        self.tree.set_visible(self.menu_bar, visible);
+        igui_ui::mark_dirty(&mut self.tree, self.menu_bar);
     }
 
     /// 当前文档的 revision（工作区脏标记用）。

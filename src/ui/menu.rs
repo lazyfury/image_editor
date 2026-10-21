@@ -1,5 +1,9 @@
 //! 菜单栏：一排菜单标题 + 真实的下拉菜单。
 //!
+//! **一张表两处用**：下拉里有什么由 [`menu_spec`] 给（标题 / 快捷键 / 禁用 /
+//! 勾选 / 动作），自绘下拉（[`menu_content`]）和 macOS 原生菜单栏
+//! （`crate::app::native_menu`）都从它生成 —— 加一条菜单只改这张表，两边不会漂。
+//!
 //! 标题点击只往意图队列里塞一个 [`Intent::OpenMenu`]，真正的下拉由
 //! [`EditorView`](crate::ui::EditorView) 在 `update` 里用
 //! [`Overlays::menu`](igui_components::Overlays::menu) 打开 —— 回调拿不到
@@ -57,6 +61,53 @@ pub enum MenuAction {
     Placeholder(&'static str),
 }
 
+/// 下拉里的一条，和「怎么画」无关：自绘下拉与原生菜单栏都读它。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuEntry {
+    /// 一条可点 / 置灰的项。
+    Item {
+        label: &'static str,
+        /// 自绘下拉显示的快捷键提示。原生菜单栏这一版**不设** key equivalent
+        /// （见 `todo.md` §1.aa：快捷键继续走 `shortcuts.rs`，`Cmd+A` 不能被
+        /// 菜单抢走，否则重命名输入框里全选失效）。
+        shortcut: Option<&'static str>,
+        action: MenuAction,
+        enabled: bool,
+        /// 前面打 `✓`（原生菜单栏用 `setState`）。
+        checked: bool,
+    },
+    /// 分隔线。
+    Separator,
+}
+
+impl MenuEntry {
+    /// 这一条要执行的动作（分隔线没有）。
+    pub fn action(&self) -> Option<MenuAction> {
+        match self {
+            Self::Item { action, .. } => Some(*action),
+            Self::Separator => None,
+        }
+    }
+
+    /// 自绘下拉里显示的文字：勾选时前面加 `✓ `（`MenuItem` 没有勾选态）。
+    pub fn label(&self) -> String {
+        match self {
+            Self::Item {
+                label,
+                checked: true,
+                ..
+            } => format!("✓ {label}"),
+            Self::Item { label, .. } => (*label).to_string(),
+            Self::Separator => String::new(),
+        }
+    }
+
+    /// 是否可点（分隔线恒为不可点）。
+    pub fn enabled(&self) -> bool {
+        matches!(self, Self::Item { enabled: true, .. })
+    }
+}
+
 /// 一条带占位提示的菜单栏。点标题会往 `intents` 里塞 [`Intent::OpenMenu`]。
 pub fn menu_bar(
     theme: &'static dyn Theme,
@@ -83,18 +134,54 @@ pub fn menu_bar(
     bar.ref_(bar_slot)
 }
 
-/// 菜单项要用的四个状态位（决定禁用 / 可点）。
-#[derive(Debug, Clone, Copy)]
+/// 菜单项要用的状态位（决定禁用 / 勾选）。
+///
+/// 自绘下拉在编辑器里调用时 `has_document` 恒为 `true`；原生菜单栏在主页
+/// （没有工作区）也显示，这时整张菜单置灰 —— 否则点了也没人接。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MenuState {
+    /// 有没有打开的文档（宿主没有工作区时为 `false`，整张菜单置灰）。
+    pub has_document: bool,
     pub can_undo: bool,
     pub can_redo: bool,
     pub has_selection: bool,
     pub can_paste: bool,
+    /// 「视图 → 显示棋盘格」的勾选。
+    pub checkerboard: bool,
+}
+
+impl MenuState {
+    /// 没有文档：全部置灰（原生菜单栏在主页用）。
+    pub const fn none() -> Self {
+        Self {
+            has_document: false,
+            can_undo: false,
+            can_redo: false,
+            has_selection: false,
+            can_paste: false,
+            checkerboard: false,
+        }
+    }
+}
+
+/// 第 `index` 个菜单的内容（和画法无关）。
+///
+/// 每个菜单一个函数（[`file_menu`] … [`help_menu`]），这里只做下标 -> 函数的分发。
+/// `has_document == false` 时每一条都置灰（见 [`MenuState`]）。
+pub fn menu_spec(index: usize, state: MenuState) -> Vec<MenuEntry> {
+    match index {
+        0 => file_menu(state),
+        1 => edit_menu(state),
+        2 => image_menu(state),
+        3 => layer_menu(state),
+        4 => select_menu(state),
+        5 => filter_menu(state),
+        6 => view_menu(state),
+        _ => help_menu(state),
+    }
 }
 
 /// 构建第 `index` 个菜单的内容，挂到 `root`（覆盖层给的定位节点）下。
-///
-/// 每个菜单一个函数（[`file_menu`] … [`help_menu`]），这里只做下标 -> 函数的分发。
 pub fn menu_content(
     tree: &mut SceneTree,
     root: igui_core::NodeId,
@@ -103,275 +190,256 @@ pub fn menu_content(
     intents: Intents,
     state: MenuState,
 ) {
-    let menu = match index {
-        0 => file_menu(theme, &intents),
-        1 => edit_menu(theme, &intents, state),
-        2 => image_menu(theme, &intents),
-        3 => layer_menu(theme, &intents),
-        4 => select_menu(theme, &intents, state),
-        5 => filter_menu(theme, &intents),
-        6 => view_menu(theme, &intents),
-        _ => help_menu(theme, &intents),
-    };
-    menu.build(tree, root);
+    build_menu(theme, &intents, &menu_spec(index, state)).build(tree, root);
+}
+
+/// 把一张表变成 igui 的下拉（每个 `Item` 点一下塞 [`Intent::MenuAction`]）。
+fn build_menu(theme: &'static dyn Theme, intents: &Intents, entries: &[MenuEntry]) -> Menu {
+    let mut menu = Menu::new(theme);
+    for entry in entries {
+        menu = match entry {
+            MenuEntry::Separator => menu.separator(),
+            MenuEntry::Item {
+                shortcut,
+                action,
+                enabled,
+                ..
+            } => {
+                let mut item = MenuItem::new(entry.label(), theme);
+                if let Some(shortcut) = shortcut {
+                    item = item.shortcut(*shortcut);
+                }
+                let intents = intents.clone();
+                let action = *action;
+                menu.item(
+                    item.disabled(!enabled)
+                        .on_click(move |_tree, _id| intents.push(Intent::MenuAction(action))),
+                )
+            }
+        };
+    }
+    menu
+}
+
+/// 一条菜单项；`enabled` 会再与「有没有文档」相与（见 [`MenuState`]）。
+fn item(
+    state: MenuState,
+    label: &'static str,
+    shortcut: Option<&'static str>,
+    action: MenuAction,
+    enabled: bool,
+    checked: bool,
+) -> MenuEntry {
+    MenuEntry::Item {
+        label,
+        shortcut,
+        action,
+        enabled: state.has_document && enabled,
+        checked,
+    }
+}
+
+fn separator() -> MenuEntry {
+    MenuEntry::Separator
+}
+
+/// 还没实现的菜单项：点了把提示写进状态栏。
+fn placeholder(state: MenuState, label: &'static str, note: &'static str) -> MenuEntry {
+    item(
+        state,
+        label,
+        None,
+        MenuAction::Placeholder(note),
+        true,
+        false,
+    )
 }
 
 /// 「文件」菜单。
-fn file_menu(theme: &'static dyn Theme, intents: &Intents) -> Menu {
-    Menu::new(theme)
-        .item(placeholder("新建…", theme, intents, "新建：后续 Phase"))
-        .item(placeholder(
-            "打开…",
-            theme,
-            intents,
-            "打开：Phase 10 文件浏览器",
-        ))
-        .separator()
-        .item(menu_item(
-            "导入 PNG…",
-            None,
-            theme,
-            intents,
-            MenuAction::Import,
-        ))
-        .item(menu_item(
-            "导出 PNG…",
-            None,
-            theme,
-            intents,
-            MenuAction::Export,
-        ))
+fn file_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        placeholder(state, "新建…", "新建：后续 Phase"),
+        placeholder(state, "打开…", "打开：Phase 10 文件浏览器"),
+        separator(),
+        item(state, "导入 PNG…", None, MenuAction::Import, true, false),
+        item(state, "导出 PNG…", None, MenuAction::Export, true, false),
+    ]
 }
 
 /// 「编辑」菜单。
-fn edit_menu(theme: &'static dyn Theme, intents: &Intents, state: MenuState) -> Menu {
-    Menu::new(theme)
-        .item(
-            menu_item("撤销", Some("Ctrl+Z"), theme, intents, MenuAction::Undo)
-                .disabled(!state.can_undo),
-        )
-        .item(
-            menu_item(
-                "重做",
-                Some("Shift+Ctrl+Z"),
-                theme,
-                intents,
-                MenuAction::Redo,
-            )
-            .disabled(!state.can_redo),
-        )
-        .separator()
-        .item(
-            menu_item("剪切", Some("Ctrl+X"), theme, intents, MenuAction::Cut)
-                .disabled(!state.has_selection),
-        )
-        .item(
-            menu_item("复制", Some("Ctrl+C"), theme, intents, MenuAction::Copy)
-                .disabled(!state.has_selection),
-        )
-        .item(
-            menu_item("粘贴", Some("Ctrl+V"), theme, intents, MenuAction::Paste)
-                .disabled(!state.can_paste),
-        )
-        .item(
-            menu_item(
-                "粘贴为新图层",
-                Some("Shift+Ctrl+V"),
-                theme,
-                intents,
-                MenuAction::PasteAsLayer,
-            )
-            .disabled(!state.can_paste),
-        )
+fn edit_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        item(
+            state,
+            "撤销",
+            Some("Ctrl+Z"),
+            MenuAction::Undo,
+            state.can_undo,
+            false,
+        ),
+        item(
+            state,
+            "重做",
+            Some("Shift+Ctrl+Z"),
+            MenuAction::Redo,
+            state.can_redo,
+            false,
+        ),
+        separator(),
+        item(
+            state,
+            "剪切",
+            Some("Ctrl+X"),
+            MenuAction::Cut,
+            state.has_selection,
+            false,
+        ),
+        item(
+            state,
+            "复制",
+            Some("Ctrl+C"),
+            MenuAction::Copy,
+            state.has_selection,
+            false,
+        ),
+        item(
+            state,
+            "粘贴",
+            Some("Ctrl+V"),
+            MenuAction::Paste,
+            state.can_paste,
+            false,
+        ),
+        item(
+            state,
+            "粘贴为新图层",
+            Some("Shift+Ctrl+V"),
+            MenuAction::PasteAsLayer,
+            state.can_paste,
+            false,
+        ),
+    ]
 }
 
 /// 「图像」菜单。
-fn image_menu(theme: &'static dyn Theme, intents: &Intents) -> Menu {
-    Menu::new(theme)
-        .item(placeholder(
-            "图像大小…",
-            theme,
-            intents,
-            "图像大小：后续 Phase",
-        ))
-        .item(placeholder("裁剪", theme, intents, "裁剪：后续 Phase"))
-        .separator()
-        .item(placeholder(
-            "水平翻转",
-            theme,
-            intents,
-            "水平翻转：后续 Phase",
-        ))
-        .item(placeholder(
-            "垂直翻转",
-            theme,
-            intents,
-            "垂直翻转：后续 Phase",
-        ))
-        .item(placeholder("旋转 90°", theme, intents, "旋转：后续 Phase"))
+fn image_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        placeholder(state, "图像大小…", "图像大小：后续 Phase"),
+        placeholder(state, "裁剪", "裁剪：后续 Phase"),
+        separator(),
+        placeholder(state, "水平翻转", "水平翻转：后续 Phase"),
+        placeholder(state, "垂直翻转", "垂直翻转：后续 Phase"),
+        placeholder(state, "旋转 90°", "旋转：后续 Phase"),
+    ]
 }
 
 /// 「图层」菜单。
-fn layer_menu(theme: &'static dyn Theme, intents: &Intents) -> Menu {
-    Menu::new(theme)
-        .item(placeholder(
-            "新建图层",
-            theme,
-            intents,
-            "新建图层：用右侧图层面板",
-        ))
-        .item(placeholder(
-            "复制图层",
-            theme,
-            intents,
-            "复制图层：后续 Phase",
-        ))
-        .separator()
-        .item(placeholder(
-            "上移一层",
-            theme,
-            intents,
-            "上移一层：用右侧图层面板",
-        ))
-        .item(placeholder(
-            "下移一层",
-            theme,
-            intents,
-            "下移一层：用右侧图层面板",
-        ))
-        .separator()
-        .item(menu_item(
+fn layer_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        placeholder(state, "新建图层", "新建图层：用右侧图层面板"),
+        placeholder(state, "复制图层", "复制图层：后续 Phase"),
+        separator(),
+        placeholder(state, "上移一层", "上移一层：用右侧图层面板"),
+        placeholder(state, "下移一层", "下移一层：用右侧图层面板"),
+        separator(),
+        item(
+            state,
             "裁到文档",
             None,
-            theme,
-            intents,
             MenuAction::CropLayerToDocument,
-        ))
+            true,
+            false,
+        ),
+    ]
 }
 
 /// 「选择」菜单。
-fn select_menu(theme: &'static dyn Theme, intents: &Intents, state: MenuState) -> Menu {
-    Menu::new(theme)
-        .item(menu_item(
+fn select_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        item(
+            state,
             "全选",
             Some("Ctrl+A"),
-            theme,
-            intents,
             MenuAction::SelectAll,
-        ))
-        .item(menu_item(
+            true,
+            false,
+        ),
+        item(
+            state,
             "反选",
             Some("Shift+Ctrl+I"),
-            theme,
-            intents,
             MenuAction::InvertSelection,
-        ))
-        .item(
-            menu_item("羽化", None, theme, intents, MenuAction::FeatherSelection)
-                .disabled(!state.has_selection),
-        )
-        .item(
-            menu_item(
-                "取消选择",
-                Some("Esc"),
-                theme,
-                intents,
-                MenuAction::ClearSelection,
-            )
-            .disabled(!state.has_selection),
-        )
+            true,
+            false,
+        ),
+        item(
+            state,
+            "羽化",
+            None,
+            MenuAction::FeatherSelection,
+            state.has_selection,
+            false,
+        ),
+        item(
+            state,
+            "取消选择",
+            Some("Esc"),
+            MenuAction::ClearSelection,
+            state.has_selection,
+            false,
+        ),
+    ]
 }
 
 /// 「滤镜」菜单。
-fn filter_menu(theme: &'static dyn Theme, intents: &Intents) -> Menu {
-    Menu::new(theme)
-        .item(placeholder("灰度", theme, intents, "灰度：后续 Phase"))
-        .item(placeholder("反相", theme, intents, "反相：后续 Phase"))
-        .item(placeholder("高斯模糊", theme, intents, "模糊：后续 Phase"))
+fn filter_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        placeholder(state, "灰度", "灰度：后续 Phase"),
+        placeholder(state, "反相", "反相：后续 Phase"),
+        placeholder(state, "高斯模糊", "模糊：后续 Phase"),
+    ]
 }
 
 /// 「视图」菜单。
-fn view_menu(theme: &'static dyn Theme, intents: &Intents) -> Menu {
-    Menu::new(theme)
-        .item(menu_item(
-            "放大",
-            Some("+"),
-            theme,
-            intents,
-            MenuAction::ZoomIn,
-        ))
-        .item(menu_item(
-            "缩小",
-            Some("-"),
-            theme,
-            intents,
-            MenuAction::ZoomOut,
-        ))
-        .item(menu_item(
-            "100%",
-            Some("0"),
-            theme,
-            intents,
-            MenuAction::ZoomReset,
-        ))
-        .item(menu_item(
+fn view_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        item(state, "放大", Some("+"), MenuAction::ZoomIn, true, false),
+        item(state, "缩小", Some("-"), MenuAction::ZoomOut, true, false),
+        item(state, "100%", Some("0"), MenuAction::ZoomReset, true, false),
+        item(
+            state,
             "适配窗口",
             Some("F"),
-            theme,
-            intents,
             MenuAction::ZoomFit,
-        ))
-        .separator()
-        .item(menu_item(
+            true,
+            false,
+        ),
+        separator(),
+        item(
+            state,
             "显示棋盘格",
             None,
-            theme,
-            intents,
             MenuAction::ToggleCheckerboard,
-        ))
+            true,
+            state.checkerboard,
+        ),
+    ]
 }
 
 /// 「帮助」菜单。
-fn help_menu(theme: &'static dyn Theme, intents: &Intents) -> Menu {
-    Menu::new(theme)
-        .item(menu_item(
+fn help_menu(state: MenuState) -> Vec<MenuEntry> {
+    vec![
+        item(
+            state,
             "关于 image_editor",
             None,
-            theme,
-            intents,
             MenuAction::About,
-        ))
-        .separator()
-        .item(placeholder(
-            "快捷键…",
-            theme,
-            intents,
-            "快捷键：见窗口标题栏 / README",
-        ))
-}
-
-fn menu_item(
-    label: &str,
-    shortcut: Option<&str>,
-    theme: &'static dyn Theme,
-    intents: &Intents,
-    value: MenuAction,
-) -> MenuItem {
-    let mut item = MenuItem::new(label, theme);
-    if let Some(shortcut) = shortcut {
-        item = item.shortcut(shortcut);
-    }
-    let intents = intents.clone();
-    item.on_click(move |_tree, _id| intents.push(Intent::MenuAction(value)))
-}
-
-fn placeholder(
-    label: &str,
-    theme: &'static dyn Theme,
-    intents: &Intents,
-    note: &'static str,
-) -> MenuItem {
-    menu_item(label, None, theme, intents, MenuAction::Placeholder(note))
+            true,
+            false,
+        ),
+        separator(),
+        placeholder(state, "快捷键…", "快捷键：见窗口标题栏 / README"),
+    ]
 }
 
 /// 关于对话框 / 状态栏用的版本串。
@@ -383,6 +451,31 @@ pub fn about_text() -> String {
 mod tests {
     use super::*;
 
+    fn document_state() -> MenuState {
+        MenuState {
+            has_document: true,
+            can_undo: true,
+            can_redo: false,
+            has_selection: false,
+            can_paste: false,
+            checkerboard: false,
+        }
+    }
+
+    fn entries_with(menus: &[usize], state: MenuState) -> Vec<MenuEntry> {
+        menus
+            .iter()
+            .flat_map(|index| menu_spec(*index, state))
+            .collect()
+    }
+
+    fn find(menus: &[usize], state: MenuState, action: MenuAction) -> MenuEntry {
+        entries_with(menus, state)
+            .into_iter()
+            .find(|entry| entry.action() == Some(action))
+            .expect("菜单里有这一项")
+    }
+
     #[test]
     fn the_menu_bar_has_eight_distinct_titles() {
         assert_eq!(MENUS.len(), 8);
@@ -390,6 +483,76 @@ mod tests {
         titles.sort_unstable();
         titles.dedup();
         assert_eq!(titles.len(), MENUS.len());
+    }
+
+    #[test]
+    fn every_menu_has_a_spec() {
+        for index in 0..MENUS.len() {
+            assert!(
+                !menu_spec(index, document_state()).is_empty(),
+                "第 {index} 个菜单是空的"
+            );
+        }
+    }
+
+    /// 撤销 / 重做 / 剪切 / 羽化的可点性跟着文档状态走（自绘与原生共用这张表）。
+    #[test]
+    fn history_and_selection_actions_follow_the_menu_state() {
+        let empty = MenuState {
+            can_undo: false,
+            ..document_state()
+        };
+        assert!(!find(&[1], empty, MenuAction::Undo).enabled());
+        assert!(find(&[1], document_state(), MenuAction::Undo).enabled());
+        // 没有选区时「剪切」「羽化」「取消选择」都置灰。
+        assert!(!find(&[1, 4], document_state(), MenuAction::Cut).enabled());
+        assert!(!find(&[1, 4], document_state(), MenuAction::FeatherSelection).enabled());
+        // 撤销 / 重做是两个独立状态位：撤销不可用不影响重做。
+        assert!(!find(&[1], empty, MenuAction::Redo).enabled());
+        let redo = MenuState {
+            can_redo: true,
+            ..empty
+        };
+        assert!(find(&[1], redo, MenuAction::Redo).enabled());
+    }
+
+    /// 主页（没有文档）时整张菜单置灰：原生菜单栏那时候也显示。
+    #[test]
+    fn every_entry_is_greyed_out_without_a_document() {
+        for index in 0..MENUS.len() {
+            for entry in menu_spec(index, MenuState::none()) {
+                if entry == MenuEntry::Separator {
+                    continue;
+                }
+                assert!(!entry.enabled(), "第 {index} 个菜单仍有可点项：{entry:?}");
+            }
+        }
+    }
+
+    /// 棋盘格开关带勾选：自绘下拉显示 `✓ `，原生菜单栏用 `setState`。
+    #[test]
+    fn the_checkerboard_entry_is_checked_while_the_background_is_on() {
+        let on = MenuState {
+            checkerboard: true,
+            ..document_state()
+        };
+        let entry = find(&[6], on, MenuAction::ToggleCheckerboard);
+        assert_eq!(
+            entry,
+            MenuEntry::Item {
+                label: "显示棋盘格",
+                shortcut: None,
+                action: MenuAction::ToggleCheckerboard,
+                enabled: true,
+                checked: true,
+            }
+        );
+        assert_eq!(entry.label(), "✓ 显示棋盘格");
+        assert!(
+            !find(&[6], document_state(), MenuAction::ToggleCheckerboard)
+                .label()
+                .contains('✓')
+        );
     }
 
     #[test]

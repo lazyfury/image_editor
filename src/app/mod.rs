@@ -5,6 +5,7 @@
 
 pub mod application;
 pub mod drop_files;
+pub mod native_menu;
 pub mod state;
 pub mod tool_groups;
 pub mod workspaces;

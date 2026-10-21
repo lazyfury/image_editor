@@ -58,6 +58,58 @@ pub(crate) fn check_chrome_order(failures: &mut Vec<String>) {
     }
 }
 
+/// 系统菜单栏接管（macOS 默认）时窗口里没有菜单栏：标签条钉到 `y = 0`，
+/// 选项栏接在标签带下面。无头自检画不了系统菜单栏，只检查折叠后的骨架。
+pub(crate) fn check_native_chrome_order(failures: &mut Vec<String>) {
+    let theme = crate::theme::editor_theme(false);
+    let mut view = EditorView::new(theme, AppState::default());
+    view.set_tab_band(crate::ui::TAB_STRIP_HEIGHT);
+    view.set_menu_bar_visible(false);
+    view.layout(viewport());
+
+    if let Some(menu) = view.menu_bar_rect() {
+        failures.push(format!("折叠后菜单栏仍报矩形 {:?}", menu));
+    }
+    let Some(options) = view.options_bar_rect() else {
+        failures.push("原生模式下取不到选项栏的矩形".to_string());
+        return;
+    };
+    let band = options.top();
+    if (band - crate::ui::TAB_STRIP_HEIGHT).abs() > 0.5 {
+        failures.push(format!(
+            "原生模式下选项栏应接在标签带 {:.0}px 下面，实际 top = {band:.1}",
+            crate::ui::TAB_STRIP_HEIGHT
+        ));
+    }
+
+    // 宿主按 `menu_bar_rect()` 落空把标签条钉到 0。
+    let mut tabs = crate::ui::WorkspaceTabs::new(theme);
+    tabs.set_tabs(
+        &[crate::ui::WorkspaceTab {
+            name: "A".into(),
+            dirty: false,
+        }],
+        0,
+    );
+    tabs.set_top(0.0);
+    tabs.layout(viewport());
+    match tabs.bar_rect() {
+        Some(bar) => {
+            if bar.top().abs() > 0.5 {
+                failures.push(format!("原生模式下标签条应贴顶，实际 top = {}", bar.top()));
+            }
+            if bar.bottom() > options.top() + 0.5 {
+                failures.push(format!(
+                    "标签条压到了选项栏：标签 {} / 选项栏 {}",
+                    bar.bottom(),
+                    options.top()
+                ));
+            }
+        }
+        None => failures.push("取不到标签条的矩形".to_string()),
+    }
+}
+
 /// `视图` 菜单：点标题开、菜单项齐全、点「适配窗口」执行并关闭。
 pub(crate) fn view_menu(view: &mut EditorView, failures: &mut Vec<String>) {
     // Phase 9：菜单栏 -> 下拉菜单 -> 菜单项动作。

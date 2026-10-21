@@ -46,6 +46,7 @@ image_editor — 用 igui 画的图像编辑器（Phase 8：移动 / 框选 / �
       --frames <n>  渲染 n 帧后退出（验证真实渲染管线）
       --light       使用浅色主题（默认深色）
       --pixel-font  使用内置点阵字体（默认系统字体；点阵字体不含中文）
+      --ui-menu     菜单栏画在窗口里（默认用 macOS 系统菜单栏）
   -h, --help        显示本帮助
 
 快捷键:
@@ -108,6 +109,7 @@ fn parse(args: &[String]) -> Result<Command, String> {
             "--dump" => return Ok(Command::SelfCheck { dump: true }),
             "--light" => options.light = true,
             "--pixel-font" => options.pixel_font = true,
+            "--ui-menu" => options.native_menu = false,
             "--frames" => {
                 let value = args
                     .get(index)
@@ -143,6 +145,8 @@ mod tests {
                 assert_eq!(options.frames, None);
                 assert!(!options.light);
                 assert!(!options.pixel_font);
+                // 默认用系统菜单栏（`todo.md` §1.aa）。
+                assert!(options.native_menu);
             }
             _ => panic!("expected a window run"),
         }
@@ -168,6 +172,15 @@ mod tests {
                 assert!(options.light);
                 assert!(options.pixel_font);
             }
+            _ => panic!("expected a window run"),
+        }
+    }
+
+    /// `--ui-menu` 退回自绘菜单（系统菜单栏是默认）。
+    #[test]
+    fn the_ui_menus_opt_out_of_the_native_menu_bar() {
+        match parse(&args(&["--ui-menu"])) {
+            Ok(Command::Run(options)) => assert!(!options.native_menu),
             _ => panic!("expected a window run"),
         }
     }

@@ -282,6 +282,59 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   （依赖文档 / 历史 / 选区 / 画笔），要改成「宿主转发给当前编辑器 + 无编辑器时置灰」，
   锚点节点与点标题开关菜单的命中测试跟着搬。真需要主页菜单时再做。
 
+### 1.aa 默认使用原生菜单栏（已完成）
+
+目标：macOS 上**默认**把「文件 / 编辑 / 图像 / 图层 / 选择 / 滤镜 / 视图 / 帮助」放进
+系统菜单栏（`NSApp.mainMenu`），窗口内不再画那一行；无头（`--selfcheck` / `--dump`）
+与非 macOS 继续用自绘菜单。这是「UI 全部由 igui 绘制」的一个明确例外（系统菜单栏
+不在窗口里），README 的架构段要补一句。
+
+- **开关**：`Options { native_menu: bool }` 默认 `true`，`--ui-menu` 关掉切回自绘；
+  宿主据此调 `EditorView::set_menu_bar_visible(false)`。
+- **一张菜单表**（`ui/menu.rs`）：抽出 `MenuSpec` / `MenuEntry::{Item { label,
+  shortcut, action, enabled, checked }, Separator}`，`menu_content` 与原生菜单都从它
+  生成，杜绝两套菜单漂移。
+- **平台层**（新 `src/app/native_menu/{mod.rs, macos.rs}`）：手写 objc2-app-kit 的
+  `NSMenu` / `NSMenuItem`（和 `io/dialog/macos.rs` 一样的风格，**不引 `muda` /
+  `tray-icon`**）；在 `AppLogic::init` 之后、主线程上 `setMainMenu`；App 菜单补
+  Quit / Hide / Hide Others / Show All。`NSMenuItem` 的 target/action 只往
+  `Rc<RefCell<Vec<MenuAction>>>` 塞动作，宿主每帧 `update` 取走再转发给当前编辑器
+  （无工作区时置灰 —— 代价同 §1.z 方案 B：`apply_menu_action` 要能被宿主转发）。
+- **状态同步**：`MenuState`（can_undo / can_redo / has_selection / can_paste）+ 棋盘格
+  勾选，签名变了才 `setEnabled` / `setState`（不每帧重建 NSMenu）。
+- **快捷键先留在 winit**：原生项不设 key equivalent，继续走 `shortcuts.rs` ——
+  `Cmd+A` 不能被菜单抢走（重命名输入框里的全选会失效）；只有 App 菜单的
+  Quit / Hide 例外。
+- **布局**：`set_menu_bar_visible(false)` 折叠画菜单的那一行（`set_tab_band` 同一套路），
+  `menu_bar_rect()` 返回 `None`，宿主把标签条钉到 `y = 0`。
+- **验收**：单测「菜单表 -> 自绘项口径一致（标签 / 禁用 / 勾选）」、
+  「隐藏菜单栏后 `menu_bar_rect() == None` + 选项栏贴顶」、
+  「标签条落在 `y = 0`」；`--selfcheck::check_chrome_order` 加原生变体；真机点一次
+  系统菜单项，用 `tracing` 打点确认走到了 `apply_menu_action`（不截图）。
+
+落地（`cargo test` 471 条 + `--selfcheck` 全绿）：
+
+- `ui/menu.rs`：`MenuEntry` / `MenuState`（多了 `has_document` / `checkerboard`）+
+  `menu_spec(index, state)`；`menu_content` 只是把这张表画成下拉（勾选项前缀 `✓ `）。
+  单测：每个菜单非空、禁用态跟 `MenuState` 走、没有文档时整张置灰、棋盘格勾选。
+- `src/app/native_menu/{mod,macos,other}.rs`：`MenuTarget`（`define_class!`）接
+  `menuAction:`，`tag` -> 动作表 -> 静态队列；`setAutoenablesItems(false)`，每帧只在
+  `MenuState` 变了才 `setEnabled` / `setState`。
+- 宿主：`Options::native_menu`（默认 `true`，`--ui-menu` 关）、`AppLogic::init` 里装、
+  `update` 里先取动作再同步状态；`workspace.rs::configure_editor` 与 `init` 折叠自绘
+  那一行；`layout` 用 `menu_bar_rect().map_or(0.0, …)` 钉标签条。
+- 验证：`app/application/menu.rs` 的转发有两条宿主单测（有工作区时动作生效、
+  没工作区时丢掉且不改标题）；`ui/tests/chrome.rs` 一条折叠布局；真实运行
+  `cargo run -- --frames 20` 确认装上（8 个下拉 / 41 项 / 顶层 9），并临时用
+  `performActionForItemAtIndex` 验过「启用项 -> target -> 队列」这条链。
+- **叫醒事件循环**（修「点了菜单要动一下鼠标才刷新」）：`igui_winit` 跑
+  `ControlFlow::Wait`，只在 winit 事件里 `request_redraw`；系统菜单的点击发生在
+  AppKit 的 run loop 里，不产生 winit 事件。现在宿主把
+  `window.request_redraw()` 的闭包（[`native_menu::Wake`]）交给平台层，`menuAction:`
+  入队后立刻调一次，下一帧就取动作并重画。临时探针确认回调里确实调到了宿主闭包。
+- 已知：真机用手点系统菜单项没做（没有截图 / 辅助功能自动化可用，只验到上面那条
+  链路）；原生项不显示 ⌘ 提示（快捷键仍归 `shortcuts.rs`，见上）。
+
 ## 性能：实测与优化计划（4K 很卡的调查）
 
 用一次性探针实测（已删除），对象是 128² / 1080p / 4K 三种文档，单位为「一次操作」。
@@ -405,9 +458,10 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   `assemble.rs` 的 11 段 `NodeRef -> NodeId` 收成 `slots()` / `ids()` 两个小函数，
   245 -> 213（剩下的是一条 `EditorView` 字面量，不再拆）。
   验收：`--selfcheck` 控件数 / 命令数逐字不变。
-- [x] **`ui/menu.rs::menu_content`**（234）-> 每个菜单一个函数（`file_menu` /
-  `edit_menu` / … / `help_menu`）+ 4 个状态位收进 `MenuState`（不再需要
-  `#[allow(clippy::too_many_arguments)]`）。
+- [x] **`ui/menu.rs` -> 一张菜单表**（Phase 24）：八个 `*_menu` 返回
+  `Vec<MenuEntry>`（`menu_spec`），`menu_content` 只负责把表画成下拉 —— 同一张表
+  喂 macOS 原生菜单栏（§1.aa）。之前是「每个菜单一个函数、各自直接建 `Menu`」+ 4 个
+  状态位收进 `MenuState`；现在 `MenuState` 多了 `has_document` / `checkerboard`。
 - [x] **`ui/options_bar.rs::options_bar`**（223）-> 四行各一个函数
   （`rows::{brush_row, pen_row, bucket_row, gradient_row}`）；16 个参数收成
   `BarInputs`（意图队列 + 各工具的开关格）+ `OptionSlots`（按钮节点收集器），
