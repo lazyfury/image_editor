@@ -1,10 +1,42 @@
-//! 布局与几何：排树、分隔条 / 面板高度夹取，以及画布区域与坐标换算。
+//! 布局与几何：面板尺寸、分隔条 / 面板高度夹取，以及画布区域与坐标换算。
+//!
+//! 可拖动的尺寸状态收在 [`Layout`] 里（[`EditorView`] 的 `layout` 字段）：三条
+//! 分隔条各自拖动的宽度 / 高度 + 侧栏标签页的当前页与按钮 / 内容节点。
 
-use igui_core::{Rect, Vec2};
+use igui_core::{NodeId, Rect, Vec2};
 
 use crate::canvas::screen_to_document;
 
 use super::*;
+
+/// 可拖动的面板尺寸 + 侧栏标签页状态。
+///
+/// 宽度 / 高度用 `Rc<Cell<f32>>`：分隔条控件（`ResizeHandle`）直接写，`layout`
+/// 每帧按窗口大小再夹取一次；节点是分隔条与内容容器的目标，标签页节点给测试和
+/// 自检用来「真的点一下」。
+pub(super) struct Layout {
+    /// 右侧栏宽度（分隔条写、`clamp_sidebar_width` 也写）。
+    pub(super) sidebar_width: Rc<Cell<f32>>,
+    /// 右侧栏节点（分隔条的目标）。
+    pub(super) sidebar: NodeId,
+    /// 右侧栏分隔条的节点。
+    pub(super) sidebar_handle: NodeId,
+    /// 左侧调色盘面板的宽度 / 节点 / 分隔条。
+    pub(super) palette_width: Rc<Cell<f32>>,
+    pub(super) palette_panel: NodeId,
+    pub(super) palette_picker: NodeId,
+    pub(super) palette_handle: NodeId,
+    /// 侧栏标签页：当前页（按钮写）、面板高度 / 节点 / 分隔条。
+    pub(super) active_tab: Rc<Cell<SidebarTab>>,
+    /// 上一次同步到树的标签页；变了才重设可见性 + 标脏重排。
+    pub(super) shown_tab: Option<SidebarTab>,
+    pub(super) tabs_height: Rc<Cell<f32>>,
+    pub(super) tabs_panel: NodeId,
+    pub(super) tabs_handle: NodeId,
+    /// 标签按钮 / 内容容器节点，测试与自检靠它们真的点一下。
+    pub(super) tab_buttons: Vec<(SidebarTab, NodeId)>,
+    pub(super) tab_contents: Vec<(SidebarTab, NodeId)>,
+}
 
 impl EditorView {
     /// 排布整棵树，并把相机同步到文档节点。
@@ -43,14 +75,17 @@ impl EditorView {
     /// 占到给画布留 [`CANVAS_MIN`] 为止（`examples/file_browser` 同款）。
     pub(super) fn clamp_sidebar_width(&mut self) {
         let full = self.viewport.logical_size().width;
-        let max =
-            (full - TOOLBAR_WIDTH - self.palette_width.get() - 2.0 * RESIZE_GUTTER - CANVAS_MIN)
-                .max(SIDEBAR_MIN);
-        let current = self.sidebar_width.get();
+        let max = (full
+            - TOOLBAR_WIDTH
+            - self.layout.palette_width.get()
+            - 2.0 * RESIZE_GUTTER
+            - CANVAS_MIN)
+            .max(SIDEBAR_MIN);
+        let current = self.layout.sidebar_width.get();
         let next = current.clamp(SIDEBAR_MIN, max);
         if (next - current).abs() > f32::EPSILON {
-            self.sidebar_width.set(next);
-            update_control(&mut self.tree, self.sidebar_node, |data| {
+            self.layout.sidebar_width.set(next);
+            update_control(&mut self.tree, self.layout.sidebar, |data| {
                 data.layout.basis = SizeBasis::Px(next);
             });
         }
@@ -61,11 +96,11 @@ impl EditorView {
         let full = self.viewport.logical_size().width;
         let max = (full - TOOLBAR_WIDTH - 2.0 * RESIZE_GUTTER - SIDEBAR_MIN - CANVAS_MIN)
             .clamp(PALETTE_MIN, PALETTE_MAX);
-        let current = self.palette_width.get();
+        let current = self.layout.palette_width.get();
         let next = current.clamp(PALETTE_MIN, max);
         if (next - current).abs() > f32::EPSILON {
-            self.palette_width.set(next);
-            update_control(&mut self.tree, self.palette_panel_node, |data| {
+            self.layout.palette_width.set(next);
+            update_control(&mut self.tree, self.layout.palette_panel, |data| {
                 data.layout.basis = SizeBasis::Px(next);
             });
         }
@@ -74,19 +109,19 @@ impl EditorView {
     /// 保证可拖的标签页面板不会把下面的「图层」面板挤没。
     /// 返回是否调整过（调用方需要再排一次）。
     pub(super) fn clamp_panel_heights(&mut self) -> bool {
-        let Some(sidebar) = igui_ui::control(&self.tree, self.sidebar_node) else {
+        let Some(sidebar) = igui_ui::control(&self.tree, self.layout.sidebar) else {
             return false;
         };
         // 预留：图层最小高度 + 分隔条 + 两个子节点之间的列间距。
         let overhead = LAYER_PANEL_MIN + RESIZE_GUTTER + space::XXXS;
         let max = (sidebar.rect.size.height - overhead).clamp(TABS_PANEL_MIN, TABS_PANEL_MAX);
-        let current = self.tabs_height.get();
+        let current = self.layout.tabs_height.get();
         let next = current.clamp(TABS_PANEL_MIN, max);
         if (next - current).abs() <= f32::EPSILON {
             return false;
         }
-        self.tabs_height.set(next);
-        update_control(&mut self.tree, self.tabs_panel_node, |data| {
+        self.layout.tabs_height.set(next);
+        update_control(&mut self.tree, self.layout.tabs_panel, |data| {
             data.layout.basis = SizeBasis::Px(next);
         });
         true

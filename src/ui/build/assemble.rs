@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::tools::PenTool;
+use crate::ui::layout::Layout;
 
 pub(super) fn finish(
     theme: &'static dyn Theme,
@@ -190,20 +191,22 @@ pub(super) fn finish(
         gradient_edit_node: options.gradient_edit.get().expect("gradient edit mounted"),
         gradient_editor_open: Cell::new(false),
         gradient_buttons,
-        sidebar_width,
-        sidebar_node: refs.sidebar.get().expect("sidebar mounted"),
-        sidebar_handle_node: refs.sidebar_handle.get().expect("sidebar handle mounted"),
-        palette_width,
-        palette_panel_node: refs.palette_panel.get().expect("palette panel mounted"),
-        palette_picker_node: refs.palette_picker.get().expect("palette picker mounted"),
-        palette_handle_node: refs.palette_handle.get().expect("palette handle mounted"),
-        active_tab,
-        shown_tab: None,
-        tabs_height,
-        tabs_panel_node: refs.tabs_panel.get().expect("tabs panel mounted"),
-        tabs_handle_node: refs.tabs_handle.get().expect("tabs handle mounted"),
-        tab_buttons,
-        tab_contents,
+        layout: Layout {
+            sidebar_width,
+            sidebar: refs.sidebar.get().expect("sidebar mounted"),
+            sidebar_handle: refs.sidebar_handle.get().expect("sidebar handle mounted"),
+            palette_width,
+            palette_panel: refs.palette_panel.get().expect("palette panel mounted"),
+            palette_picker: refs.palette_picker.get().expect("palette picker mounted"),
+            palette_handle: refs.palette_handle.get().expect("palette handle mounted"),
+            active_tab,
+            shown_tab: None,
+            tabs_height,
+            tabs_panel: refs.tabs_panel.get().expect("tabs panel mounted"),
+            tabs_handle: refs.tabs_handle.get().expect("tabs handle mounted"),
+            tab_buttons,
+            tab_contents,
+        },
         path_label: refs.path.get().expect("path label mounted"),
         shown_path: None,
         icon_count,

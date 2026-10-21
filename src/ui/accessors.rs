@@ -233,7 +233,8 @@ impl EditorView {
 
     /// 取色器饱和 / 明度方块的中心点；测试与自检模拟拖动用。
     pub fn palette_picker_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.palette_picker_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.layout.palette_picker)
+            .map(|control| control.rect.center())
     }
 
     /// 文件面板按钮的节点 id。
@@ -436,41 +437,44 @@ impl EditorView {
 
     /// 右栏当前宽度（逻辑像素）。
     pub fn sidebar_width(&self) -> f32 {
-        self.sidebar_width.get()
+        self.layout.sidebar_width.get()
     }
 
     /// 右栏分隔条的中心点（逻辑坐标）；测试与自检模拟拖动用。
     pub fn sidebar_handle_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.sidebar_handle_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.layout.sidebar_handle)
+            .map(|control| control.rect.center())
     }
 
     /// 左侧调色盘面板的宽度 / 分隔条中心。
     pub fn palette_width(&self) -> f32 {
-        self.palette_width.get()
+        self.layout.palette_width.get()
     }
 
     pub fn palette_handle_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.palette_handle_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.layout.palette_handle)
+            .map(|control| control.rect.center())
     }
 
     /// 右侧栏标签页面板的当前高度（逻辑像素）。
     pub fn tabs_height(&self) -> f32 {
-        self.tabs_height.get()
+        self.layout.tabs_height.get()
     }
 
     /// 标签页面板与「图层」面板之间分隔条的中心点（逻辑坐标）。
     pub fn tabs_handle_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.tabs_handle_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.layout.tabs_handle).map(|control| control.rect.center())
     }
 
     /// 当前标签页。
     pub fn active_tab(&self) -> SidebarTab {
-        self.active_tab.get()
+        self.layout.active_tab.get()
     }
 
     /// 某个标签按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
     pub fn tab_center(&self, tab: SidebarTab) -> Option<Vec2> {
         let id = self
+            .layout
             .tab_buttons
             .iter()
             .find(|(candidate, _)| *candidate == tab)
@@ -480,7 +484,8 @@ impl EditorView {
 
     /// 某个标签页内容当前是否可见。
     pub fn tab_content_visible(&self, tab: SidebarTab) -> bool {
-        self.tab_contents
+        self.layout
+            .tab_contents
             .iter()
             .find(|(candidate, _)| *candidate == tab)
             .and_then(|(_, id)| self.tree.is_visible(*id))

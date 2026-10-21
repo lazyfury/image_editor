@@ -31,6 +31,9 @@ src/ui/         views + project-local components: home (recent gallery),
                 rect-fill/gradient/eyedropper, select = rect/lasso/wand/free-fill
                 + selection commands, pen = pen pointer + keys, adjust = options
                 bar `−`/`+` requests -> tool parameters.
+                `ui/layout.rs` also owns `Layout`: the draggable panel widths /
+                heights, the nodes they resize, and the sidebar tab state (now an
+                `EditorView.layout` field instead of 14 loose fields).
                 `ui/intents.rs` is the callback -> view channel: widget callbacks
                 push an `Intent` (tool / menu / options bar / pen / rename / file)
                 into one queue; `EditorView::update` drains it in arrival order

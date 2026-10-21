@@ -296,27 +296,11 @@ pub struct EditorView {
     gradient_editor_open: Cell<bool>,
     /// 渐变类型切换按钮节点（测试 / 自检点击用）。
     gradient_buttons: Vec<(GradientAdjust, NodeId)>,
-    /// 右侧栏共享宽度（分隔条写、`clamp_sidebar_width` 也写）。
-    sidebar_width: Rc<Cell<f32>>,
-    /// 右侧栏节点（分隔条的目标）。
-    sidebar_node: NodeId,
-    /// 右侧栏分隔条的节点。
-    sidebar_handle_node: NodeId,
-    /// 左侧调色盘面板的宽度 / 节点 / 分隔条。
-    palette_width: Rc<Cell<f32>>,
-    palette_panel_node: NodeId,
-    palette_picker_node: NodeId,
-    palette_handle_node: NodeId,
-    /// 侧栏标签页：当前页（按钮写）、面板高度 / 节点 / 分隔条。
-    active_tab: Rc<Cell<SidebarTab>>,
-    /// 上一次同步到树的标签页；变了才重设可见性 + 标脏重排。
-    shown_tab: Option<SidebarTab>,
-    tabs_height: Rc<Cell<f32>>,
-    tabs_panel_node: NodeId,
-    tabs_handle_node: NodeId,
-    /// 标签按钮 / 内容容器节点，测试与自检靠它们真的点一下。
-    tab_buttons: Vec<(SidebarTab, NodeId)>,
-    tab_contents: Vec<(SidebarTab, NodeId)>,
+    /// 可拖动的面板尺寸 + 侧栏标签页状态（[`layout::Layout`]）。
+    ///
+    /// 和 `EditorView::layout`（排树）不是一回事：这里是「拖成多宽 / 多高、现在
+    /// 停在哪一页」的状态，见 `ui/layout.rs`。
+    layout: layout::Layout,
     /// 路径标签节点，以及上一次写入的内容（避免每帧刷文本）。
     path_label: NodeId,
     shown_path: Option<String>,

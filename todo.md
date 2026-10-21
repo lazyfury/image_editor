@@ -380,9 +380,13 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   到达顺序处理，`Intent::File` 留在队列里给宿主。`EditorView` 字段 126 -> 115，
   `update()` 少 11 段 `if let Some(..) = self.*_request.take()`。
   验收：`--selfcheck` 逐字不变（253 控件 / 1023 命令）、测试 +3 条队列语义。
-- [ ] **`EditorView` 按簇抽子结构体**（options 栏共享格 / 布局尺寸与节点 /
-  选区合并态）。字段 115 里还有 38 个 `NodeId` + 30 来个 `Rc<Cell/RefCell>`，「布局」
-  （宽度 / 高度 / 节点 / 当前页）和「选项栏共享格」是最干净的两簇。
+- [x] **`EditorView` 第一簇：布局**（`ui/layout.rs::Layout`）：三条分隔条的宽度 /
+  高度 + 它们拖动 / 夹取的节点 + 侧栏标签页的当前页 / 按钮 / 内容节点，共 14 个
+  字段收成一个 `layout` 字段。字段 115 -> 102（`NodeId` 38 -> 31）。
+  验收：`--selfcheck` 逐字不变、拖分隔条 / 切标签页的测试全过。
+- [ ] **`EditorView` 第二簇：渐变**（`ramp` / `reverse` / `customized` /
+  `selected` / `kind` / `tool` / `editor_open` / 3 个节点 / 按钮表，约 11 个字段）
+  -> `ui/gradient.rs::GradientState`；第三簇是画笔 / 油漆桶的选项栏共享格。
 - [ ] **拆 `ui/tests.rs`**（2435 行 / 88 个测试）-> `ui/tests/` 按功能分文件，
   共享夹具留 `tests/mod.rs`。验收：测试数不变、每个文件 < 500 行。
 - [ ] **构造函数**：`ui/build/tree.rs::build_tree`（319）/ `assemble.rs::finish`

@@ -1157,7 +1157,7 @@ fn the_zoom_shortcuts_change_the_camera() {
 
 /// 切到某个标签页（等同点标签：写共享状态后 `update` + `layout`）。
 fn select_tab(view: &mut EditorView, tab: SidebarTab) {
-    view.active_tab.set(tab);
+    view.layout.active_tab.set(tab);
     view.update();
     view.layout(viewport());
 }

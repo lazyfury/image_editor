@@ -13,16 +13,16 @@ impl EditorView {
     /// 标签页切换：只让当前内容参与布局与绘制（隐藏内容不可见，也不命中）。
     /// 激活页没变时是空操作，避免每帧重排。
     pub(super) fn sync_tabs(&mut self) {
-        let active = self.active_tab.get();
-        if self.shown_tab == Some(active) {
+        let active = self.layout.active_tab.get();
+        if self.layout.shown_tab == Some(active) {
             return;
         }
-        self.shown_tab = Some(active);
+        self.layout.shown_tab = Some(active);
         tabs::show_active(
             &mut self.tree,
-            self.tabs_panel_node,
+            self.layout.tabs_panel,
             active,
-            &self.tab_contents,
+            &self.layout.tab_contents,
         );
     }
 
