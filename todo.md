@@ -415,8 +415,13 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   `ui/gradient_editor.rs::gradient_editor_content`（160）、
   `ui/new_document.rs::build_content`（147）、`ui/layer_panel.rs::action_buttons`
   （137）。
-- [ ] **拆 `ui/new_document.rs` / `ui/window/mod.rs`（698）/ `document/history.rs`
-  （694）/ `app/application/mod.rs`（953）/ `canvas/selection.rs`（627）**。
+- [x] **`app/application/mod.rs`**（953）-> `mod.rs`（402：Options / run /
+  `ImageEditorLogic` 字段 + `AppLogic`）+ `home.rs`（83）+ `modal.rs`（51）+
+  `workspace.rs`（107，含从 `update()` 抽出的 `sync_active_workspace`）+
+  `tests.rs`（336，宿主级测试）。`update()` 66 -> 60 行但只剩一串「步骤调用」。
+  验收：test 437 passed、`--selfcheck` 逐字不变。
+- [ ] **拆 `ui/new_document.rs`（843）/ `ui/window/mod.rs`（698）/
+  `document/history.rs`（694）/ `canvas/selection.rs`（627）**。
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
   `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
   不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。

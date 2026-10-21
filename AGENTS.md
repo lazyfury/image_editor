@@ -15,9 +15,11 @@ src/app/        state (AppState/document session) + workspaces (multi-workspace)
                 single-window host on the igui_app runtime + igui_winit plugins +
                 drop_files (drag-and-drop -> new layer).
                 `application/` holds the host: mod.rs (Options / run / build_app
-                + ImageEditorLogic + AppLogic), files.rs (save/open/import/
-                export/close/drop), shortcuts.rs, plugins.rs (text measure /
-                frame limit).
+                + ImageEditorLogic fields + AppLogic), home.rs (gallery entries +
+                home requests), modal.rs (new-document modal + close confirm),
+                workspace.rs (workspace lifecycle + per-frame sync), files.rs
+                (save/open/import/export/close/drop), shortcuts.rs, plugins.rs
+                (text measure / frame limit), tests.rs (host-level tests).
 src/ui/         views + project-local components: home (recent gallery),
                 new_document, workspace_tabs, menu, toolbar, options_bar, canvas,
                 layer/file/properties/tabs/palette panels, rename (TextInput

@@ -311,10 +311,14 @@ src/
 │   ├── tool_groups.rs   # 工具栏分组（组内工具 + 默认脸）
 │   ├── workspaces.rs    # 多工作区（EditorView + 路径 + 脏标记）
 │   └── application/     # winit + wgpu 宿主
-│       ├── mod.rs       # Options / run / build_app + ImageEditorLogic 核心 + AppLogic
+│       ├── mod.rs       # Options / run / build_app + ImageEditorLogic 字段 + AppLogic
+│       ├── home.rs      # 画廊条目（打开中 + 最近）+ 主页请求
+│       ├── modal.rs     # 新建文档模态 + 关闭确认框的生命周期
+│       ├── workspace.rs # 工作区新建 / 切标签 / 每帧同步（偏好、纹理采样）
 │       ├── files.rs     # 保存 / 打开 / 导入导出 / 关闭确认 / 拖放
 │       ├── shortcuts.rs # 确认解析 + ⌘ 快捷键
-│       └── plugins.rs   # 字体度量 / 帧数上限插件
+│       ├── plugins.rs   # 字体度量 / 帧数上限插件
+│       └── tests.rs     # 宿主级测试（模态 / 标签条 / 保存流程）
 ├── icons.rs             # Lucide 图标包加载 + `Icon` 组件（igui_svg）
 ├── document/            # Phase 2：后端无关的数据模型
 │   ├── mod.rs
