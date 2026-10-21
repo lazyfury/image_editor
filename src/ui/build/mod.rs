@@ -29,7 +29,7 @@ use crate::tools::{
     BrushTool, GradientKind, GradientTool, MoveTool, PaintBucketTool, RectangleFillTool,
 };
 
-use super::options_bar::{options_bar, GradientOptions, OptionsRefs};
+use super::options_bar::{options_bar, BarInputs, GradientOptions, OptionSlots, OptionsRefs};
 use super::tabs::{SidebarTab, TabsView};
 use super::{
     canvas, file_panel, history_panel, layer_panel, menu, palette, properties_panel, status_bar,

@@ -10,24 +10,28 @@ use super::*;
 pub(super) fn options_strip(theme: &'static dyn Theme, wiring: &mut Wiring) -> impl Component {
     options_bar(
         theme,
-        wiring.intents.clone(),
         crate::tools::brush::preset::PRESETS[0].name.as_ref(),
-        wiring.pixel_mode.clone(),
-        wiring.square_mode.clone(),
-        wiring.symmetry_mode.clone(),
-        wiring.bucket_contiguous.clone(),
-        GradientOptions {
-            gradient: wiring.gradient.clone(),
-            reverse: wiring.gradient_reverse.clone(),
+        BarInputs {
             intents: wiring.intents.clone(),
+            hard: wiring.pixel_mode.clone(),
+            square: wiring.square_mode.clone(),
+            symmetry: wiring.symmetry_mode.clone(),
+            contiguous: wiring.bucket_contiguous.clone(),
+            gradient: GradientOptions {
+                gradient: wiring.gradient.clone(),
+                reverse: wiring.gradient_reverse.clone(),
+                intents: wiring.intents.clone(),
+            },
         },
         &wiring.options,
-        &mut wiring.brush_refs,
-        &mut wiring.toggle_refs,
-        &mut wiring.pen_refs,
-        &mut wiring.bucket_refs,
-        &mut wiring.bucket_toggle_refs,
-        &mut wiring.gradient_refs,
+        OptionSlots {
+            brush: &mut wiring.brush_refs,
+            brush_toggles: &mut wiring.toggle_refs,
+            pen: &mut wiring.pen_refs,
+            bucket: &mut wiring.bucket_refs,
+            bucket_toggles: &mut wiring.bucket_toggle_refs,
+            gradient: &mut wiring.gradient_refs,
+        },
     )
 }
 

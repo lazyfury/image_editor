@@ -398,7 +398,9 @@ src/
 │   ├── toolbar.rs       # 分组工具栏（长按展开切换）+ 撤销/重做
 │   ├── workspace_tabs.rs # 工作区标签条（切换 / 关闭 / 新建 / 主页）
 │   ├── palette.rs       # 左侧调色盘面板（HSV 取色器 + 前景/背景 + 预设色块）
-│   ├── options_bar.rs   # 工具选项栏（笔刷大小 / 不透明度 / 提示）
+│   ├── options_bar/     # 工具选项栏
+│   │   ├── mod.rs       #   类型 / BarInputs / OptionSlots / options_bar + 提示
+│   │   └── rows.rs      #   四行：画笔 / 钢笔 / 油漆桶 / 渐变 + 步进 / 开关按钮
 │   ├── canvas.rs        # 透明画布区域（命中 / 定位用）
 │   ├── selection.rs     # 选区描边（黑白相间马赛克线段）
 │   ├── gradient_editor.rs # 多节点渐变编辑器（色带 + 节点手柄 + 配色行）
