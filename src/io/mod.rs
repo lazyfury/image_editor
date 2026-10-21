@@ -7,6 +7,8 @@
 //! - [`codec`]：内存里的 `PixelBuffer <-> PNG 字节`，不碰文件，最容易测。
 //! - [`file`]：`路径 <-> PNG 字节`，加一点默认命名 / 文件名规则。
 //!
+//! 画廊缩略图的磁盘缓存（`io/thumbnail.rs`）也在这里：它只读写 PNG，不合成像素。
+//!
 //! [`PixelBuffer`]: crate::document::PixelBuffer
 
 mod bytes;
@@ -16,6 +18,7 @@ mod dialog;
 mod file;
 mod preferences;
 mod recent;
+mod thumbnail;
 mod timeline;
 mod workspace;
 
@@ -27,6 +30,7 @@ pub use preferences::{
     load as load_preferences, save as save_preferences, BrushPreferences, EditorPreferences,
 };
 pub use recent::{load_recent, record_recent};
+pub use thumbnail::{load as load_thumbnail, store as store_thumbnail};
 pub use timeline::{
     read_timeline, timeline_path_for, write_timeline, EXTENSION as TIMELINE_EXTENSION,
 };

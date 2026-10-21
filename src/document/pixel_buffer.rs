@@ -176,9 +176,7 @@ impl PixelBuffer {
     /// 返回一块新尺寸的缓冲区，左上角对齐地拷贝重叠区域（不缩放、不插值）。
     ///
     /// 这是"改画布尺寸"的语义：超出新边界的像素被裁掉，新区域保持透明。
-    ///
-    /// TODO(v1.1): 需要缩放语义（缩略图 / 变换）时，在这里加一个显式的
-    /// `resample`，不要让 `resize` 同时承担两种含义。
+    /// 要缩放（缩略图）用 [`Self::scaled_to_fit`]，两者刻意分开。
     pub fn resize(&self, width: u32, height: u32) -> Self {
         let mut out = Self::new(width, height);
         let copy_w = self.width.min(width);
@@ -212,12 +210,77 @@ impl PixelBuffer {
         out
     }
 
+    /// 等比缩到最长边不超过 `max_edge`，返回新缓冲区（画廊缩略图用）。
+    ///
+    /// 已经更小就原样返回（缩略图不放大：放大只会糊）。降采样按**源矩形面积
+    /// 平均**、alpha 前置加权，而不是最近邻 —— 4K 文档缩到 96px 时最近邻等于
+    /// 随机丢像素，缩略图会看着像噪点。
+    pub fn scaled_to_fit(&self, max_edge: u32) -> Self {
+        let longest = self.width.max(self.height);
+        if self.is_empty() || max_edge == 0 || longest <= max_edge {
+            return self.clone();
+        }
+        let scale = max_edge as f32 / longest as f32;
+        let width = ((self.width as f32 * scale).round() as u32).max(1);
+        let height = ((self.height as f32 * scale).round() as u32).max(1);
+        self.scaled(width, height)
+    }
+
+    /// 精确缩放到 `width × height`：每个目标像素取对应源矩形的 alpha 加权均值。
+    ///
+    /// 透明像素不参与颜色平均（只算进 alpha），否则半透明边缘会被黑边包围。
+    fn scaled(&self, width: u32, height: u32) -> Self {
+        if width == 0 || height == 0 || self.is_empty() {
+            return Self::new(0, 0);
+        }
+        let mut out = Self::new(width, height);
+        let stride = self.width as usize;
+        for y in 0..height {
+            let y0 = span(y, height, self.height);
+            for x in 0..width {
+                let x0 = span(x, width, self.width);
+                let (mut alpha, mut red, mut green, mut blue, mut count) =
+                    (0u64, 0u64, 0u64, 0u64, 0u64);
+                for source_y in y0.clone() {
+                    for source_x in x0.clone() {
+                        let base = (source_y as usize * stride + source_x as usize) * 4;
+                        let a = u64::from(self.data[base + 3]);
+                        alpha += a;
+                        red += u64::from(self.data[base]) * a;
+                        green += u64::from(self.data[base + 1]) * a;
+                        blue += u64::from(self.data[base + 2]) * a;
+                        count += 1;
+                    }
+                }
+                let target = ((y as usize * width as usize) + x as usize) * 4;
+                if alpha == 0 || count == 0 {
+                    out.data[target..target + 4].copy_from_slice(&[0, 0, 0, 0]);
+                    continue;
+                }
+                out.data[target] = (red / alpha) as u8;
+                out.data[target + 1] = (green / alpha) as u8;
+                out.data[target + 2] = (blue / alpha) as u8;
+                out.data[target + 3] = (alpha / count) as u8;
+            }
+        }
+        out
+    }
+
     fn index(&self, x: u32, y: u32) -> Option<usize> {
         if !self.contains(x, y) {
             return None;
         }
         Some((y as usize * self.width as usize + x as usize) * 4)
     }
+}
+
+/// 目标下标 `index`（共 `length` 个）在源尺寸 `source` 里覆盖的半开区间。
+///
+/// 缩小时区间宽 > 1（面积平均），放大时至少 1（最近邻取一个）。
+fn span(index: u32, length: u32, source: u32) -> std::ops::Range<u32> {
+    let start = (u64::from(index) * u64::from(source) / u64::from(length)) as u32;
+    let end = ((u64::from(index) + 1) * u64::from(source) / u64::from(length)) as u32;
+    start..end.max(start + 1).min(source)
 }
 
 /// 直通 alpha 的 `source-over`，在 4 字节 RGBA 上**就地**写入 `dst`。
@@ -341,6 +404,35 @@ mod tests {
         // 向左移：内容被裁到边界。
         let clipped = buffer.placed(3, 1, -1, 0);
         assert_eq!(clipped.get_pixel(0, 0), Color::TRANSPARENT);
+    }
+
+    /// 缩略图等比缩放：最长边落到上限，短边按比例，已有尺寸不放大。
+    #[test]
+    fn scaled_to_fit_keeps_the_aspect_and_never_upscales() {
+        let buffer = PixelBuffer::filled(800, 600, Color::RED);
+        let thumb = buffer.scaled_to_fit(96);
+        assert_eq!((thumb.width, thumb.height), (96, 72));
+        assert_eq!(thumb.get_pixel(50, 50), Color::RED, "缩放保留颜色");
+
+        let small = PixelBuffer::filled(20, 10, Color::RED);
+        assert_eq!(small.scaled_to_fit(96).width, 20, "小图不放大");
+    }
+
+    /// 缩小时按面积平均，且颜色只算有 alpha 的像素：透明像素不会把平均色拉黑。
+    #[test]
+    fn downscaling_averages_and_ignores_transparent_pixels() {
+        let mut buffer = PixelBuffer::new(2, 1);
+        buffer.set_pixel(0, 0, Color::RED);
+        assert_eq!(
+            buffer.scaled_to_fit(1).get_pixel(0, 0),
+            Color::new(255, 0, 0, 127)
+        );
+
+        let mut mixed = PixelBuffer::new(2, 1);
+        mixed.set_pixel(0, 0, Color::RED);
+        mixed.set_pixel(1, 0, Color::new(0, 0, 255, 255));
+        let color = mixed.scaled_to_fit(1).get_pixel(0, 0);
+        assert_eq!((color.r, color.b), (127, 127), "两块不透明色取均值");
     }
 
     #[test]

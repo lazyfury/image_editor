@@ -20,7 +20,8 @@ src/app/        state (AppState/document session) + workspaces (multi-workspace)
                 workspace.rs (workspace lifecycle + per-frame sync), files.rs
                 (save/open/import/export/close/drop), shortcuts.rs, plugins.rs
                 (text measure / frame limit), tests.rs (host-level tests).
-src/ui/         views + project-local components: home (recent gallery),
+src/ui/         views + project-local components: home (recent gallery with
+                thumbnails),
                 new_document/ (mod = modal shell wiring, form = the form,
                 widgets = stepper / preset / swatch, tests), workspace_tabs,
                 menu, toolbar, options_bar, canvas,
@@ -72,6 +73,7 @@ src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
                 (pixel mask + outline: rect / lasso / wand)
 src/io/         PNG encode/decode + `.igui` workspace files + `.igtl` edit
                 timeline (timeline.rs; byte helpers in bytes.rs) + recent list +
+                gallery thumbnail cache (thumbnail.rs) +
                 dialog.rs (hand-written native file dialogs: macOS NSOpenPanel /
                 NSSavePanel, Windows comdlg32, Unix zenity/kdialog; no `rfd`)
 src/fonts.rs    bundled-font discovery (assets/fonts/)

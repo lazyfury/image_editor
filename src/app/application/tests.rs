@@ -403,3 +403,99 @@ fn history_shortcut_requires_a_command_modifier() {
         "Ctrl/Cmd+Z 应命中撤销"
     );
 }
+
+/// 打开中的工作区是画廊的第一条，且带一张排好队的缩略图（纹理 id 按条目下标）。
+#[test]
+fn an_open_workspace_entry_carries_a_queued_thumbnail() {
+    let logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    let mut uploads = Vec::new();
+    let entries = home_entries(&logic.workspaces, &mut uploads);
+    let thumbnail = entries
+        .first()
+        .and_then(|entry| entry.thumbnail)
+        .expect("打开中的工作区应有缩略图");
+    assert_eq!(thumbnail.texture, crate::ui::thumbnail_texture(0));
+    assert!(
+        thumbnail.width <= 96 && thumbnail.height <= 96,
+        "缩略图最长边不超过 96：{thumbnail:?}"
+    );
+    assert!(
+        uploads
+            .iter()
+            .any(|(texture, pixels)| *texture == thumbnail.texture
+                && (pixels.width, pixels.height) == (thumbnail.width, thumbnail.height)),
+        "缩略图像素要排进上传队列"
+    );
+}
+
+/// 文档 → 缩略图：合成（背景层 + 图层）后等比缩小，颜色不被缩放弄丢。
+#[test]
+fn a_document_thumbnail_is_composited_and_scaled() {
+    let document = Document::with_background("测试", 200, 100, crate::document::Color::RED);
+    let pixels = home::thumbnail_of(&document);
+    assert_eq!(
+        (pixels.width, pixels.height),
+        (96, 48),
+        "最长边 96、保持比例"
+    );
+    assert_eq!(pixels.get_pixel(48, 24), crate::document::Color::RED);
+}
+
+/// 清掉每个工作区开屏时的首次纹理上传，之后的变化才是本次操作引起的。
+fn drain_texture_uploads(logic: &mut ImageEditorLogic) {
+    for index in 0..logic.workspaces.tabs().len() {
+        if let Some(workspace) = logic.workspaces.get_mut(index) {
+            workspace.editor.take_texture_upload();
+        }
+    }
+}
+
+/// 后端只有一张 DOCUMENT_TEXTURE：关掉激活的工作区后，接手的那个必须重新合成，
+/// 否则画布还停在已关闭工作区的图像上（关标签看起来「没更新」）。
+#[test]
+fn closing_the_active_workspace_recomposites_the_remaining_document() {
+    let theme = crate::theme::editor_theme(false);
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic
+        .workspaces
+        .push(Workspace::new(EditorView::new(theme, AppState::default())));
+    drain_texture_uploads(&mut logic);
+    assert_eq!(logic.workspaces.active_index(), 1);
+
+    logic.close_workspace(1);
+    assert_eq!(logic.workspaces.active_index(), 0);
+    assert!(
+        logic
+            .workspaces
+            .active_mut()
+            .expect("还剩一个工作区")
+            .editor
+            .take_texture_upload()
+            .is_some(),
+        "关闭激活的工作区后要重合成剩下的文档"
+    );
+}
+
+/// 关掉后台标签不动当前文档：没必要为 4K 文档重做一次整图合成。
+#[test]
+fn closing_a_background_workspace_keeps_the_active_texture() {
+    let theme = crate::theme::editor_theme(false);
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic
+        .workspaces
+        .push(Workspace::new(EditorView::new(theme, AppState::default())));
+    drain_texture_uploads(&mut logic);
+
+    logic.close_workspace(0);
+    assert_eq!(logic.workspaces.active_index(), 0, "激活的仍是原来的第二个");
+    assert!(
+        logic
+            .workspaces
+            .active_mut()
+            .expect("还剩一个工作区")
+            .editor
+            .take_texture_upload()
+            .is_none(),
+        "关后台标签不该触发重合成"
+    );
+}

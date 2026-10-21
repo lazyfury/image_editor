@@ -556,6 +556,22 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 
 ## Done（近期）
 
+- **关闭激活工作区后画布不刷新**（`app/application/files.rs`）：后端只有一张
+  `DOCUMENT_TEXTURE`，`close_workspace` 删完只更新了标题，没让接手的那个工作区
+  重合成，于是画布还停在已关闭文档的图像上（看起来像「关标签没反应」）。现在
+  关的是激活标签时给新激活的工作区 `mark_texture_dirty()`；关后台标签不动当前
+  纹理（不为 4K 文档白做一次整图合成）。验收：宿主测试分别断言“关激活 → 剩下
+  的工作区产出一帧合成”和“关后台 → 不产出”。
+
+- **画廊预览图**（`ui/home.rs` + `io/thumbnail.rs` + `app/application/home.rs`）：
+  每条画廊条目左边一张缩略图（最长边 96px，等比居中在 56px 方框里，
+  `PixelBuffer::scaled_to_fit` 面积平均降采样）；打开中的工作区用内存文档合成
+  （`EditorView::thumbnail`），最近文件走配置目录下的
+  `thumbnails/<路径哈希>.png` 缓存（保存时写、工作区更新后失效），像素由宿主
+  `sync_home_thumbnails` 传到后端（纹理 id 从 2 起按下标分配，线性采样）。
+  验收：`home::tests` 断言缩略图发出 `DrawImage` 且保持比例 / 装得进方框、
+  `io::thumbnail` 缓存的往返与失效、宿主测试断言打开中的工作区带排好队的缩略图。
+
 - **图层重命名改用上游 `TextInput` 浮层**（`ui/rename.rs`）：原来是在状态栏里
   手写按键缓冲（`InputEvent::TextInput` + `Backspace`，没光标 / 选区 / 剪贴板 /
   IME），现在是 `Overlays::popover(Placement::Above)` 里一个上游 `TextInput`

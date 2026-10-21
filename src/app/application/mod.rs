@@ -31,7 +31,7 @@ use igui_app::{
 };
 use igui_backend_wgpu::{FontConfig, FontMetrics, FontMode, TextureFilter};
 use igui_core::{Color, EventResult, InputEvent, Key, Modifiers};
-use igui_render::{DrawList, PaintContext};
+use igui_render::{DrawList, PaintContext, TextureId};
 use igui_theme::{SurfaceLevel, Theme};
 use igui_ui::{Clipboard, TextMeasurer};
 use igui_winit::{
@@ -41,12 +41,13 @@ use igui_winit::{
 
 use crate::app::state::AppState;
 use crate::app::workspaces::{Workspace, Workspaces};
-use crate::document::PixelBuffer;
+use crate::document::{Document, PixelBuffer};
 use crate::io::{DialogOptions, FileDialog, FileFilter, NativeFileDialog};
+use crate::renderer::{CpuRenderer, RenderTarget, Renderer};
 use crate::ui::{
-    ConfirmDialog, ConfirmResult, EditorView, FileRequest, HomeEntry, HomeOpenRequest, HomeView,
-    NewDocumentModal, NewDocumentResult, NewDocumentSpec, WorkspaceTabAction, WorkspaceTabs,
-    TAB_STRIP_HEIGHT,
+    thumbnail_texture, ConfirmDialog, ConfirmResult, EditorView, FileRequest, HomeEntry,
+    HomeOpenRequest, HomeThumbnail, HomeView, NewDocumentModal, NewDocumentResult, NewDocumentSpec,
+    WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT,
 };
 
 mod files;
@@ -159,6 +160,8 @@ struct ImageEditorLogic {
     image_clipboard: Rc<RefCell<Option<crate::tools::PixelClipboard>>>,
     /// 文档换了标题，下一帧写回原生窗口。
     title_dirty: bool,
+    /// 画廊缩略图待上传的像素（每条一张纹理，id 见 `ui::thumbnail_texture`）。
+    thumbnail_uploads: Vec<(TextureId, PixelBuffer)>,
 }
 
 /// 主窗口当前显示哪一屏。编辑器的工作区在 `ImageEditorLogic::workspaces`。
@@ -170,7 +173,8 @@ enum Screen {
 impl ImageEditorLogic {
     fn new(theme: &'static dyn Theme, dialog: Rc<dyn FileDialog>) -> Self {
         let workspaces = Workspaces::new();
-        let home = HomeView::new(theme, home_entries(&workspaces));
+        let mut thumbnail_uploads = Vec::new();
+        let home = HomeView::new(theme, home_entries(&workspaces, &mut thumbnail_uploads));
         Self {
             theme,
             measurer: None,
@@ -187,6 +191,7 @@ impl ImageEditorLogic {
             image_smoothing: crate::canvas::ImageSmoothing::Linear,
             image_clipboard: Rc::new(RefCell::new(None)),
             title_dirty: false,
+            thumbnail_uploads,
         }
     }
 
@@ -295,6 +300,7 @@ impl AppLogic for ImageEditorLogic {
         // 以下都可能改文档 / 激活工作区（导入、打开、拖放、画廊切换），所以先处理，
         // 最后统一 `update` + 上传纹理，新内容当帧就能显示。
         if matches!(self.screen, Screen::Home(_)) {
+            self.sync_home_thumbnails(ctx);
             self.handle_home_requests(ctx);
         }
         if matches!(self.screen, Screen::Editor) {

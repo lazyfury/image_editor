@@ -68,6 +68,12 @@ impl ImageEditorLogic {
                     workspace.mark_saved(target.clone());
                 }
                 let _ = crate::io::record_recent(&target);
+                // 画廊预览：工作区刚更新过，顺手把缩略图缓存重写一份。
+                if let Err(error) =
+                    crate::io::store_thumbnail(&target, &super::home::thumbnail_of(&document))
+                {
+                    tracing::warn!(target: "image_editor", %error, "thumbnail_cache_write_failed");
+                }
                 if let Some(workspace) = self.workspaces.get(index) {
                     workspace
                         .editor
@@ -197,7 +203,15 @@ impl ImageEditorLogic {
     pub(super) fn close_workspace(&mut self, index: usize) {
         // 关闭前把过程记录落盘，否则加载到一半的延时动画就随着工作区丢了。
         self.flush_timeline(index);
+        // 关的是激活的那一个：后端只有一张 DOCUMENT_TEXTURE，切到“下一个”后必须
+        // 重新合成上传，否则画布还停在已关闭工作区的图像上（关标签看起来没反应）。
+        let closed_active = self.workspaces.active_index() == index;
         self.workspaces.remove(index);
+        if closed_active {
+            if let Some(workspace) = self.workspaces.active_mut() {
+                workspace.editor.mark_texture_dirty();
+            }
+        }
         if self.workspaces.is_empty() {
             self.go_home();
         } else {

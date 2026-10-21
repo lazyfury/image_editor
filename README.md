@@ -38,7 +38,8 @@ cargo run -- --pixel-font
   2560×1440、3840×2160（4K）、2048×2048、2480×3508（A4 300dpi）。大尺寸走 CPU
   合成：release 下 4K 一次全图合合约 13ms（1080p 约 4ms、512² 约 0.5ms），
   所以窗口里有一句提示，debug 构建下 4K 会明显卡。
-- 「画廊」：占位（一张 `EmptyState`），以后放最近打开的文档。
+- 「画廊」：打开中 / 最近的工作区，每条一张缩略图（`ui/home.rs`），点一条切回去或
+  打开；没有工作区时是一张 `EmptyState`。
 
 宿主（`src/app/application.rs`）不再是手写的 winit `ApplicationHandler`，而是用
 `igui_app` 运行时把平台插件组装起来：`igui_winit` 的 `WinitPlugin` / `WgpuPlugin` /
@@ -355,7 +356,8 @@ src/
 │   ├── codec.rs         # PixelBuffer <-> PNG 字节（png crate）
 │   ├── file.rs          # 路径 <-> PNG 字节 + 默认命名 / 工作区路径
 │   ├── workspace.rs     # .igui 二进制容器（多图层 + PNG 编码像素）
-│   └── recent.rs        # 最近工作区列表（配置目录下的文本文件）
+│   ├── recent.rs        # 最近工作区列表（配置目录下的文本文件）
+│   └── thumbnail.rs     # 画廊缩略图缓存（配置目录 thumbnails/<哈希>.png）
 ├── tools/               # Phase 5/8：工具系统
 │   ├── mod.rs
 │   ├── tool.rs          # Tool trait + PointerEvent + ToolContext（含 History）
@@ -555,6 +557,15 @@ magic + 文档尺寸 / 背景 / 名字 / 激活图层 + 每个图层的名字 / 
 
 **主页画廊**（`ui/home.rs`）：列出打开中的工作区（点击切回去）和磁盘上的最近
 工作区（点击打开），读文件头拿到名字 / 尺寸 / 图层数；没有就显示空状态。
+
+**画廊缩略图**：每条画廊条目左边一张预览图，最长边 96px、等比居中放进 56px 的
+方框（白底 + 1px 描边 —— 不跟主题变深：深色主题下黑底会看着像黑图；
+`PixelBuffer::scaled_to_fit` 面积平均降采样，不是最近邻 —— 4K 文档缩到
+96px 时最近邻等于随机丢像素）。打开中的工作区直接用内存里的文档合成
+（`EditorView::thumbnail`）；磁盘上的最近工作区走 `io/thumbnail.rs` 的缓存：
+保存工作区时顺手写一份 `thumbnails/<路径哈希>.png`，工作区文件比缓存新就重新
+合成。像素由宿主上传（`ImageEditorLogic::sync_home_thumbnails`，纹理 id 从 2 起
+按条目下标分配，线性采样），视图只认 `TextureId`。
 
 ## 验证（无截图）
 

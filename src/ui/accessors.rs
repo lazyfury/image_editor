@@ -72,6 +72,18 @@ impl EditorView {
         Some(self.render_target.pixels.clone())
     }
 
+    /// 当前文档的缩略图（最长边 `max_edge`）：主页画廊预览用。
+    ///
+    /// 只读：合成到一块临时目标上，不动 `render_target` / 脏标记，也不加
+    /// 棋盘格（那是画布的显示背景，缩略图用工作区自己的图层内容）。
+    pub fn thumbnail(&self, max_edge: u32) -> PixelBuffer {
+        let state = self.state.borrow();
+        let mut target =
+            crate::renderer::RenderTarget::new(state.document.width, state.document.height);
+        self.renderer.render(&state.document, &mut target);
+        target.pixels.scaled_to_fit(max_edge)
+    }
+
     /// 文档像素变了，需要**整图**重新合成 / 上传（图层增删 / 移动 / 撤销 / 导入…）。
     pub fn mark_texture_dirty(&mut self) {
         self.texture_dirty = true;

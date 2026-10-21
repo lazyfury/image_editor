@@ -50,7 +50,7 @@ mod window;
 mod workspace_tabs;
 
 pub use confirm::{ConfirmDialog, ConfirmResult};
-pub use home::{HomeEntry, HomeOpenRequest, HomeView};
+pub use home::{thumbnail_texture, HomeEntry, HomeOpenRequest, HomeThumbnail, HomeView};
 pub use intents::{Intent, Intents};
 pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
