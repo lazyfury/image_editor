@@ -392,8 +392,11 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   `symmetry_mode` / `bucket_contiguous` / `saved_preferences` + 各工具引擎
   `brush` / `paint_bucket` / `rect_fill` / `pen` / `move_tool`）。这一簇和绘制
   逻辑交叉最多，先想清楚边界（「选项栏显示源」vs「工具绘制源」）再动。
-- [ ] **拆 `ui/tests.rs`**（2435 行 / 88 个测试）-> `ui/tests/` 按功能分文件，
-  共享夹具留 `tests/mod.rs`。验收：测试数不变、每个文件 < 500 行。
+- [x] **拆 `ui/tests.rs`**（2435 行 / 88 个测试）-> `ui/tests/` 14 个功能文件 +
+  `mod.rs`（夹具：`viewport` / 三种粒度的 `click*` / `label_text` /
+  `paint_commands` / `paint_a_stroke` / `brush_view` / `select_tab` …）。
+  最大 397 行（brush），测试数 88 -> 88。
+  验收：`cargo test` 434 passed 不变、`--selfcheck` 逐字不变。
 - [ ] **构造函数**：`ui/build/tree.rs::build_tree`（319）/ `assemble.rs::finish`
   （262）按区域拆（menu_bar / toolbar / options / canvas / panels / palette /
   status）。验收：`--selfcheck` 控件数 / 命令数不变。

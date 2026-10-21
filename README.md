@@ -371,7 +371,22 @@ src/
 │   ├── input.rs         # 事件分发 + 画布缩放 / 平移 / 复位
 │   ├── layout.rs        # 布局 / 分隔条夹取 / 画布区域几何
 │   ├── io.rs            # PNG 导入 / 导出（路径由宿主给）
-│   ├── tests.rs         # #[cfg(test)] 视图级测试
+│   ├── tests/           # #[cfg(test)] 视图级测试（按功能分文件）
+│   │   ├── mod.rs       #   夹具（viewport / click* / label_text / paint_commands …）
+│   │   ├── brush.rs     #   画笔 / 橡皮 / 选项栏参数 / 像素模式 / 对称 / 光标圈
+│   │   ├── canvas.rs    #   相机 / 缩放 / 平移 / 裁剪 / 棋盘格 / 像素网格
+│   │   ├── chrome.rs    #   标签条 / 菜单栏 / 选项栏的顺序，状态栏文本
+│   │   ├── selection.rs #   选区合并 / 羽化 / 魔棒 / 套索 / 马赛克描边
+│   │   ├── pen.rs       #   钢笔：建路径 / 闭合 / 选区 / 填充 / 描边
+│   │   ├── panels.rs    #   调色盘 / 分隔条 / 历史面板 / 图层列表
+│   │   ├── layers.rs    #   属性面板 / 裁剪 / 重命名浮层
+│   │   ├── menus.rs     #   菜单栏 + 编辑菜单的剪切复制粘贴
+│   │   ├── toolbar.rs   #   工具栏分组 / 长按浮层 / 图标包
+│   │   ├── history.rs   #   撤销 / 重做 / 脏区域
+│   │   ├── io.rs        #   PNG 进出 + 文件按钮意图
+│   │   ├── tools.rs     #   移动 / 吸管
+│   │   ├── fill.rs      #   矩形填充 / 自由填充
+│   │   └── gradient.rs  #   渐变填充 / 类型 / 端点 / 编辑器
 │   ├── card.rs          # 项目内简单卡片（侧栏统一外观：surface + 内边距）
 │   ├── menu.rs          # 菜单栏
 │   ├── toolbar.rs       # 分组工具栏（长按展开切换）+ 撤销/重做

@@ -25,7 +25,9 @@ src/ui/         views + project-local components: home (recent gallery),
                 dialog).
                 `ui/mod.rs` is `EditorView` (fields + `new` + `update`); the rest
                 of it is split by concern: accessors / paint / tools / sync /
-                menus / input / layout / io / tests (each a sibling `ui/*.rs`).
+                menus / input / layout / io (each a sibling `ui/*.rs`), plus
+                `ui/tests/` — view-level tests by feature (mod.rs holds the
+                fixtures; brush / canvas / selection / pen / panels / ...).
                 `ui/tools/` is the pointer-event dispatch: mod = begin/continue/
                 end_tool + `with_ctx`/`drive`, paint = brush/eraser/move/bucket/
                 rect-fill/gradient/eyedropper, select = rect/lasso/wand/free-fill
