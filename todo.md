@@ -403,9 +403,14 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   `assemble.rs` 的 11 段 `NodeRef -> NodeId` 收成 `slots()` / `ids()` 两个小函数，
   245 -> 213（剩下的是一条 `EditorView` 字面量，不再拆）。
   验收：`--selfcheck` 控件数 / 命令数逐字不变。
-- [ ] **单函数过长**：`ui/menu.rs::menu_content`（234）、`ui/options_bar.rs::options_bar`
-  （226）、`ui/new_document.rs::build_content`（147）、`ui/layer_panel.rs::action_buttons`
-  （137）。改：菜单按 `MENUS` 每项一个 fn、选项栏按工具一组。
+- [x] **`ui/menu.rs::menu_content`**（234）-> 每个菜单一个函数（`file_menu` /
+  `edit_menu` / … / `help_menu`）+ 4 个状态位收进 `MenuState`（不再需要
+  `#[allow(clippy::too_many_arguments)]`）。
+- [ ] **单函数过长**：`ui/options_bar.rs::options_bar`（223）、
+  `ui/build/assemble.rs::finish`（213，一条字面量，不拆）、
+  `ui/gradient_editor.rs::gradient_editor_content`（160）、
+  `ui/new_document.rs::build_content`（147）、`ui/layer_panel.rs::action_buttons`
+  （137）。选项栏按工具一组拆（画笔 / 钢笔 / 油漆桶 / 渐变各一个 fn）。
 - [ ] **拆 `ui/new_document.rs` / `ui/window/mod.rs`（698）/ `document/history.rs`
   （694）/ `app/application/mod.rs`（953）/ `canvas/selection.rs`（627）**。
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有

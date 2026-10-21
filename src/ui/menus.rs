@@ -39,19 +39,14 @@ impl EditorView {
                 state.selection.is_some(),
             )
         };
-        let can_paste = self.has_clipboard();
+        let state = menu::MenuState {
+            can_undo,
+            can_redo,
+            has_selection,
+            can_paste: self.has_clipboard(),
+        };
         self.overlays.menu(anchor, move |tree, root| {
-            menu::menu_content(
-                tree,
-                root,
-                theme,
-                index,
-                intents.clone(),
-                can_undo,
-                can_redo,
-                has_selection,
-                can_paste,
-            );
+            menu::menu_content(tree, root, theme, index, intents.clone(), state);
         });
         self.open_menu.set(Some(index));
     }
