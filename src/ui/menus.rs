@@ -1,6 +1,6 @@
 //! 菜单栏下拉 + 工具栏长按浮层 + 渐变编辑器的开关与动作分发。
 //!
-//! `update` 轮询这里的请求（[`EditorView::open_menu`] / `poll_long_press`），
+//! `update` 从意图队列里取走这些动作（[`EditorView::open_menu`] / `poll_long_press`），
 //! `event` 命中标题时调 [`EditorView::menu_index_at`]。
 
 use igui_components::{Component, Menu, MenuItem, Placement};
@@ -30,7 +30,7 @@ impl EditorView {
         self.overlays.close_all();
         self.open_tool_group.set(None);
         let theme = self.theme;
-        let action = self.menu_action.clone();
+        let intents = self.intents.clone();
         let (can_undo, can_redo, has_selection) = {
             let state = self.state.borrow();
             (
@@ -46,7 +46,7 @@ impl EditorView {
                 root,
                 theme,
                 index,
-                action.clone(),
+                intents.clone(),
                 can_undo,
                 can_redo,
                 has_selection,
@@ -58,25 +58,25 @@ impl EditorView {
 
     /// 打开选项栏的笔刷预设下拉（锚在「预设」触发按钮下）。
     ///
-    /// 当前参数命中的预设前面打「✓」；选中只写请求格，`update` 应用并关闭下拉
+    /// 当前参数命中的预设前面打「✓」；选中只塞意图，`update` 应用并关闭下拉
     /// （和菜单栏一个套路）。
     pub(super) fn open_brush_presets(&mut self, anchor: NodeId) {
         self.overlays.close_all();
         self.open_menu.set(None);
         self.open_tool_group.set(None);
         let theme = self.theme;
-        let request = self.brush_preset_request.clone();
+        let intents = self.intents.clone();
         let presets = crate::tools::brush::preset::PRESETS;
         let current = crate::tools::brush::preset::matching(presets, &self.brush);
         self.overlays.menu(anchor, move |tree, root| {
             let mut menu = Menu::new(theme);
             for (index, item) in presets.iter().enumerate() {
-                let request = request.clone();
+                let intents = intents.clone();
                 let checked = if current == Some(index) { "✓" } else { " " };
                 menu = menu.item(
                     MenuItem::new(format!("{checked} {}", item.name), theme)
                         .shortcut(format!("{:.0}px · {:.0}%", item.size, item.opacity * 100.0))
-                        .on_click(move |_tree, _id| request.set(Some(index))),
+                        .on_click(move |_tree, _id| intents.push(Intent::BrushPreset(index))),
                 );
             }
             menu.build(tree, root);
@@ -113,7 +113,7 @@ impl EditorView {
         let theme = self.theme;
         let state = self.state.clone();
         let icons = self.icons.clone();
-        let request = self.tool_request.clone();
+        let intents = self.intents.clone();
         self.overlays
             .popover(anchor, Placement::Right, move |tree, root| {
                 toolbar::tool_flyout_content(
@@ -123,7 +123,7 @@ impl EditorView {
                     group,
                     state.clone(),
                     icons.clone(),
-                    request.clone(),
+                    intents.clone(),
                 );
             });
         self.open_tool_group.set(Some(group));
@@ -183,8 +183,8 @@ impl EditorView {
             menu::MenuAction::Redo => {
                 self.redo();
             }
-            menu::MenuAction::Import => self.file_request.set(Some(FileRequest::ImportPng)),
-            menu::MenuAction::Export => self.file_request.set(Some(FileRequest::ExportPng)),
+            menu::MenuAction::Import => self.intents.push(Intent::File(FileRequest::ImportPng)),
+            menu::MenuAction::Export => self.intents.push(Intent::File(FileRequest::ExportPng)),
             menu::MenuAction::ZoomIn => self.apply_canvas_action(CanvasAction::ZoomIn),
             menu::MenuAction::ZoomOut => self.apply_canvas_action(CanvasAction::ZoomOut),
             menu::MenuAction::ZoomReset => self.apply_canvas_action(CanvasAction::Reset),

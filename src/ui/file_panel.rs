@@ -1,42 +1,39 @@
 //! 文件面板（Phase 7 / 23）：打开 / 保存 / 另存为 / 导入 / 导出。
 //!
-//! 不再有「手动路径」输入：每个按钮只设置一个 [`FileRequest`] 意图，路径由
-//! 宿主的原生文件对话框（[`crate::io::FileDialog`]）选出来。面板顶部一行是
+//! 不再有「手动路径」输入：每个按钮只往意图队列里塞一个 [`Intent::File`]，路径
+//! 由宿主的原生文件对话框（[`crate::io::FileDialog`]）选出来。面板顶部一行是
 //! **只读**的当前工作区文件路径（由宿主 [`crate::ui::EditorView::set_workspace_path`]
 //! 喂进来）。
 //!
 //! 真正的文件 IO 在宿主（[`crate::app::application`]）：视图只发意图，因为
 //! 回调拿不到 `&mut self`，也拿不到 `FileDialog`。
 
-use std::cell::Cell;
-use std::rc::Rc;
-
 use igui_components::{Button, Component, Flex, NodeRef, Text};
 use igui_core::Edges;
 use igui_theme::{space, TextSize, Theme, Tone};
 use igui_ui::MouseFilter;
 
-use super::FileRequest;
+use super::{FileRequest, Intent, Intents};
 
 /// 文件标签页的内容（标题由 [`TabsView`](crate::ui::tabs::TabsView) 的标签提供）。
 /// `buttons` 收集按钮节点，测试与自检靠它们真的点一下。
 pub fn file_panel(
     theme: &'static dyn Theme,
-    request: Rc<Cell<Option<FileRequest>>>,
+    intents: Intents,
     path_label: &NodeRef,
     buttons: &mut Vec<(FileRequest, NodeRef)>,
 ) -> impl Component {
     let save_row = action_row(
         theme,
         &[FileRequest::Save, FileRequest::SaveAs],
-        request.clone(),
+        intents.clone(),
         buttons,
     );
-    let open_row = action_row(theme, &[FileRequest::Open], request.clone(), buttons);
+    let open_row = action_row(theme, &[FileRequest::Open], intents.clone(), buttons);
     let png_row = action_row(
         theme,
         &[FileRequest::ImportPng, FileRequest::ExportPng],
-        request,
+        intents,
         buttons,
     );
 
@@ -60,7 +57,7 @@ pub fn file_panel(
 fn action_row(
     theme: &'static dyn Theme,
     actions: &[FileRequest],
-    request: Rc<Cell<Option<FileRequest>>>,
+    intents: Intents,
     buttons: &mut Vec<(FileRequest, NodeRef)>,
 ) -> impl Component {
     let mut row = Flex::row()
@@ -71,7 +68,7 @@ fn action_row(
     for action in actions {
         let slot = NodeRef::new();
         buttons.push((*action, slot.clone()));
-        row = row.child(action_button(theme, *action, request.clone(), &slot));
+        row = row.child(action_button(theme, *action, intents.clone(), &slot));
     }
     row
 }
@@ -80,7 +77,7 @@ fn action_row(
 fn action_button(
     theme: &'static dyn Theme,
     action: FileRequest,
-    request: Rc<Cell<Option<FileRequest>>>,
+    intents: Intents,
     slot: &NodeRef,
 ) -> impl Component {
     let button = match action {
@@ -89,6 +86,6 @@ fn action_button(
     };
     button
         .font_size(TextSize::Small.px())
-        .on_click(move |_tree, _id| request.set(Some(action)))
+        .on_click(move |_tree, _id| intents.push(Intent::File(action)))
         .ref_(slot)
 }

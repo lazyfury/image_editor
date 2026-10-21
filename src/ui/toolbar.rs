@@ -3,8 +3,8 @@
 //! 相关工具收进一个「组按钮」（见 [`crate::app::tool_groups`]）：组按钮画当前
 //! 「脸」的图标 + 小字标签，右下角一个小三角表示「可长按展开」。
 //!
-//! - **短按**：激活脸工具（写 [`ToolbarWiring::request`]，由 `EditorView` 统一
-//!   应用并同步脸）。
+//! - **短按**：激活脸工具（往 [`ToolbarWiring::intents`] 里塞 [`Intent::Tool`]，
+//!   由 `EditorView` 统一应用并同步脸）。
 //! - **长按**（按住 ≥ 阈值且没怎么移动）：`EditorView` 轮询 [`LongPress`] 打开
 //!   向右的浮层，列出组内全部工具。
 //!
@@ -24,7 +24,7 @@ use igui_ui::{Align, MouseFilter, PointerPhase, SizeBasis, SurfaceStyle};
 use crate::app::state::{ActiveTool, AppState, HistoryAction};
 use crate::app::tool_groups::{ToolGroup, TOOL_GROUPS};
 use crate::icons::{Icon, IconSet, TOOLBAR_ICON};
-use crate::ui::{LONG_PRESS_SLOP, TOOLBAR_WIDTH};
+use crate::ui::{Intent, Intents, LONG_PRESS_SLOP, TOOLBAR_WIDTH};
 
 /// 工具栏长按状态。由组按钮的 `on_pointer` 写，`EditorView::update` 轮询。
 #[derive(Debug, Clone, Copy, Default)]
@@ -50,8 +50,8 @@ pub struct ToolbarWiring {
     /// 每个组的「脸」工具，下标对应 [`TOOL_GROUPS`]。
     pub faces: Vec<Rc<Cell<ActiveTool>>>,
     pub long_press: Rc<RefCell<LongPress>>,
-    /// 工具激活请求（短按 / 浮层选中都写它）。
-    pub request: Rc<Cell<Option<ActiveTool>>>,
+    /// 意图队列（短按 / 浮层选中都塞 [`Intent::Tool`]）。
+    pub intents: Intents,
 }
 
 /// 竖直工具栏。`group_slots` / `label_slots` 收集每个组按钮与其标签的节点，
@@ -119,7 +119,7 @@ fn group_button(
     let color = theme.palette().foreground;
     let icons = wiring.icons.clone();
     let press = wiring.long_press.clone();
-    let request = wiring.request.clone();
+    let intents = wiring.intents.clone();
     let click_face = face.clone();
     let highlight_state = wiring.state.clone();
     let expandable = !group.is_single();
@@ -163,7 +163,7 @@ fn group_button(
                     *state = LongPress::Idle;
                     // 长按已展开浮层时，这次松手不算短按。
                     if was_pending {
-                        request.set(Some(click_face.get()));
+                        intents.push(Intent::Tool(click_face.get()));
                     }
                 }
                 PointerPhase::DoubleClick => {}
@@ -238,7 +238,7 @@ pub fn tool_flyout_content(
     group: usize,
     state: Rc<RefCell<AppState>>,
     icons: Rc<IconSet>,
-    request: Rc<Cell<Option<ActiveTool>>>,
+    intents: Intents,
 ) {
     let Some(group) = TOOL_GROUPS.get(group) else {
         return;
@@ -253,7 +253,7 @@ pub fn tool_flyout_content(
             tool,
             state.clone(),
             icons.clone(),
-            request.clone(),
+            intents.clone(),
         ));
     }
     tree.add_child(root, column);
@@ -265,10 +265,10 @@ fn flyout_row(
     tool: ActiveTool,
     state: Rc<RefCell<AppState>>,
     icons: Rc<IconSet>,
-    request: Rc<Cell<Option<ActiveTool>>>,
+    intents: Intents,
 ) -> impl Component {
     let highlight_state = state.clone();
-    let click_request = request.clone();
+    let click_intents = intents.clone();
     Button::ghost("", theme)
         .min_size(140.0, 28.0)
         .child(
@@ -285,7 +285,7 @@ fn flyout_row(
                 ))
                 .child(Text::small(tool.short_label(), theme)),
         )
-        .on_click(move |_tree, _id| click_request.set(Some(tool)))
+        .on_click(move |_tree, _id| click_intents.push(Intent::Tool(tool)))
         .dynamic_background(move |interact| {
             let active = highlight_state.borrow().active_tool == tool;
             if active {
@@ -321,17 +321,17 @@ mod tests {
         tree.update();
     }
 
-    /// 浮层里点一行会写工具请求。
+    /// 浮层里点一行会往意图队列里塞一个工具切换。
     #[test]
     fn clicking_a_flyout_row_requests_that_tool() {
         let theme = crate::theme::editor_theme(false);
         let state = Rc::new(RefCell::new(AppState::default()));
         let icons = Rc::new(IconSet::load());
-        let request: Rc<Cell<Option<ActiveTool>>> = Rc::new(Cell::new(None));
+        let intents = Intents::new();
 
         let mut tree = SceneTree::new();
         let root = tree.root();
-        let row = flyout_row(theme, ActiveTool::Eraser, state, icons, request.clone())
+        let row = flyout_row(theme, ActiveTool::Eraser, state, icons, intents.clone())
             .build(&mut tree, root);
         let viewport = ViewportSize::new(Size::new(220.0, 60.0));
         tree.set_viewport_size(viewport.logical_size());
@@ -340,6 +340,6 @@ mod tests {
 
         let center = igui_ui::control(&tree, row).expect("浮层行").rect.center();
         click(&mut tree, center);
-        assert_eq!(request.get(), Some(ActiveTool::Eraser));
+        assert_eq!(intents.take(), vec![Intent::Tool(ActiveTool::Eraser)]);
     }
 }

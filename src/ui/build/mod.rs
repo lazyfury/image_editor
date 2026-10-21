@@ -31,12 +31,10 @@ use super::tabs::{SidebarTab, TabsView};
 use super::{
     canvas, file_panel, history_panel, layer_panel, menu, palette, properties_panel, status_bar,
     toolbar, BrushAdjust, BrushToggle, BucketAdjust, BucketToggle, EditorView, FileRequest,
-    GradientAdjust, Refs, LONG_PRESS_MS, PALETTE_MAX, PALETTE_MIN, PALETTE_WIDTH, SIDEBAR_MIN,
-    SIDEBAR_WIDTH, TABS_PANEL_HEIGHT, TABS_PANEL_MAX, TABS_PANEL_MIN,
+    GradientAdjust, Intents, Refs, LONG_PRESS_MS, PALETTE_MAX, PALETTE_MIN, PALETTE_WIDTH,
+    SIDEBAR_MIN, SIDEBAR_WIDTH, TABS_PANEL_HEIGHT, TABS_PANEL_MAX, TABS_PANEL_MIN,
 };
 
-/// 构造 `EditorView`（`EditorView::new` 转交到这里）。
-/// 构造 `EditorView`（`EditorView::new` 转交到这里）。
 /// 构造 `EditorView`（`EditorView::new` 转交到这里）。
 pub(super) fn editor(theme: &'static dyn Theme, state: AppState) -> EditorView {
     let document_size = (state.document.width, state.document.height);
@@ -48,33 +46,24 @@ pub(super) fn editor(theme: &'static dyn Theme, state: AppState) -> EditorView {
 /// 构造期收集的共享状态槽与 NodeRef；构造完搬进 [`EditorView`]。
 struct Wiring {
     message: Rc<RefCell<Option<String>>>,
-    file_request: Rc<Cell<Option<FileRequest>>>,
+    /// 回调留下的意图（工具 / 菜单 / 选项栏 / 文件……）。
+    intents: Intents,
     workspace_path: Rc<RefCell<Option<PathBuf>>>,
-    menu_request: Rc<Cell<Option<usize>>>,
-    menu_action: Rc<Cell<Option<menu::MenuAction>>>,
     tool_faces: Vec<Rc<Cell<ActiveTool>>>,
     long_press: Rc<RefCell<toolbar::LongPress>>,
-    tool_request: Rc<Cell<Option<ActiveTool>>>,
     palette_width: Rc<Cell<f32>>,
     sidebar_width: Rc<Cell<f32>>,
     active_tab: Rc<Cell<SidebarTab>>,
     tabs_height: Rc<Cell<f32>>,
     layer_count: Rc<Cell<usize>>,
     layer_selected: Rc<Cell<Option<usize>>>,
-    rename_request: Rc<Cell<Option<NodeId>>>,
     history_count: Rc<Cell<usize>>,
-    brush_request: Rc<Cell<Option<BrushAdjust>>>,
-    brush_preset_open: Rc<Cell<Option<NodeId>>>,
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,
     symmetry_mode: Rc<Cell<crate::tools::Symmetry>>,
-    pen_request: Rc<Cell<Option<crate::ui::PenAction>>>,
-    bucket_request: Rc<Cell<Option<BucketAdjust>>>,
     bucket_contiguous: Rc<Cell<bool>>,
     gradient: Rc<RefCell<Gradient>>,
     gradient_reverse: Rc<Cell<bool>>,
-    gradient_request: Rc<Cell<Option<GradientAdjust>>>,
-    gradient_edit_request: Rc<Cell<bool>>,
     menu_refs: Vec<NodeRef>,
     file_refs: Vec<(FileRequest, NodeRef)>,
     group_refs: Vec<NodeRef>,

@@ -1,22 +1,21 @@
 //! 菜单栏：一排菜单标题 + 真实的下拉菜单。
 //!
-//! 标题点击只写一个共享请求格（[`Rc<Cell<Option<usize>>>`]），真正的下拉由
+//! 标题点击只往意图队列里塞一个 [`Intent::OpenMenu`]，真正的下拉由
 //! [`EditorView`](crate::ui::EditorView) 在 `update` 里用
 //! [`Overlays::menu`](igui_components::Overlays::menu) 打开 —— 回调拿不到
-//! `&mut self`，所以走请求格。菜单项再写 [`MenuAction`] 请求格，由 `update`
+//! `&mut self`，所以走意图队列。菜单项再塞 [`Intent::MenuAction`]，由 `update`
 //! 统一执行（这也是关闭菜单的时机）。
 //!
 //! 已实现的动作接真实命令（撤销 / 重做 / 导入导出 / 缩放 / 取消选区 / 关于），
 //! 其余保留带标注的占位项，遵守仓库的 placeholder policy。
-
-use std::cell::Cell;
-use std::rc::Rc;
 
 use igui_components::{Button, Component, Flex, Menu, MenuItem, NodeRef};
 use igui_core::Edges;
 use igui_scene::SceneTree;
 use igui_theme::{space, SurfaceLevel, TextSize, Theme};
 use igui_ui::MouseFilter;
+
+use super::{Intent, Intents};
 
 /// 菜单栏标题，从左到右。
 pub const MENUS: [&str; 8] = [
@@ -58,10 +57,10 @@ pub enum MenuAction {
     Placeholder(&'static str),
 }
 
-/// 一条带占位提示的菜单栏。`request` 收到被点标题的下标。
+/// 一条带占位提示的菜单栏。点标题会往 `intents` 里塞 [`Intent::OpenMenu`]。
 pub fn menu_bar(
     theme: &'static dyn Theme,
-    request: Rc<Cell<Option<usize>>>,
+    intents: Intents,
     refs: &mut Vec<NodeRef>,
     bar_slot: &NodeRef,
 ) -> impl Component {
@@ -73,11 +72,11 @@ pub fn menu_bar(
     for (index, name) in MENUS.iter().enumerate() {
         let slot = NodeRef::new();
         refs.push(slot.clone());
-        let request = request.clone();
+        let intents = intents.clone();
         bar = bar.child(
             Button::ghost(*name, theme)
                 .font_size(TextSize::Small.px())
-                .on_click(move |_tree, _id| request.set(Some(index)))
+                .on_click(move |_tree, _id| intents.push(Intent::OpenMenu(index)))
                 .ref_(&slot),
         );
     }
@@ -85,14 +84,14 @@ pub fn menu_bar(
 }
 
 /// 构建第 `index` 个菜单的内容，挂到 `root`（覆盖层给的定位节点）下。
-// 构建函数：控件树 + 主题 + 菜单下标 + 共享请求槽 + 三个状态位。
+// 构建函数：控件树 + 主题 + 菜单下标 + 意图队列 + 三个状态位。
 #[allow(clippy::too_many_arguments)]
 pub fn menu_content(
     tree: &mut SceneTree,
     root: igui_core::NodeId,
     theme: &'static dyn Theme,
     index: usize,
-    action: Rc<Cell<Option<MenuAction>>>,
+    intents: Intents,
     can_undo: bool,
     can_redo: bool,
     has_selection: bool,
@@ -102,11 +101,11 @@ pub fn menu_content(
     match index {
         0 => {
             menu = menu
-                .item(placeholder("新建…", theme, &action, "新建：后续 Phase"))
+                .item(placeholder("新建…", theme, &intents, "新建：后续 Phase"))
                 .item(placeholder(
                     "打开…",
                     theme,
-                    &action,
+                    &intents,
                     "打开：Phase 10 文件浏览器",
                 ))
                 .separator()
@@ -114,21 +113,21 @@ pub fn menu_content(
                     "导入 PNG…",
                     None,
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::Import,
                 ))
                 .item(menu_item(
                     "导出 PNG…",
                     None,
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::Export,
                 ));
         }
         1 => {
             menu = menu
                 .item(
-                    menu_item("撤销", Some("Ctrl+Z"), theme, &action, MenuAction::Undo)
+                    menu_item("撤销", Some("Ctrl+Z"), theme, &intents, MenuAction::Undo)
                         .disabled(!can_undo),
                 )
                 .item(
@@ -136,22 +135,22 @@ pub fn menu_content(
                         "重做",
                         Some("Shift+Ctrl+Z"),
                         theme,
-                        &action,
+                        &intents,
                         MenuAction::Redo,
                     )
                     .disabled(!can_redo),
                 )
                 .separator()
                 .item(
-                    menu_item("剪切", Some("Ctrl+X"), theme, &action, MenuAction::Cut)
+                    menu_item("剪切", Some("Ctrl+X"), theme, &intents, MenuAction::Cut)
                         .disabled(!has_selection),
                 )
                 .item(
-                    menu_item("复制", Some("Ctrl+C"), theme, &action, MenuAction::Copy)
+                    menu_item("复制", Some("Ctrl+C"), theme, &intents, MenuAction::Copy)
                         .disabled(!has_selection),
                 )
                 .item(
-                    menu_item("粘贴", Some("Ctrl+V"), theme, &action, MenuAction::Paste)
+                    menu_item("粘贴", Some("Ctrl+V"), theme, &intents, MenuAction::Paste)
                         .disabled(!can_paste),
                 )
                 .item(
@@ -159,7 +158,7 @@ pub fn menu_content(
                         "粘贴为新图层",
                         Some("Shift+Ctrl+V"),
                         theme,
-                        &action,
+                        &intents,
                         MenuAction::PasteAsLayer,
                     )
                     .disabled(!can_paste),
@@ -170,50 +169,50 @@ pub fn menu_content(
                 .item(placeholder(
                     "图像大小…",
                     theme,
-                    &action,
+                    &intents,
                     "图像大小：后续 Phase",
                 ))
-                .item(placeholder("裁剪", theme, &action, "裁剪：后续 Phase"))
+                .item(placeholder("裁剪", theme, &intents, "裁剪：后续 Phase"))
                 .separator()
                 .item(placeholder(
                     "水平翻转",
                     theme,
-                    &action,
+                    &intents,
                     "水平翻转：后续 Phase",
                 ))
                 .item(placeholder(
                     "垂直翻转",
                     theme,
-                    &action,
+                    &intents,
                     "垂直翻转：后续 Phase",
                 ))
-                .item(placeholder("旋转 90°", theme, &action, "旋转：后续 Phase"));
+                .item(placeholder("旋转 90°", theme, &intents, "旋转：后续 Phase"));
         }
         3 => {
             menu = menu
                 .item(placeholder(
                     "新建图层",
                     theme,
-                    &action,
+                    &intents,
                     "新建图层：用右侧图层面板",
                 ))
                 .item(placeholder(
                     "复制图层",
                     theme,
-                    &action,
+                    &intents,
                     "复制图层：后续 Phase",
                 ))
                 .separator()
                 .item(placeholder(
                     "上移一层",
                     theme,
-                    &action,
+                    &intents,
                     "上移一层：用右侧图层面板",
                 ))
                 .item(placeholder(
                     "下移一层",
                     theme,
-                    &action,
+                    &intents,
                     "下移一层：用右侧图层面板",
                 ))
                 .separator()
@@ -221,7 +220,7 @@ pub fn menu_content(
                     "裁到文档",
                     None,
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::CropLayerToDocument,
                 ));
         }
@@ -231,18 +230,18 @@ pub fn menu_content(
                     "全选",
                     Some("Ctrl+A"),
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::SelectAll,
                 ))
                 .item(menu_item(
                     "反选",
                     Some("Shift+Ctrl+I"),
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::InvertSelection,
                 ))
                 .item(
-                    menu_item("羽化", None, theme, &action, MenuAction::FeatherSelection)
+                    menu_item("羽化", None, theme, &intents, MenuAction::FeatherSelection)
                         .disabled(!has_selection),
                 )
                 .item(
@@ -250,7 +249,7 @@ pub fn menu_content(
                         "取消选择",
                         Some("Esc"),
                         theme,
-                        &action,
+                        &intents,
                         MenuAction::ClearSelection,
                     )
                     .disabled(!has_selection),
@@ -258,9 +257,9 @@ pub fn menu_content(
         }
         5 => {
             menu = menu
-                .item(placeholder("灰度", theme, &action, "灰度：后续 Phase"))
-                .item(placeholder("反相", theme, &action, "反相：后续 Phase"))
-                .item(placeholder("高斯模糊", theme, &action, "模糊：后续 Phase"));
+                .item(placeholder("灰度", theme, &intents, "灰度：后续 Phase"))
+                .item(placeholder("反相", theme, &intents, "反相：后续 Phase"))
+                .item(placeholder("高斯模糊", theme, &intents, "模糊：后续 Phase"));
         }
         6 => {
             menu = menu
@@ -268,28 +267,28 @@ pub fn menu_content(
                     "放大",
                     Some("+"),
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::ZoomIn,
                 ))
                 .item(menu_item(
                     "缩小",
                     Some("-"),
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::ZoomOut,
                 ))
                 .item(menu_item(
                     "100%",
                     Some("0"),
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::ZoomReset,
                 ))
                 .item(menu_item(
                     "适配窗口",
                     Some("F"),
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::ZoomFit,
                 ))
                 .separator()
@@ -297,7 +296,7 @@ pub fn menu_content(
                     "显示棋盘格",
                     None,
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::ToggleCheckerboard,
                 ));
         }
@@ -307,14 +306,14 @@ pub fn menu_content(
                     "关于 image_editor",
                     None,
                     theme,
-                    &action,
+                    &intents,
                     MenuAction::About,
                 ))
                 .separator()
                 .item(placeholder(
                     "快捷键…",
                     theme,
-                    &action,
+                    &intents,
                     "快捷键：见窗口标题栏 / README",
                 ));
         }
@@ -326,24 +325,24 @@ fn menu_item(
     label: &str,
     shortcut: Option<&str>,
     theme: &'static dyn Theme,
-    action: &Rc<Cell<Option<MenuAction>>>,
+    intents: &Intents,
     value: MenuAction,
 ) -> MenuItem {
     let mut item = MenuItem::new(label, theme);
     if let Some(shortcut) = shortcut {
         item = item.shortcut(shortcut);
     }
-    let action = action.clone();
-    item.on_click(move |_tree, _id| action.set(Some(value)))
+    let intents = intents.clone();
+    item.on_click(move |_tree, _id| intents.push(Intent::MenuAction(value)))
 }
 
 fn placeholder(
     label: &str,
     theme: &'static dyn Theme,
-    action: &Rc<Cell<Option<MenuAction>>>,
+    intents: &Intents,
     note: &'static str,
 ) -> MenuItem {
-    menu_item(label, None, theme, action, MenuAction::Placeholder(note))
+    menu_item(label, None, theme, intents, MenuAction::Placeholder(note))
 }
 
 /// 关于对话框 / 状态栏用的版本串。

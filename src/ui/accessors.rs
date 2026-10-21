@@ -544,12 +544,12 @@ impl EditorView {
 
     /// 请求一个文件动作（快捷键用）。
     pub fn request_file(&self, request: FileRequest) {
-        self.file_request.set(Some(request));
+        self.intents.push(Intent::File(request));
     }
 
-    /// 文件面板 / 快捷键留下的意图；取走一次。
+    /// 文件面板 / 快捷键留下的文件意图；取走一个。
     pub fn take_file_request(&self) -> Option<FileRequest> {
-        self.file_request.take()
+        self.intents.take_file()
     }
 
     /// 写一条状态栏提示（宿主保存 / 打开工作区后回报结果）。

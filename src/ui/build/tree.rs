@@ -8,15 +8,13 @@ pub(super) fn build_tree(
 ) -> (SceneTree, NodeId, Wiring, Lists) {
     let refs = Refs::default();
     let message: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-    // 文件面板 / 快捷键只发意图；路径由宿主的原生对话框选。
-    let file_request: Rc<Cell<Option<FileRequest>>> = Rc::new(Cell::new(None));
+    // 所有回调（菜单 / 工具栏 / 选项栏 / 面板）共用一个意图队列；宿主从同一个
+    // 队列里取文件动作，路径由它的原生对话框选。
+    let intents = Intents::new();
     let workspace_path: Rc<RefCell<Option<std::path::PathBuf>>> = Rc::new(RefCell::new(None));
-    let menu_request: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
-    let menu_action: Rc<Cell<Option<menu::MenuAction>>> = Rc::new(Cell::new(None));
     let mut menu_refs: Vec<NodeRef> = Vec::new();
     let mut file_refs: Vec<(FileRequest, NodeRef)> = Vec::new();
-    let file_panel =
-        file_panel::file_panel(theme, file_request.clone(), &refs.path, &mut file_refs);
+    let file_panel = file_panel::file_panel(theme, intents.clone(), &refs.path, &mut file_refs);
 
     let mut group_refs: Vec<NodeRef> = Vec::new();
     let mut label_refs: Vec<NodeRef> = Vec::new();
@@ -30,7 +28,6 @@ pub(super) fn build_tree(
         .collect();
     let long_press: Rc<RefCell<toolbar::LongPress>> =
         Rc::new(RefCell::new(toolbar::LongPress::Idle));
-    let tool_request: Rc<Cell<Option<ActiveTool>>> = Rc::new(Cell::new(None));
     let toolbar = toolbar::tool_bar(
         theme,
         toolbar::ToolbarWiring {
@@ -39,7 +36,7 @@ pub(super) fn build_tree(
             icons: icons.clone(),
             faces: tool_faces.clone(),
             long_press: long_press.clone(),
-            request: tool_request.clone(),
+            intents: intents.clone(),
         },
         &mut group_refs,
         &mut label_refs,
@@ -54,7 +51,6 @@ pub(super) fn build_tree(
 
     let layer_count = Rc::new(Cell::new(0usize));
     let layer_selected: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
-    let rename_request: Rc<Cell<Option<NodeId>>> = Rc::new(Cell::new(None));
     let layer_list = layer_panel::layer_list(
         theme,
         state.clone(),
@@ -69,17 +65,12 @@ pub(super) fn build_tree(
 
     // 工具选项栏（菜单栏下面一行）+ 可拖动的右栏。
     let options = OptionsRefs::default();
-    let brush_request: Rc<Cell<Option<BrushAdjust>>> = Rc::new(Cell::new(None));
     let mut brush_refs: Vec<(BrushAdjust, NodeRef)> = Vec::new();
-    // 「预设」触发按钮只发节点 id；下拉由 `update` 打开（回调拿不到 `&mut self`）。
-    let brush_preset_open: Rc<Cell<Option<NodeId>>> = Rc::new(Cell::new(None));
     let pixel_mode = Rc::new(Cell::new(true));
     let square_mode = Rc::new(Cell::new(true));
     let symmetry_mode = Rc::new(Cell::new(crate::tools::Symmetry::Off));
     let mut toggle_refs: Vec<(BrushToggle, NodeRef)> = Vec::new();
-    let pen_request: Rc<Cell<Option<crate::ui::PenAction>>> = Rc::new(Cell::new(None));
     let mut pen_refs: Vec<(crate::ui::PenAction, NodeRef)> = Vec::new();
-    let bucket_request: Rc<Cell<Option<BucketAdjust>>> = Rc::new(Cell::new(None));
     let mut bucket_refs: Vec<(BucketAdjust, NodeRef)> = Vec::new();
     let bucket_contiguous = Rc::new(Cell::new(true));
     let mut bucket_toggle_refs: Vec<(BucketToggle, NodeRef)> = Vec::new();
@@ -88,8 +79,6 @@ pub(super) fn build_tree(
         crate::document::Color::WHITE,
     )));
     let gradient_reverse = Rc::new(Cell::new(false));
-    let gradient_request: Rc<Cell<Option<GradientAdjust>>> = Rc::new(Cell::new(None));
-    let gradient_edit_request = Rc::new(Cell::new(false));
     let mut gradient_refs: Vec<(GradientAdjust, NodeRef)> = Vec::new();
     let sidebar_width = Rc::new(Cell::new(SIDEBAR_WIDTH));
     let palette_width = Rc::new(Cell::new(PALETTE_WIDTH));
@@ -137,7 +126,7 @@ pub(super) fn build_tree(
         .mouse_filter(MouseFilter::Ignore)
         .child(menu::menu_bar(
             theme,
-            menu_request.clone(),
+            intents.clone(),
             &mut menu_refs,
             &refs.menu_bar,
         ))
@@ -151,20 +140,16 @@ pub(super) fn build_tree(
         )
         .child(options_bar(
             theme,
-            brush_request.clone(),
-            brush_preset_open.clone(),
+            intents.clone(),
             crate::tools::brush::preset::PRESETS[0].name.as_ref(),
             pixel_mode.clone(),
             square_mode.clone(),
             symmetry_mode.clone(),
-            pen_request.clone(),
-            bucket_request.clone(),
             bucket_contiguous.clone(),
             GradientOptions {
                 gradient: gradient.clone(),
                 reverse: gradient_reverse.clone(),
-                request: gradient_request.clone(),
-                edit: gradient_edit_request.clone(),
+                intents: intents.clone(),
             },
             &options,
             &mut brush_refs,
@@ -246,7 +231,7 @@ pub(super) fn build_tree(
                                     theme,
                                     state.clone(),
                                     layer_list,
-                                    rename_request.clone(),
+                                    intents.clone(),
                                 ))
                                 .ref_(&refs.sidebar),
                         ),
@@ -270,34 +255,24 @@ pub(super) fn build_tree(
     let page = page_ref.get().expect("页面已挂载");
 
     let wiring = Wiring {
-        pen_request,
         message,
-        file_request,
+        intents,
         workspace_path,
-        menu_request,
-        menu_action,
         tool_faces,
         long_press,
-        tool_request,
         palette_width,
         sidebar_width,
         active_tab,
         tabs_height,
         layer_count,
         layer_selected,
-        rename_request,
         history_count,
-        brush_request,
-        brush_preset_open,
         pixel_mode,
         square_mode,
         symmetry_mode,
-        bucket_request,
         bucket_contiguous,
         gradient,
         gradient_reverse,
-        gradient_request,
-        gradient_edit_request,
         menu_refs,
         file_refs,
         group_refs,

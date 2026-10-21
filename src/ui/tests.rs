@@ -736,7 +736,7 @@ fn picking_a_preset_sets_the_brush_and_the_options_bar_toggles() {
     let mut view = brush_view();
     // 柔边圆笔 = 24px / 100% / 硬度 35% / 圆头 / 关掉像素模式。
     let preset = &crate::tools::brush::preset::PRESETS[3];
-    view.brush_preset_request.set(Some(3));
+    view.intents.push(Intent::BrushPreset(3));
     view.update();
     assert_eq!(view.brush_size(), preset.size);
     assert!((view.brush_hardness() - preset.hardness).abs() < 1e-4);

@@ -1,7 +1,8 @@
 //! 工具选项栏：菜单栏下面的一行，显示当前工具的配置。
 //!
 //! 画笔 / 橡皮显示笔刷预设、大小、硬度、不透明度（`−` / `+` 按钮）；钢笔显示
-//! 锚点数 + 「建立选区 / 填充 / 描边 / 清除」；其余工具显示一句操作提示。按钮只写一个共享请求格（[`BrushAdjust`]），真正的改动由
+//! 锚点数 + 「建立选区 / 填充 / 描边 / 清除」；其余工具显示一句操作提示。按钮只
+//! 往意图队列里塞一个 [`Intent`]，真正的改动由
 //! [`EditorView::update`](crate::ui::EditorView) 统一执行 —— 回调拿不到
 //! `&mut self`，和菜单 / 文件面板一个套路。
 
@@ -16,6 +17,8 @@ use igui_ui::{Align, MouseFilter, SurfaceStyle};
 use crate::app::state::ActiveTool;
 use crate::document::Gradient;
 use crate::ui::gradient_editor;
+
+use super::{Intent, Intents};
 
 /// 选项栏里的一次笔刷调整。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,13 +128,12 @@ pub enum GradientAdjust {
     KindNext,
 }
 
-/// 渐变工具选项栏的共享状态 / 请求。
+/// 渐变工具选项栏的共享状态 / 意图队列。
 pub struct GradientOptions {
     pub gradient: Rc<RefCell<Gradient>>,
     pub reverse: Rc<Cell<bool>>,
-    pub request: Rc<Cell<Option<GradientAdjust>>>,
-    /// 点「编辑…」置位；`update` 取走后打开多节点编辑器。
-    pub edit: Rc<Cell<bool>>,
+    /// 类型切换 / 「编辑…」都往这里塞意图。
+    pub intents: Intents,
 }
 
 /// 选项栏里需要回写的文本 / 容器槽位。
@@ -165,20 +167,16 @@ pub struct OptionsRefs {
     pub hint: NodeRef,
 }
 
-/// 工具选项栏。`request` 收下 `−` / `+` 的调整请求；`buttons` 收集按钮节点，
-/// 测试与自检靠它们真的点一下。
+/// 工具选项栏。`intents` 收下点击（`−` / `+`、预设、钢笔动作、渐变类型 / 编辑）；
+/// `buttons` 收集按钮节点，测试与自检靠它们真的点一下。
 #[allow(clippy::too_many_arguments)]
 pub fn options_bar(
     theme: &'static dyn Theme,
-    request: Rc<Cell<Option<BrushAdjust>>>,
-    // 点了「预设」触发按钮：写入按钮节点 id，`update` 取走后开下拉。
-    preset_open: Rc<Cell<Option<igui_core::NodeId>>>,
+    intents: Intents,
     preset_label: &str,
     hard_state: Rc<Cell<bool>>,
     square_state: Rc<Cell<bool>>,
     symmetry_state: Rc<Cell<crate::tools::Symmetry>>,
-    pen_request: Rc<Cell<Option<PenAction>>>,
-    bucket_request: Rc<Cell<Option<BucketAdjust>>>,
     contiguous_state: Rc<Cell<bool>>,
     gradient: GradientOptions,
     refs: &OptionsRefs,
@@ -189,6 +187,7 @@ pub fn options_bar(
     bucket_toggles: &mut Vec<(BucketToggle, NodeRef)>,
     gradient_buttons: &mut Vec<(GradientAdjust, NodeRef)>,
 ) -> impl Component {
+    let preset_intents = intents.clone();
     let brush = Flex::row()
         .align(Align::Center)
         .gap(space::XS)
@@ -196,7 +195,7 @@ pub fn options_bar(
         .mouse_filter(MouseFilter::Ignore)
         .child(
             Button::ghost("预设 ▾", theme)
-                .on_click(move |_tree, id| preset_open.set(Some(id)))
+                .on_click(move |_tree, id| preset_intents.push(Intent::OpenBrushPresets(id)))
                 .ref_(&refs.preset_button),
         )
         .child(Text::small(preset_label, theme).ref_(&refs.preset))
@@ -204,7 +203,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "−",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::SizeDown,
             buttons,
         ))
@@ -212,7 +211,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "+",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::SizeUp,
             buttons,
         ))
@@ -220,7 +219,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "−",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::HardnessDown,
             buttons,
         ))
@@ -228,7 +227,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "+",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::HardnessUp,
             buttons,
         ))
@@ -236,7 +235,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "−",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::SmoothDown,
             buttons,
         ))
@@ -244,7 +243,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "+",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::SmoothUp,
             buttons,
         ))
@@ -252,7 +251,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "−",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::SpacingDown,
             buttons,
         ))
@@ -260,7 +259,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "+",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::SpacingUp,
             buttons,
         ))
@@ -268,7 +267,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "−",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::OpacityDown,
             buttons,
         ))
@@ -276,7 +275,7 @@ pub fn options_bar(
         .child(step_button(
             theme,
             "+",
-            request.clone(),
+            intents.clone(),
             BrushAdjust::OpacityUp,
             buttons,
         ))
@@ -308,10 +307,10 @@ pub fn options_bar(
         for action in PenAction::ALL {
             let slot = NodeRef::new();
             pen_buttons.push((action, slot.clone()));
-            let request = pen_request.clone();
+            let intents = intents.clone();
             row = row.child(
                 Button::ghost(action.label(), theme)
-                    .on_click(move |_tree, _id| request.set(Some(action)))
+                    .on_click(move |_tree, _id| intents.push(Intent::Pen(action)))
                     .ref_(&slot),
             );
         }
@@ -327,7 +326,7 @@ pub fn options_bar(
         .child(bucket_step_button(
             theme,
             "−",
-            bucket_request.clone(),
+            intents.clone(),
             BucketAdjust::ToleranceDown,
             bucket_buttons,
         ))
@@ -335,7 +334,7 @@ pub fn options_bar(
         .child(bucket_step_button(
             theme,
             "+",
-            bucket_request,
+            intents.clone(),
             BucketAdjust::ToleranceUp,
             bucket_buttons,
         ))
@@ -346,7 +345,7 @@ pub fn options_bar(
             bucket_toggles,
         ));
 
-    let edit_request = gradient.edit.clone();
+    let edit_intents = gradient.intents.clone();
     let gradient_row = Flex::row()
         .align(Align::Center)
         .gap(space::XS)
@@ -356,7 +355,7 @@ pub fn options_bar(
         .child(gradient_step_button(
             theme,
             "−",
-            gradient.request.clone(),
+            gradient.intents.clone(),
             GradientAdjust::KindPrev,
             gradient_buttons,
         ))
@@ -364,7 +363,7 @@ pub fn options_bar(
         .child(gradient_step_button(
             theme,
             "+",
-            gradient.request.clone(),
+            gradient.intents.clone(),
             GradientAdjust::KindNext,
             gradient_buttons,
         ))
@@ -375,7 +374,7 @@ pub fn options_bar(
         ))
         .child(
             Button::ghost("编辑…", theme)
-                .on_click(move |_tree, _id| edit_request.set(true))
+                .on_click(move |_tree, _id| edit_intents.push(Intent::OpenGradientEditor))
                 .ref_(&refs.gradient_edit),
         )
         .child(gradient_toggle_button(theme, "反向", gradient.reverse));
@@ -420,14 +419,14 @@ pub const fn tool_has_brush(tool: ActiveTool) -> bool {
 fn step_button(
     theme: &'static dyn Theme,
     label: &str,
-    request: Rc<Cell<Option<BrushAdjust>>>,
+    intents: Intents,
     adjust: BrushAdjust,
     buttons: &mut Vec<(BrushAdjust, NodeRef)>,
 ) -> impl Component {
     let slot = NodeRef::new();
     buttons.push((adjust, slot.clone()));
     Button::ghost(label, theme)
-        .on_click(move |_tree, _id| request.set(Some(adjust)))
+        .on_click(move |_tree, _id| intents.push(Intent::Brush(adjust)))
         .ref_(&slot)
 }
 
@@ -450,14 +449,14 @@ fn toggle_button(
 fn bucket_step_button(
     theme: &'static dyn Theme,
     label: &str,
-    request: Rc<Cell<Option<BucketAdjust>>>,
+    intents: Intents,
     adjust: BucketAdjust,
     buttons: &mut Vec<(BucketAdjust, NodeRef)>,
 ) -> impl Component {
     let slot = NodeRef::new();
     buttons.push((adjust, slot.clone()));
     Button::ghost(label, theme)
-        .on_click(move |_tree, _id| request.set(Some(adjust)))
+        .on_click(move |_tree, _id| intents.push(Intent::Bucket(adjust)))
         .ref_(&slot)
 }
 
@@ -479,14 +478,14 @@ fn bucket_toggle_button(
 fn gradient_step_button(
     theme: &'static dyn Theme,
     label: &str,
-    request: Rc<Cell<Option<GradientAdjust>>>,
+    intents: Intents,
     adjust: GradientAdjust,
     buttons: &mut Vec<(GradientAdjust, NodeRef)>,
 ) -> impl Component {
     let slot = NodeRef::new();
     buttons.push((adjust, slot.clone()));
     Button::ghost(label, theme)
-        .on_click(move |_tree, _id| request.set(Some(adjust)))
+        .on_click(move |_tree, _id| intents.push(Intent::Gradient(adjust)))
         .ref_(&slot)
 }
 

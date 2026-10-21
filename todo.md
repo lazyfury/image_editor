@@ -374,13 +374,15 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   146、`--selfcheck` 报告逐字相同。
 - [x] **分层规则上测试**：`src/architecture.rs`——核心层只能向下依赖，且只有
   `app` / `ui` 能碰控件栈（`igui_ui` / `igui_scene` / ...）；违反时报 `文件:行`。
-- [ ] **`EditorView` 的 12 条请求通道**：`brush_request` / `pen_request` /
-  `bucket_request` / `file_request` / `menu_request` / ... 都是
-  `Rc<Cell<Option<T>>>`，在 `update()` 里排队 `take()`。改：收成一个 `Intents`
-  枚举队列（回调 `intents.push(..)`）。验收：字段数下降（126 -> ?），
-  `--selfcheck` 输出不变。
+- [x] **12 条请求通道 -> 一个意图队列**：`ui/intents.rs` 的 `Intent`（工具 /
+  菜单 / 选项栏 / 钢笔 / 重命名 / 文件）+ `Intents`（`push` / `take` /
+  `take_where` / `take_file`）。回调只 `intents.push(..)`，`update` 一次取走、按
+  到达顺序处理，`Intent::File` 留在队列里给宿主。`EditorView` 字段 126 -> 115，
+  `update()` 少 11 段 `if let Some(..) = self.*_request.take()`。
+  验收：`--selfcheck` 逐字不变（253 控件 / 1023 命令）、测试 +3 条队列语义。
 - [ ] **`EditorView` 按簇抽子结构体**（options 栏共享格 / 布局尺寸与节点 /
-  选区合并态）；先做上一条再动，否则只是搬家。
+  选区合并态）。字段 115 里还有 38 个 `NodeId` + 30 来个 `Rc<Cell/RefCell>`，「布局」
+  （宽度 / 高度 / 节点 / 当前页）和「选项栏共享格」是最干净的两簇。
 - [ ] **拆 `ui/tests.rs`**（2435 行 / 88 个测试）-> `ui/tests/` 按功能分文件，
   共享夹具留 `tests/mod.rs`。验收：测试数不变、每个文件 < 500 行。
 - [ ] **构造函数**：`ui/build/tree.rs::build_tree`（319）/ `assemble.rs::finish`

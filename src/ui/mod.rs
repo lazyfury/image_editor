@@ -26,6 +26,7 @@ mod gradient_editor;
 mod history_panel;
 mod home;
 mod input;
+mod intents;
 mod io;
 mod layer_panel;
 mod layout;
@@ -50,6 +51,7 @@ mod workspace_tabs;
 
 pub use confirm::{ConfirmDialog, ConfirmResult};
 pub use home::{HomeEntry, HomeOpenRequest, HomeView};
+pub use intents::{Intent, Intents};
 pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
@@ -205,8 +207,6 @@ pub struct EditorView {
     tool_faces: Vec<Rc<Cell<ActiveTool>>>,
     /// 工具栏长按状态（组按钮写、`update` 轮询）。
     long_press: Rc<RefCell<toolbar::LongPress>>,
-    /// 工具激活请求（短按 / 浮层选中）。
-    tool_request: Rc<Cell<Option<ActiveTool>>>,
     /// 当前展开的工具浮层属于哪个组；没展开为 `None`。
     open_tool_group: Cell<Option<usize>>,
     /// 长按阈值（测试可调，默认 [`LONG_PRESS_MS`]）。
@@ -223,14 +223,11 @@ pub struct EditorView {
     palette_nodes: Vec<NodeId>,
     /// 文件面板的按钮节点（Phase 7）。
     file_nodes: Vec<(FileRequest, NodeId)>,
-    /// 文件面板 / 快捷键留下的文件意图；宿主取走执行。
-    file_request: Rc<Cell<Option<FileRequest>>>,
+    /// 回调留下的意图（工具 / 菜单 / 选项栏 / 文件……）；`update` 每帧取走视图
+    /// 能处理的部分，[`Intent::File`] 留给宿主。
+    intents: Intents,
     /// 当前工作区文件路径（只读展示，宿主每帧喂）。
     workspace_path: Rc<RefCell<Option<std::path::PathBuf>>>,
-    /// 菜单标题留下的“打开第几个菜单”请求；`update` 取走打开下拉。
-    menu_request: Rc<Cell<Option<usize>>>,
-    /// 菜单项留下的动作请求；`update` 取走执行（并关闭菜单）。
-    menu_action: Rc<Cell<Option<menu::MenuAction>>>,
     /// 菜单标题的节点（下拉的锚点），顺序与 [`menu::MENUS`] 一致。
     menu_nodes: Vec<NodeId>,
     /// 当前打开菜单的下标（用于点同一标题时切换成关闭）。
@@ -256,15 +253,12 @@ pub struct EditorView {
     /// 钢笔选项行 / 路径摘要。
     options_pen: NodeId,
     options_pen_summary: NodeId,
-    /// 钢笔动作请求 + 动作按钮节点（测试 / 自检点击用）。
-    pen_request: Rc<Cell<Option<PenAction>>>,
+    /// 钢笔动作按钮节点（测试 / 自检点击用）。
     pen_buttons: Vec<(PenAction, NodeId)>,
     options_bucket: NodeId,
     options_gradient: NodeId,
     options_tolerance: NodeId,
     options_hint: NodeId,
-    /// 选项栏 `−` / `+` 留下的请求；`update` 取走执行。
-    brush_request: Rc<Cell<Option<BrushAdjust>>>,
     /// `−` / `+` 按钮节点（测试 / 自检点击用）。
     brush_buttons: Vec<(BrushAdjust, NodeId)>,
     /// 像素模式 / 方形笔的共享开关状态（选项栏按钮直接翻转，`update` 同步进
@@ -277,12 +271,7 @@ pub struct EditorView {
     saved_preferences: crate::io::BrushPreferences,
     /// 开关按钮节点（测试 / 自检点击用）。
     brush_toggles: Vec<(BrushToggle, NodeId)>,
-    /// 点了「预设」触发按钮后写入它的节点 id；`update` 取走开下拉。
-    brush_preset_open: Rc<Cell<Option<NodeId>>>,
-    /// 下拉里选了第几个预设；`update` 取走应用。
-    brush_preset_request: Rc<Cell<Option<usize>>>,
-    /// 油漆桶选项栏的请求 / 开关 / 按钮节点。
-    bucket_request: Rc<Cell<Option<BucketAdjust>>>,
+    /// 油漆桶选项栏的开关 / 按钮节点。
     bucket_buttons: Vec<(BucketAdjust, NodeId)>,
     bucket_toggles: Vec<(BucketToggle, NodeId)>,
     bucket_contiguous: Rc<Cell<bool>>,
@@ -303,9 +292,7 @@ pub struct EditorView {
     gradient_kind_label: NodeId,
     gradient_preview_node: NodeId,
     gradient_edit_node: NodeId,
-    /// 「编辑…」请求 / 类型切换请求 / 编辑器是否开着。
-    gradient_edit_request: Rc<Cell<bool>>,
-    gradient_adjust: Rc<Cell<Option<GradientAdjust>>>,
+    /// 渐变编辑器是否开着。
     gradient_editor_open: Cell<bool>,
     /// 渐变类型切换按钮节点（测试 / 自检点击用）。
     gradient_buttons: Vec<(GradientAdjust, NodeId)>,
@@ -385,8 +372,6 @@ pub struct EditorView {
     last_history: Option<(usize, usize)>,
     /// 最近一次见到的文档 `revision`；变了就重合成 + 刷新图层列表。
     last_revision: u64,
-    /// “重命名”按钮点过之后写入自己的 `NodeId`（兼作浮层锚点），由 `update` 取走。
-    rename_request: Rc<Cell<Option<NodeId>>>,
     rename: Option<Rename>,
     props_name: NodeId,
     props_detail: NodeId,
@@ -464,30 +449,36 @@ impl EditorView {
     pub fn update(&mut self) {
         self.sync_status();
         self.sync_path();
-        if let Some(adjust) = self.brush_request.take() {
-            self.apply_brush_adjust(adjust);
-        }
-        if let Some(anchor) = self.brush_preset_open.take() {
-            self.open_brush_presets(anchor);
-        }
-        if let Some(index) = self.brush_preset_request.take() {
-            self.overlays.close_all();
-            self.apply_brush_preset(index);
-        }
-        if let Some(action) = self.pen_request.take() {
-            self.apply_pen_action(action);
-        }
-        if let Some(adjust) = self.bucket_request.take() {
-            self.apply_bucket_adjust(adjust);
-        }
-        if let Some(adjust) = self.gradient_adjust.take() {
-            self.gradient_kind = match adjust {
-                GradientAdjust::KindPrev => self.gradient_kind.prev(),
-                GradientAdjust::KindNext => self.gradient_kind.next(),
-            };
-        }
-        if self.gradient_edit_request.replace(false) {
-            self.open_gradient_editor();
+        // 意图取一次，按到达顺序处理：工具参数当场应用（下面的 `sync_options`
+        // 要显示新值），菜单 / 重命名 / 工具切换记下来，留到各自的阶段 —— 顺序
+        // 与原来那 12 条请求格一模一样。`Intent::File` 留在队列里给宿主。
+        let mut request_rename = None;
+        let mut request_menu_action = None;
+        let mut request_menu = None;
+        let mut request_tool = None;
+        for intent in self.intents.take() {
+            match intent {
+                Intent::Brush(adjust) => self.apply_brush_adjust(adjust),
+                Intent::OpenBrushPresets(anchor) => self.open_brush_presets(anchor),
+                Intent::BrushPreset(index) => {
+                    self.overlays.close_all();
+                    self.apply_brush_preset(index);
+                }
+                Intent::Pen(action) => self.apply_pen_action(action),
+                Intent::Bucket(adjust) => self.apply_bucket_adjust(adjust),
+                Intent::Gradient(adjust) => {
+                    self.gradient_kind = match adjust {
+                        GradientAdjust::KindPrev => self.gradient_kind.prev(),
+                        GradientAdjust::KindNext => self.gradient_kind.next(),
+                    };
+                }
+                Intent::OpenGradientEditor => self.open_gradient_editor(),
+                Intent::RenameLayer(anchor) => request_rename = Some(anchor),
+                Intent::MenuAction(action) => request_menu_action = Some(action),
+                Intent::OpenMenu(index) => request_menu = Some(index),
+                Intent::Tool(tool) => request_tool = Some(tool),
+                Intent::File(_) => {}
+            }
         }
         // 选项栏开关是显示源，`brush` / `paint_bucket` 是绘制源，这里每帧对齐。
         self.brush.hard = self.pixel_mode.get();
@@ -535,7 +526,7 @@ impl EditorView {
             self.refresh_history();
         }
 
-        if let Some(anchor) = self.rename_request.take() {
+        if let Some(anchor) = request_rename {
             self.open_rename(anchor);
         }
         // 重命名浮层：Enter / 「确定」写 `confirm` 格，「取消」写 `cancel` 格；
@@ -548,16 +539,16 @@ impl EditorView {
         if let Some(commit) = rename_finish {
             self.finish_rename(commit);
         }
-        if let Some(action) = self.menu_action.take() {
+        if let Some(action) = request_menu_action {
             self.overlays.close_all();
             self.apply_menu_action(action);
         }
-        if let Some(index) = self.menu_request.take() {
+        if let Some(index) = request_menu {
             self.open_menu(index);
         }
-        // 工具栏：长按展开浮层、处理工具激活请求、同步组的「脸」。
+        // 工具栏：长按展开浮层、应用工具切换意图、同步组的「脸」。
         self.poll_long_press();
-        if let Some(tool) = self.tool_request.take() {
+        if let Some(tool) = request_tool {
             self.state.borrow_mut().active_tool = tool;
             self.overlays.close_all();
             self.open_tool_group.set(None);

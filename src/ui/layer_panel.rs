@@ -26,6 +26,8 @@ use crate::document::{
 };
 use crate::ui::card::Card;
 
+use super::{Intent, Intents};
+
 /// 图层行高（逻辑像素）。列表的池大小按它算。
 pub const LAYER_ROW_HEIGHT: f32 = 28.0;
 
@@ -90,7 +92,7 @@ pub fn layer_panel(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     list: List,
-    rename_request: Rc<Cell<Option<NodeId>>>,
+    intents: Intents,
 ) -> impl Component {
     Card::new(theme)
         .gap(space::SM)
@@ -99,14 +101,14 @@ pub fn layer_panel(
         .child(Divider::horizontal(theme))
         .child(list)
         .child(Divider::horizontal(theme))
-        .child(action_buttons(theme, state, rename_request))
+        .child(action_buttons(theme, state, intents))
 }
 
 /// 两排按钮，全部作用于“当前图层”。所有动作都走 [`AppState::execute`]，所以可撤销。
 fn action_buttons(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
-    rename_request: Rc<Cell<Option<NodeId>>>,
+    intents: Intents,
 ) -> impl Component {
     let add = {
         let state = state.clone();
@@ -132,9 +134,9 @@ fn action_buttons(
         })
     };
     let rename = {
-        let rename_request = rename_request.clone();
+        let intents = intents.clone();
         button(theme, "重命名", move |_tree, id| {
-            rename_request.set(Some(id))
+            intents.push(Intent::RenameLayer(id))
         })
     };
     let toggle = {

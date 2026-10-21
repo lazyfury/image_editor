@@ -31,6 +31,11 @@ src/ui/         views + project-local components: home (recent gallery),
                 rect-fill/gradient/eyedropper, select = rect/lasso/wand/free-fill
                 + selection commands, pen = pen pointer + keys, adjust = options
                 bar `−`/`+` requests -> tool parameters.
+                `ui/intents.rs` is the callback -> view channel: widget callbacks
+                push an `Intent` (tool / menu / options bar / pen / rename / file)
+                into one queue; `EditorView::update` drains it in arrival order
+                and `Intent::File` stays queued for the host. One queue instead of
+                per-action `Rc<Cell<Option<T>>>` fields.
                 `ui/build/` is the constructor: mod.rs (Wiring + `editor`),
                 tree.rs (panels + scene tree), assemble.rs (NodeRef -> EditorView).
 src/document/   Document / Layer / PixelBuffer / Color / Gradient / History + commands
