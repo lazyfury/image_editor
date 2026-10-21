@@ -365,7 +365,11 @@ src/
 │   │   └── preset.rs    #   BrushPreset + 内置预设（选项栏「预设」菜单）
 │   ├── stroke.rs        # 笔触采样：二次中点平滑 + 按固定距离取点
 │   ├── pen.rs           # PenTool：多击建路径 -> 选区 / 填充 / 描边的状态机
-│   ├── fill.rs          # 洪水填充 flood_fill + PaintBucketTool + magic_wand_region
+│   ├── fill/            # 填充类工具
+│   │   ├── flood.rs     #   洪水填充 flood_fill + 容差区域 magic_wand_region
+│   │   ├── bucket.rs    #   PaintBucketTool（包成 Tool，一次点击一条 undo）
+│   │   ├── selection.rs #   fill_selection（矩形 / 自由 / 钢笔填充共用）
+│   │   └── tests.rs     #   容差 / 连续 / 裁剪 / 撤销 / 魔棒区域
 │   ├── gradient.rs      # GradientKind / gradient_fill / GradientTool（多节点渐变）
 │   ├── shape_fill.rs    # RectangleFillTool（拖动矩形填充）
 │   └── move_tool.rs     # Phase 8：MoveTool（拖动当前图层）

@@ -435,6 +435,9 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 - [x] **`canvas/selection.rs`**（627）-> `selection/{mod 210, feather 62, merge 72,
   outline 71, tests 235}`：掩码与查询 / 羽化 / 合并 / 轮廓 / 测试各一层。
   `canvas/mod.rs` 的 `pub use selection::{MergeMode, Selection}` 不变。
+- [x] **`tools/fill.rs`**（556）-> `fill/{flood 146, bucket 96, selection 89,
+  tests 233}`：纯算法（容差 / 连续 / 魔棒区域）/ 油漆桶工具 / 按选区填充 / 测试。
+  `tools/mod.rs` 的 `pub use` 路径不变。
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
   `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
   不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。
