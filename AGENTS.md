@@ -55,6 +55,10 @@ src/selfcheck/  headless `--selfcheck` / `--dump`: mod.rs is the harness
                 (record / click / text helpers + `check()` + report), `checks/`
                 holds the per-feature checks (pipeline / chrome / pen / brush /
                 fill / selection / clipboard / layer)
+src/architecture.rs  `#[cfg(test)]` layering rules: core layers only point
+                down (`document <- canvas/renderer/tools/io <- app/ui`) and only
+                app/ui may touch the widget stack (`igui_ui` / `igui_scene` / ...).
+                Breaking a rule turns `cargo test` red with the offending line.
 packaging/      macOS .app `Info.plist`
 package-macos.sh  build --release and assemble `dist/*.app` (ad-hoc codesign)
 ```

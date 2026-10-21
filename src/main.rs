@@ -14,6 +14,8 @@
 //! ```
 
 mod app;
+#[cfg(test)]
+mod architecture;
 mod canvas;
 mod document;
 mod fonts;

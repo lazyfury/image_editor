@@ -365,9 +365,32 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   test / `--selfcheck`）；`cargo clippy` 已归零。
 - [x] **修正 MSRV / 打包**：`rust-version` 1.76 -> 1.80（`LazyLock`）；
   加 `[profile.release]`（thin LTO / 单 codegen unit / strip）。
-- [ ] **拆 `selfcheck::check()`（约 500 行）**：各段串行共享 `view` 状态，
-  拆成吃 `&mut EditorView` 的 `check_*` 时要注意顺序依赖。
-- [ ] **拆 `ui/new_document.rs`（508 行代码）/ `document/history.rs`（485）**。
+- [x] **拆 `ui/tools.rs`**（584 行、`begin_tool` 151 行）-> `ui/tools/`
+  （mod = 分发 + `with_ctx` / `drive`，paint / select / pen / adjust 各管一类工具）。
+  重复 20 次的 `ToolContext` 样板收成一处，`begin/continue/end_tool` 变成一行一臂。
+- [x] **拆 `selfcheck.rs`**（1591 行、`check()` 509 行）-> `selfcheck/mod.rs`
+  （420 行：夹具 + `check()` 166 行 + 报告）+ `selfcheck/checks/`（pipeline / chrome /
+  pen / brush / fill / selection / clipboard / layer）。验收：`failures.push` 146 ->
+  146、`--selfcheck` 报告逐字相同。
+- [x] **分层规则上测试**：`src/architecture.rs`——核心层只能向下依赖，且只有
+  `app` / `ui` 能碰控件栈（`igui_ui` / `igui_scene` / ...）；违反时报 `文件:行`。
+- [ ] **`EditorView` 的 12 条请求通道**：`brush_request` / `pen_request` /
+  `bucket_request` / `file_request` / `menu_request` / ... 都是
+  `Rc<Cell<Option<T>>>`，在 `update()` 里排队 `take()`。改：收成一个 `Intents`
+  枚举队列（回调 `intents.push(..)`）。验收：字段数下降（126 -> ?），
+  `--selfcheck` 输出不变。
+- [ ] **`EditorView` 按簇抽子结构体**（options 栏共享格 / 布局尺寸与节点 /
+  选区合并态）；先做上一条再动，否则只是搬家。
+- [ ] **拆 `ui/tests.rs`**（2435 行 / 88 个测试）-> `ui/tests/` 按功能分文件，
+  共享夹具留 `tests/mod.rs`。验收：测试数不变、每个文件 < 500 行。
+- [ ] **构造函数**：`ui/build/tree.rs::build_tree`（319）/ `assemble.rs::finish`
+  （262）按区域拆（menu_bar / toolbar / options / canvas / panels / palette /
+  status）。验收：`--selfcheck` 控件数 / 命令数不变。
+- [ ] **单函数过长**：`ui/menu.rs::menu_content`（234）、`ui/options_bar.rs::options_bar`
+  （226）、`ui/new_document.rs::build_content`（147）、`ui/layer_panel.rs::action_buttons`
+  （137）。改：菜单按 `MENUS` 每项一个 fn、选项栏按工具一组。
+- [ ] **拆 `ui/new_document.rs` / `ui/window/mod.rs`（698）/ `document/history.rs`
+  （694）/ `app/application/mod.rs`（953）/ `canvas/selection.rs`（627）**。
 - [ ] **测试辅助**：`viewport()` 各处尺寸不同（有意），`click()` 里只有
   `toolbar.rs` / `gradient_editor.rs` 的 `SceneTree` 版完全重复（其余接收类型
   不同）；要收敛就抽一个 `testing::click_tree`，别为 `viewport` 造共享函数。
