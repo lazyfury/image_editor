@@ -384,9 +384,14 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   高度 + 它们拖动 / 夹取的节点 + 侧栏标签页的当前页 / 按钮 / 内容节点，共 14 个
   字段收成一个 `layout` 字段。字段 115 -> 102（`NodeId` 38 -> 31）。
   验收：`--selfcheck` 逐字不变、拖分隔条 / 切标签页的测试全过。
-- [ ] **`EditorView` 第二簇：渐变**（`ramp` / `reverse` / `customized` /
-  `selected` / `kind` / `tool` / `editor_open` / 3 个节点 / 按钮表，约 11 个字段）
-  -> `ui/gradient.rs::GradientState`；第三簇是画笔 / 油漆桶的选项栏共享格。
+- [x] **`EditorView` 第二簇：渐变**（11 个字段：色带 / 绘制引擎 / 类型 / 反向 /
+  「自定义过」/ 选中节点 / 编辑器开关 / 3 个节点 / 按钮表）
+  -> `ui/gradient_editor.rs::GradientState`。字段 102 -> 92（`NodeId` 31 -> 28）。
+  验收：`--selfcheck` 逐字不变、渐变类型 / 编辑器的测试全过。
+- [ ] **`EditorView` 第三簇：选项栏共享格**（`pixel_mode` / `square_mode` /
+  `symmetry_mode` / `bucket_contiguous` / `saved_preferences` + 各工具引擎
+  `brush` / `paint_bucket` / `rect_fill` / `pen` / `move_tool`）。这一簇和绘制
+  逻辑交叉最多，先想清楚边界（「选项栏显示源」vs「工具绘制源」）再动。
 - [ ] **拆 `ui/tests.rs`**（2435 行 / 88 个测试）-> `ui/tests/` 按功能分文件，
   共享夹具留 `tests/mod.rs`。验收：测试数不变、每个文件 < 500 行。
 - [ ] **构造函数**：`ui/build/tree.rs::build_tree`（319）/ `assemble.rs::finish`

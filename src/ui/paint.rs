@@ -276,7 +276,7 @@ impl EditorView {
 
     /// 渐变拖动中的轴预览：起点→终点细线 + 两端小圆点。
     fn paint_gradient_preview(&self, ctx: &mut PaintContext) {
-        let Some((start, end)) = self.gradient_tool.preview() else {
+        let Some((start, end)) = self.gradient.tool.preview() else {
             return;
         };
         if (end - start).length() < 1.0 {

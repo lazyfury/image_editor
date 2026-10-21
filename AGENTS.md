@@ -32,8 +32,10 @@ src/ui/         views + project-local components: home (recent gallery),
                 + selection commands, pen = pen pointer + keys, adjust = options
                 bar `−`/`+` requests -> tool parameters.
                 `ui/layout.rs` also owns `Layout`: the draggable panel widths /
-                heights, the nodes they resize, and the sidebar tab state (now an
+                heights, the nodes they resize, and the sidebar tab state (an
                 `EditorView.layout` field instead of 14 loose fields).
+                `ui/gradient_editor.rs` owns `GradientState` the same way: ramp +
+                engine + kind/reverse + editor state + options-bar nodes.
                 `ui/intents.rs` is the callback -> view channel: widget callbacks
                 push an `Intent` (tool / menu / options bar / pen / rename / file)
                 into one queue; `EditorView::update` drains it in arrival order

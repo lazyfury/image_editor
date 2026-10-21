@@ -228,8 +228,8 @@ impl EditorView {
         );
         set_text(
             &mut self.tree,
-            self.gradient_kind_label,
-            self.gradient_kind.label(),
+            self.gradient.kind_label,
+            self.gradient.kind.label(),
         );
 
         set_text(

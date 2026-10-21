@@ -397,7 +397,8 @@ impl EditorView {
     /// 渐变类型切换按钮 / 「编辑…」按钮的中心点（测试 / 自检点击用）。
     pub fn gradient_button_center(&self, adjust: GradientAdjust) -> Option<Vec2> {
         let id = self
-            .gradient_buttons
+            .gradient
+            .buttons
             .iter()
             .find(|(candidate, _)| *candidate == adjust)
             .map(|(_, id)| *id)?;
@@ -405,16 +406,17 @@ impl EditorView {
     }
 
     pub fn gradient_edit_center(&self) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.gradient_edit_node).map(|control| control.rect.center())
+        igui_ui::control(&self.tree, self.gradient.edit_button).map(|control| control.rect.center())
     }
 
     /// 当前渐变类型 / ramp 色标 / 是否自定义 / 编辑器是否开着（测试 / 自检）。
     pub fn gradient_kind(&self) -> GradientKind {
-        self.gradient_kind
+        self.gradient.kind
     }
 
     pub fn gradient_stops(&self) -> Vec<(f32, Color)> {
         self.gradient
+            .ramp
             .borrow()
             .stops()
             .iter()
@@ -423,7 +425,7 @@ impl EditorView {
     }
 
     pub fn gradient_editor_open(&self) -> bool {
-        self.gradient_editor_open.get()
+        self.gradient.editor_open.get()
     }
 
     /// 油漆桶当前容差 / 是否连续（测试 / 自检）。

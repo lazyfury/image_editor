@@ -111,24 +111,25 @@ impl EditorView {
             (state.foreground, state.background, state.selection.clone())
         };
         // 用户没动过色带时，首尾颜色跟随前景 / 背景色。
-        if !self.gradient_customized.get() {
+        if !self.gradient.customized.get() {
             self.gradient
+                .ramp
                 .borrow_mut()
                 .set_endpoints(foreground, background);
         }
-        self.gradient_tool.clip = selection;
-        self.gradient_tool.kind = self.gradient_kind;
-        self.gradient_tool.reverse = self.gradient_reverse.get();
-        drive(&self.state, &mut self.gradient_tool, Phase::Down, position);
+        self.gradient.tool.clip = selection;
+        self.gradient.tool.kind = self.gradient.kind;
+        self.gradient.tool.reverse = self.gradient.reverse.get();
+        drive(&self.state, &mut self.gradient.tool, Phase::Down, position);
     }
 
     pub(in crate::ui) fn continue_gradient(&mut self, position: Vec2) {
-        drive(&self.state, &mut self.gradient_tool, Phase::Move, position);
+        drive(&self.state, &mut self.gradient.tool, Phase::Move, position);
         self.texture_dirty = true;
     }
 
     pub(in crate::ui) fn end_gradient(&mut self, position: Vec2) {
-        drive(&self.state, &mut self.gradient_tool, Phase::Up, position);
+        drive(&self.state, &mut self.gradient.tool, Phase::Up, position);
         self.texture_dirty = true;
         *self.message.borrow_mut() = Some("渐变".to_string());
     }

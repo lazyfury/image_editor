@@ -68,7 +68,7 @@ impl EditorView {
             || self.select_anchor.is_some()
             || !self.lasso_points.is_empty()
             || self.rect_fill.is_filling()
-            || self.gradient_tool.is_drawing()
+            || self.gradient.tool.is_drawing()
             || self.pen.is_dragging()
     }
 
@@ -107,7 +107,7 @@ impl EditorView {
             ActiveTool::RectangleFill if self.rect_fill.is_filling() => {
                 self.continue_rect_fill(position);
             }
-            ActiveTool::Gradient if self.gradient_tool.is_drawing() => {
+            ActiveTool::Gradient if self.gradient.tool.is_drawing() => {
                 self.continue_gradient(position);
             }
             _ => {}
@@ -136,7 +136,7 @@ impl EditorView {
             ActiveTool::RectangleFill if self.rect_fill.is_filling() => {
                 self.end_rect_fill(position);
             }
-            ActiveTool::Gradient if self.gradient_tool.is_drawing() => {
+            ActiveTool::Gradient if self.gradient.tool.is_drawing() => {
                 self.end_gradient(position);
             }
             _ => {}

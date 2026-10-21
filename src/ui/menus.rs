@@ -136,11 +136,11 @@ impl EditorView {
         self.open_tool_group.set(None);
         let theme = self.theme;
         let state = self.state.clone();
-        let gradient = self.gradient.clone();
-        let customized = self.gradient_customized.clone();
-        let selected = self.gradient_selected.clone();
+        let gradient = self.gradient.ramp.clone();
+        let customized = self.gradient.customized.clone();
+        let selected = self.gradient.selected.clone();
         let refs = gradient_editor::GradientEditorRefs::default();
-        let anchor = self.gradient_preview_node;
+        let anchor = self.gradient.preview;
         self.overlays
             .popover(anchor, Placement::Below, move |tree, root| {
                 gradient_editor::gradient_editor_content(
@@ -154,7 +154,7 @@ impl EditorView {
                     &refs,
                 );
             });
-        self.gradient_editor_open.set(true);
+        self.gradient.editor_open.set(true);
     }
 
     /// 当前工具属于哪个组，就把那个组的「脸」更新成它；标签跟着改。

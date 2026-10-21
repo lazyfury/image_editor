@@ -103,12 +103,11 @@ use crate::app::tool_groups::{group_index, TOOL_GROUPS};
 use crate::canvas::{
     document_to_pixel, paint_backdrop, paint_backdrop_in, screen_to_document, CanvasCamera,
 };
-use crate::document::{CropLayerCommand, Gradient, LayerId, LayerMetaCommand};
+use crate::document::{CropLayerCommand, LayerId, LayerMetaCommand};
 use crate::icons::IconSet;
 use crate::renderer::{CpuRenderer, RenderTarget, Renderer};
 use crate::tools::{
-    BrushShape, BrushTool, GradientKind, GradientTool, MoveTool, PaintBucketTool, PenTool,
-    PointerEvent, RectangleFillTool,
+    BrushShape, BrushTool, MoveTool, PaintBucketTool, PenTool, PointerEvent, RectangleFillTool,
 };
 use crate::ui::options_bar::{options_hint, tool_has_brush};
 
@@ -279,23 +278,8 @@ pub struct EditorView {
     paint_bucket: PaintBucketTool,
     /// 矩形填充工具（拖动中暴露预览角点）。
     rect_fill: RectangleFillTool,
-    /// 渐变工具 + 它的多节点 ramp（共享给编辑器）/ 类型 / 反向。
-    gradient: Rc<RefCell<Gradient>>,
-    gradient_tool: GradientTool,
-    gradient_kind: GradientKind,
-    gradient_reverse: Rc<Cell<bool>>,
-    /// 用户改过渐变节点后为 true；否则首尾跟随前景 / 背景。
-    gradient_customized: Rc<Cell<bool>>,
-    /// 编辑器里选中的节点下标。
-    gradient_selected: Rc<Cell<usize>>,
-    /// 选项栏渐变类型标签 / 预览条 / 编辑按钮节点。
-    gradient_kind_label: NodeId,
-    gradient_preview_node: NodeId,
-    gradient_edit_node: NodeId,
-    /// 渐变编辑器是否开着。
-    gradient_editor_open: Cell<bool>,
-    /// 渐变类型切换按钮节点（测试 / 自检点击用）。
-    gradient_buttons: Vec<(GradientAdjust, NodeId)>,
+    /// 渐变工具的视图侧状态（色带 / 类型 / 反向 / 编辑器开关 + 选项栏节点）。
+    gradient: gradient_editor::GradientState,
     /// 可拖动的面板尺寸 + 侧栏标签页状态（[`layout::Layout`]）。
     ///
     /// 和 `EditorView::layout`（排树）不是一回事：这里是「拖成多宽 / 多高、现在
@@ -451,9 +435,9 @@ impl EditorView {
                 Intent::Pen(action) => self.apply_pen_action(action),
                 Intent::Bucket(adjust) => self.apply_bucket_adjust(adjust),
                 Intent::Gradient(adjust) => {
-                    self.gradient_kind = match adjust {
-                        GradientAdjust::KindPrev => self.gradient_kind.prev(),
-                        GradientAdjust::KindNext => self.gradient_kind.next(),
+                    self.gradient.kind = match adjust {
+                        GradientAdjust::KindPrev => self.gradient.kind.prev(),
+                        GradientAdjust::KindNext => self.gradient.kind.next(),
                     };
                 }
                 Intent::OpenGradientEditor => self.open_gradient_editor(),
@@ -474,17 +458,18 @@ impl EditorView {
         self.brush.symmetry = self.symmetry_mode.get();
         self.paint_bucket.contiguous = self.bucket_contiguous.get();
         // 渐变：未自定义时首尾跟随前景 / 背景；工具读类型 / 反向。
-        if !self.gradient_customized.get() {
+        if !self.gradient.customized.get() {
             let (foreground, background) = {
                 let state = self.state.borrow();
                 (state.foreground, state.background)
             };
             self.gradient
+                .ramp
                 .borrow_mut()
                 .set_endpoints(foreground, background);
         }
-        self.gradient_tool.kind = self.gradient_kind;
-        self.gradient_tool.reverse = self.gradient_reverse.get();
+        self.gradient.tool.kind = self.gradient.kind;
+        self.gradient.tool.reverse = self.gradient.reverse.get();
         self.sync_options();
 
         let (revision, active) = {
@@ -542,7 +527,7 @@ impl EditorView {
         if self.overlays.is_empty() {
             self.open_menu.set(None);
             self.open_tool_group.set(None);
-            self.gradient_editor_open.set(false);
+            self.gradient.editor_open.set(false);
             self.rename = None;
         }
         if let Some(message) = self.message.borrow_mut().take() {

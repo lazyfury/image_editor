@@ -22,6 +22,36 @@ use igui_ui::{Align, MouseFilter, PointerPhase, SurfaceStyle};
 
 use crate::app::state::AppState;
 use crate::document::{Color, Gradient};
+use crate::tools::{GradientKind, GradientTool};
+
+use super::GradientAdjust;
+
+/// 渐变工具的视图侧状态（[`crate::ui::EditorView`] 的 `gradient` 字段）。
+///
+/// 色带本身（`ramp`）是 `Rc<RefCell<_>>`：绘制引擎 [`GradientTool`] 和这个编辑器
+/// 共用同一份，编辑器里拖节点立刻反映到下一次拖动。类型 / 反向 / 「自定义过」也
+/// 是共享格：选项栏按钮直接写，`update` 每帧对齐进工具。
+pub(super) struct GradientState {
+    /// 多节点色带（`GradientTool` 与编辑器共享）。
+    pub(super) ramp: Rc<RefCell<Gradient>>,
+    /// 绘制引擎（读 `ramp` / `kind` / `reverse` / 选区）。
+    pub(super) tool: GradientTool,
+    /// 选项栏切出来的类型（线性 / 径向……）。
+    pub(super) kind: GradientKind,
+    pub(super) reverse: Rc<Cell<bool>>,
+    /// 用户改过色带节点后为 true；否则首尾跟随前景 / 背景。
+    pub(super) customized: Rc<Cell<bool>>,
+    /// 编辑器里选中的节点下标。
+    pub(super) selected: Rc<Cell<usize>>,
+    /// 编辑器是否开着。
+    pub(super) editor_open: Cell<bool>,
+    /// 选项栏的类型标签 / 预览条（popover 的锚点）/「编辑…」按钮。
+    pub(super) kind_label: NodeId,
+    pub(super) preview: NodeId,
+    pub(super) edit_button: NodeId,
+    /// 类型切换按钮节点（测试 / 自检点击用）。
+    pub(super) buttons: Vec<(GradientAdjust, NodeId)>,
+}
 
 /// 色带高度（逻辑像素）：上半条画渐变，下半条放节点手柄。
 const BAR_HEIGHT: f32 = 30.0;

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::tools::PenTool;
+use crate::ui::gradient_editor::GradientState;
 use crate::ui::layout::Layout;
 
 pub(super) fn finish(
@@ -174,23 +175,25 @@ pub(super) fn finish(
         bucket_contiguous,
         paint_bucket: PaintBucketTool::new(),
         rect_fill: RectangleFillTool::new(),
-        gradient_tool: GradientTool::new(gradient.clone()),
-        gradient,
-        gradient_kind: GradientKind::default(),
-        gradient_reverse,
-        gradient_customized: Rc::new(Cell::new(false)),
-        gradient_selected: Rc::new(Cell::new(0)),
-        gradient_kind_label: options
-            .gradient_kind
-            .get()
-            .expect("gradient kind label mounted"),
-        gradient_preview_node: options
-            .gradient_preview
-            .get()
-            .expect("gradient preview mounted"),
-        gradient_edit_node: options.gradient_edit.get().expect("gradient edit mounted"),
-        gradient_editor_open: Cell::new(false),
-        gradient_buttons,
+        gradient: GradientState {
+            tool: GradientTool::new(gradient.clone()),
+            ramp: gradient,
+            kind: GradientKind::default(),
+            reverse: gradient_reverse,
+            customized: Rc::new(Cell::new(false)),
+            selected: Rc::new(Cell::new(0)),
+            editor_open: Cell::new(false),
+            kind_label: options
+                .gradient_kind
+                .get()
+                .expect("gradient kind label mounted"),
+            preview: options
+                .gradient_preview
+                .get()
+                .expect("gradient preview mounted"),
+            edit_button: options.gradient_edit.get().expect("gradient edit mounted"),
+            buttons: gradient_buttons,
+        },
         layout: Layout {
             sidebar_width,
             sidebar: refs.sidebar.get().expect("sidebar mounted"),
