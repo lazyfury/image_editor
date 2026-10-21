@@ -389,7 +389,9 @@ src/
 │   ├── new_document.rs  # 「新建文档」浮动窗口（尺寸 / 背景色）
 │   ├── window/          # 模拟桌面的浮动窗口（拖动移动 / 拖动缩放）
 │   └── status_bar.rs
-└── selfcheck.rs         # 无头自检（录制 DrawList + igui_profile 体检）
+└── selfcheck/           # 无头自检（录制 DrawList + igui_profile 体检）
+    ├── mod.rs           #   录制 / 点击 / 取文字等夹具 + check() 主流程 + 报告
+    └── checks/          #   按功能分块的检查：pipeline / chrome / pen / brush / ...
 ```
 
 ## 画布操作

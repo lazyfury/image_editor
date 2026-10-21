@@ -51,7 +51,10 @@ src/io/         PNG encode/decode + `.igui` workspace files + recent list +
 src/fonts.rs    bundled-font discovery (assets/fonts/)
 src/icons.rs    vendored Lucide SVG subset, drawn via igui_svg (no textures)
 src/theme.rs    editor theme (compact density)
-src/selfcheck.rs headless `--selfcheck` / `--dump`
+src/selfcheck/  headless `--selfcheck` / `--dump`: mod.rs is the harness
+                (record / click / text helpers + `check()` + report), `checks/`
+                holds the per-feature checks (pipeline / chrome / pen / brush /
+                fill / selection / clipboard / layer)
 packaging/      macOS .app `Info.plist`
 package-macos.sh  build --release and assemble `dist/*.app` (ad-hoc codesign)
 ```
