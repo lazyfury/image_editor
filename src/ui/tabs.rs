@@ -1,4 +1,4 @@
-//! 侧栏标签页（项目内组件）：把「历史 / 属性」两块内容收进一个卡片 ——
+//! 侧栏标签页（项目内组件）：把「历史 / 预览」两块内容收进一个卡片 ——
 //! 上面一排标签按钮，下面只露出当前标签的内容。文件动作走菜单 / 快捷键
 //! （宿主弹原生对话框），不再占侧栏一格。
 //!
@@ -21,7 +21,7 @@ use igui_ui::{Container, FlexStyle, MouseFilter, SurfaceStyle};
 pub enum SidebarTab {
     History,
     #[default]
-    Properties,
+    Preview,
 }
 
 impl SidebarTab {
@@ -29,7 +29,7 @@ impl SidebarTab {
     pub const fn label(self) -> &'static str {
         match self {
             Self::History => "历史",
-            Self::Properties => "属性",
+            Self::Preview => "预览",
         }
     }
 }
@@ -196,7 +196,7 @@ mod tests {
                 Text::small("历史内容", theme),
             )
             .tab(
-                SidebarTab::Properties,
+                SidebarTab::Preview,
                 &props.0,
                 &props.1,
                 Text::small("属性内容", theme),
@@ -222,12 +222,12 @@ mod tests {
 
     #[test]
     fn every_tab_has_a_distinct_label_and_properties_is_the_default() {
-        let tabs = [SidebarTab::History, SidebarTab::Properties];
+        let tabs = [SidebarTab::History, SidebarTab::Preview];
         let mut labels: Vec<&str> = tabs.iter().map(|tab| tab.label()).collect();
         labels.sort_unstable();
         labels.dedup();
         assert_eq!(labels.len(), tabs.len());
-        assert_eq!(SidebarTab::default(), SidebarTab::Properties);
+        assert_eq!(SidebarTab::default(), SidebarTab::Preview);
     }
 
     /// 建两页标签、排好，返回 `(tree, panel, history_content, properties_content)`。
@@ -245,7 +245,7 @@ mod tests {
                 Text::small("历史内容", theme),
             )
             .tab(
-                SidebarTab::Properties,
+                SidebarTab::Preview,
                 &props.0,
                 &props.1,
                 Text::small("属性内容", theme),
@@ -278,7 +278,7 @@ mod tests {
             &mut tree,
             panel,
             SidebarTab::History,
-            &[(SidebarTab::History, hist), (SidebarTab::Properties, props)],
+            &[(SidebarTab::History, hist), (SidebarTab::Preview, props)],
         );
         igui_ui::layout(&mut tree, viewport);
         assert!(content_rect(&tree, hist).top() > 0.0);
@@ -289,13 +289,13 @@ mod tests {
     fn showing_a_hidden_tab_relays_it_out_from_zero() {
         let (mut tree, panel, hist, props) = mounted();
         let viewport = ViewportSize::new(Size::new(320.0, 240.0));
-        let contents = [(SidebarTab::History, hist), (SidebarTab::Properties, props)];
+        let contents = [(SidebarTab::History, hist), (SidebarTab::Preview, props)];
 
         show_active(&mut tree, panel, SidebarTab::History, &contents);
         igui_ui::layout(&mut tree, viewport);
         assert_eq!(content_rect(&tree, props), igui_core::Rect::ZERO);
 
-        show_active(&mut tree, panel, SidebarTab::Properties, &contents);
+        show_active(&mut tree, panel, SidebarTab::Preview, &contents);
         igui_ui::layout(&mut tree, viewport);
         let props_rect = content_rect(&tree, props);
         assert!(
@@ -308,11 +308,11 @@ mod tests {
     #[test]
     fn a_tab_mounts_a_button_and_a_content_node() {
         let mut tree = SceneTree::new();
-        let active = Rc::new(Cell::new(SidebarTab::Properties));
+        let active = Rc::new(Cell::new(SidebarTab::Preview));
         let button = NodeRef::new();
         let content = NodeRef::new();
         let view = TabsView::new(crate::theme::editor_theme(false), active).tab(
-            SidebarTab::Properties,
+            SidebarTab::Preview,
             &button,
             &content,
             Text::small("内容", crate::theme::editor_theme(false)),

@@ -258,7 +258,7 @@ pub fn check() -> (usize, String) {
         ("图层", "图层面板"),
         ("背景", "图层列表"),
         ("100%", "图层不透明度"),
-        ("属性", "属性面板 / 侧栏标签"),
+        ("预览", "侧栏标签 / 预览面板"),
         ("历史", "侧栏标签"),
         ("import", "导入后的图层名"),
     ];
@@ -323,7 +323,7 @@ pub fn check() -> (usize, String) {
         out.push_str(&format!("  ✗ {failure}\n"));
     }
     if failures.is_empty() {
-        out.push_str("  ✓ 画布合成 + 撤销/重做 + PNG 导入导出 + 移动/框选/吸管 + 图标包 + 菜单/工具栏/图层栏/历史·属性栏/状态栏 全部就位\n");
+        out.push_str("  ✓ 画布合成 + 撤销/重做 + PNG 导入导出 + 移动/框选/吸管 + 图标包 + 菜单/工具栏/图层栏/历史·预览栏/状态栏 全部就位\n");
     }
     (failures.len(), out)
 }
@@ -393,7 +393,7 @@ mod tests {
             crate::theme::editor_theme(false),
             AppState::default(),
         ));
-        for needle in ["文件", "画笔", "图层", "属性"] {
+        for needle in ["文件", "画笔", "图层", "预览"] {
             assert!(contains(&frame, needle), "缺少 `{needle}`");
         }
         assert!(

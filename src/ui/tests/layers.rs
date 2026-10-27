@@ -1,4 +1,4 @@
-//! 图层：属性面板、裁剪到文档、重命名浮层。
+//! 图层：裁剪到文档、重命名浮层、树 / 拖动 / 蒙版 / 缩略图。
 
 use super::*;
 
@@ -8,37 +8,6 @@ fn click_rename(view: &mut EditorView) {
         .rename_button_center()
         .expect("图层面板应有「重命名」按钮");
     click(view, center);
-}
-
-#[test]
-fn the_properties_panel_follows_the_active_layer() {
-    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
-    view.layout(viewport());
-    // 新图层成为当前图层，属性面板应显示它的名字。
-    view.state.borrow_mut().document.add_layer("上层");
-    select_tab(&mut view, SidebarTab::Properties);
-    assert!(frame_texts(&view).iter().any(|text| text.contains("上层")));
-}
-
-#[test]
-fn the_properties_panel_shows_layer_geometry() {
-    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
-    view.layout(viewport());
-    let id = view.state.borrow().document.active_layer().unwrap().id;
-    view.state
-        .borrow_mut()
-        .document
-        .set_layer_position(id, Point::new(3, -2));
-    select_tab(&mut view, SidebarTab::Properties);
-    let texts = frame_texts(&view);
-    assert!(
-        texts.iter().any(|text| text.contains("偏移 (3, -2)")),
-        "texts = {texts:?}"
-    );
-    assert!(
-        texts.iter().any(|text| text.contains("缓冲 128×128")),
-        "texts = {texts:?}"
-    );
 }
 
 #[test]

@@ -117,6 +117,19 @@ impl ImageEditorLogic {
                 if let Some(pixels) = workspace.editor.take_texture_upload() {
                     upload_texture(&backend, &pixels);
                 }
+                // 预览面板：显示合成结果的小图，200ms 节流。
+                if let Some(pixels) = workspace.editor.take_preview_upload() {
+                    let mut backend = backend.borrow_mut();
+                    backend.set_texture_filter(crate::ui::PREVIEW_TEXTURE, TextureFilter::Linear);
+                    if let Err(error) = backend.update_texture(
+                        crate::ui::PREVIEW_TEXTURE,
+                        pixels.width,
+                        pixels.height,
+                        &pixels.data,
+                    ) {
+                        tracing::warn!(target: "image_editor", %error, "preview_upload_failed");
+                    }
+                }
                 // 图层缩略图（每层一张小纹理，视图已按视口 + 节流重建）。
                 for (texture, pixels) in workspace.editor.take_layer_thumbnail_uploads() {
                     let mut backend = backend.borrow_mut();

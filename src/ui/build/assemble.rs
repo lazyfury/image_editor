@@ -27,6 +27,7 @@ pub(super) fn finish(
         layer_selected,
         layer_rows,
         layer_textures,
+        preview_viewport,
         history_count,
         pixel_mode,
         square_mode,
@@ -219,10 +220,14 @@ pub(super) fn finish(
         last_history: None,
         last_revision: u64::MAX,
         rename: None,
-        props_name: refs.props_name.get().expect("props name mounted"),
-        props_detail: refs.props_detail.get().expect("props detail mounted"),
-        props_geometry: refs.props_geometry.get().expect("props geometry mounted"),
-        last_active: None,
+        preview: refs.preview.get().expect("preview mounted"),
+        preview_viewport,
+        preview_upload: None,
+        preview_at: std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_millis(
+                crate::ui::preview_panel::PREVIEW_INTERVAL_MS,
+            ))
+            .unwrap_or_else(std::time::Instant::now),
     };
     view.update();
     view

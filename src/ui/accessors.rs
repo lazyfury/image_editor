@@ -71,7 +71,31 @@ impl EditorView {
                 paint_mask_overlay_region(document, &mut self.render_target.pixels, region);
             }
         }
+        // 预览面板：直接从刚合成好的显示结果缩，不再多合成一遍。
+        // 整图重合成（结构改动 / 切工作区）立即刷新；画笔的局部更新走 200ms 节流。
+        if full
+            || self.preview_at.elapsed()
+                >= std::time::Duration::from_millis(crate::ui::preview_panel::PREVIEW_INTERVAL_MS)
+        {
+            self.preview_at = std::time::Instant::now();
+            self.preview_upload = Some(
+                self.render_target
+                    .pixels
+                    .scaled_to_fit(crate::ui::preview_panel::PREVIEW_MAX_EDGE),
+            );
+        }
         Some(self.render_target.pixels.clone())
+    }
+
+    /// 取走待上传的预览图（宿主把它灌成 `PREVIEW_TEXTURE`）。
+    pub fn take_preview_upload(&mut self) -> Option<crate::document::PixelBuffer> {
+        self.preview_upload.take()
+    }
+
+    /// 预览面板的矩形（测试 / 自检用）。
+    #[allow(dead_code)] // 只有测试读；自检看的是命令流。
+    pub fn preview_rect(&self) -> Option<igui_core::Rect> {
+        igui_ui::control(&self.tree, self.preview).map(|control| control.rect)
     }
 
     /// 当前文档的缩略图（最长边 `max_edge`）：主页画廊预览用。

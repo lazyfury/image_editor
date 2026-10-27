@@ -27,6 +27,7 @@ mod layers;
 mod menus;
 mod panels;
 mod pen;
+mod preview;
 mod selection;
 mod toolbar;
 mod tools;
@@ -41,13 +42,6 @@ fn brush_view() -> EditorView {
     view.update();
     view.layout(viewport());
     view
-}
-
-/// 切到某个标签页（等同点标签：写共享状态后 `update` + `layout`）。
-fn select_tab(view: &mut EditorView, tab: SidebarTab) {
-    view.layout.active_tab.set(tab);
-    view.update();
-    view.layout(viewport());
 }
 
 fn frame_texts(view: &EditorView) -> Vec<String> {

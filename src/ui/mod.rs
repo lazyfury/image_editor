@@ -12,7 +12,7 @@
 //! ```
 //!
 //! 每块面板一个模块（[`menu`] / [`toolbar`] / [`canvas`] / [`layer_panel`] /
-//! [`properties_panel`] / [`status_bar`]），这个文件负责把它们拼成整页、
+//! [`preview_panel`] / [`status_bar`]），这个文件负责把它们拼成整页、
 //! 持有共享状态，并把 `CanvasCamera` 同步到文档节点的变换。
 
 mod accessors;
@@ -42,7 +42,7 @@ mod paint;
 mod palette;
 mod pen;
 mod preferences;
-mod properties_panel;
+mod preview_panel;
 mod rename;
 mod selection;
 mod status_bar;
@@ -62,6 +62,7 @@ pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
 pub use options_bar::GradientAdjust;
 pub use options_bar::{BucketAdjust, BucketToggle, PenAction};
+pub use preview_panel::PREVIEW_TEXTURE;
 // 选项栏固定高度：测试与 `--selfcheck` 量它（非测试构建也会用到）。
 /// 快捷键表（自检核对「表覆盖每个工具键」用）。
 pub use dialogs::shortcut_rows;
@@ -165,7 +166,7 @@ const ANCHOR_SIZE: f32 = 5.0;
 const HANDLE_DOT: f32 = 2.5;
 /// 像素模式下，出现像素网格的最小缩放。
 const GRID_MIN_ZOOM: f32 = 6.0;
-/// 右侧栏「历史 / 属性」标签页面板的默认高度 / 拖拽钳制（逻辑像素）。
+/// 右侧栏「历史 / 预览」标签页面板的默认高度 / 拖拽钳制（逻辑像素）。
 const TABS_PANEL_HEIGHT: f32 = 220.0;
 const TABS_PANEL_MIN: f32 = 120.0;
 const TABS_PANEL_MAX: f32 = 480.0;
@@ -182,9 +183,7 @@ struct Refs {
     zoom: NodeRef,
     message: NodeRef,
     canvas: NodeRef,
-    props_name: NodeRef,
-    props_detail: NodeRef,
-    props_geometry: NodeRef,
+    preview: NodeRef,
     tabs_panel: NodeRef,
     tabs_handle: NodeRef,
     palette_panel: NodeRef,
@@ -329,10 +328,13 @@ pub struct EditorView {
     /// 最近一次见到的文档 `revision`；变了就重合成 + 刷新图层列表。
     last_revision: u64,
     rename: Option<Rename>,
-    props_name: NodeId,
-    props_detail: NodeId,
-    props_geometry: NodeId,
-    last_active: Option<LayerId>,
+    preview: NodeId,
+    /// 预览面板的可见范围（文档坐标四角）；`update` 每帧写。
+    preview_viewport: crate::ui::preview_panel::PreviewViewport,
+    /// 待上传的预览图（显示合成结果缩到 256px）。
+    preview_upload: Option<crate::document::PixelBuffer>,
+    /// 上次生成预览的时间（节流）。
+    preview_at: std::time::Instant,
 }
 
 impl EditorView {
@@ -427,6 +429,7 @@ impl EditorView {
     /// 宿主每帧调用：同步状态栏、在文档改动后刷新图层列表并标记重合成。
     pub fn update(&mut self) {
         self.sync_status();
+        self.sync_preview();
         // 意图取一次，按到达顺序处理：工具参数当场应用（下面的 `sync_options`
         // 要显示新值），菜单 / 重命名 / 工具切换记下来，留到各自的阶段 —— 顺序
         // 与原来那 12 条请求格一模一样。`Intent::File` 留在队列里给宿主。
@@ -502,17 +505,13 @@ impl EditorView {
             self.last_active_mask = active_mask;
             self.mark_texture_dirty();
         }
+        let _ = active;
         if revision != self.last_revision {
             self.last_revision = revision;
             self.texture_dirty = true;
             self.refresh_layers();
-            self.sync_properties();
             // 缩略图节流：画笔每帧都推进 revision，但没必要每次都缩一遍。
             self.layer_thumb_dirty = true;
-        }
-        if active != self.last_active {
-            self.last_active = active;
-            self.sync_properties();
         }
         let history = {
             let state = self.state.borrow();

@@ -37,7 +37,7 @@ src/ui/         views + project-local components: home (recent gallery with
                 new_document/ (mod = modal shell wiring, form = the form,
                 widgets = stepper / preset / swatch, tests), workspace_tabs,
                 menu, toolbar, options_bar, canvas,
-                layer/history/properties/tabs/palette panels (the right sidebar
+                layer/history/preview/tabs/palette panels (the right sidebar
                 has no file panel: file actions go through the File menu /
                 shortcuts, and the tab strip defaults to 属性), rename
                 (TextInput popover), window (floating window), confirm

@@ -26,6 +26,23 @@ impl EditorView {
         );
     }
 
+    /// 把主画布的可见范围（文档坐标四角）写进预览面板。
+    ///
+    /// 在 `update`（layout 之前）算：用的是上一帧的画布矩形，差一帧也不影响
+    /// 那个框的用途。旋转视图时四角是精确的四边形。
+    pub(super) fn sync_preview(&mut self) {
+        let corners = self.canvas_area_rect().map(|area| {
+            let camera = self.state.borrow().canvas;
+            [
+                camera.screen_to_document(area.min()),
+                camera.screen_to_document(Vec2::new(area.max().x, area.min().y)),
+                camera.screen_to_document(area.max()),
+                camera.screen_to_document(Vec2::new(area.min().x, area.max().y)),
+            ]
+        });
+        self.preview_viewport.set(corners);
+    }
+
     /// 工具 / 缩放 / 视角 / 指针像素 -> 状态栏。
     pub(super) fn sync_status(&mut self) {
         let (tool, mode, zoom, angle, width, height, camera) = {
@@ -117,60 +134,6 @@ impl EditorView {
                     .iter()
                     .position(|row| row.id == active)
             })
-    }
-
-    /// 当前图层 -> 属性面板。
-    pub(super) fn sync_properties(&mut self) {
-        let (name, detail, geometry) = {
-            let state = self.state.borrow();
-            let document = &state.document;
-            match document.active_layer() {
-                Some(layer) if layer.is_group() => {
-                    let children = document.children(Some(layer.id)).len();
-                    (
-                        format!("组「{}」", layer.name),
-                        format!(
-                            "不透明度 {:.0}%  ·  {} 个子节点",
-                            layer.opacity * 100.0,
-                            children
-                        ),
-                        if layer.mask.is_some() {
-                            "蒙版：有".to_string()
-                        } else {
-                            String::new()
-                        },
-                    )
-                }
-                Some(layer) => (
-                    layer.name.clone(),
-                    format!(
-                        "不透明度 {:.0}%  ·  Normal{}",
-                        layer.opacity * 100.0,
-                        if layer.mask.is_some() {
-                            if state.document.active_mask {
-                                "  ·  编辑蒙版"
-                            } else {
-                                "  ·  有蒙版"
-                            }
-                        } else {
-                            ""
-                        }
-                    ),
-                    format!(
-                        "偏移 ({}, {})  ·  缓冲 {}×{}",
-                        layer.position.x, layer.position.y, layer.pixels.width, layer.pixels.height
-                    ),
-                ),
-                None => (
-                    "无图层".to_string(),
-                    "点「+ 图层」新建一层".to_string(),
-                    String::new(),
-                ),
-            }
-        };
-        set_text(&mut self.tree, self.props_name, name);
-        set_text(&mut self.tree, self.props_detail, detail);
-        set_text(&mut self.tree, self.props_geometry, geometry);
     }
 
     /// 打开重命名浮层，锚在「重命名」按钮上。

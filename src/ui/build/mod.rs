@@ -31,7 +31,7 @@ use crate::tools::{
 use super::options_bar::{options_bar, BarInputs, GradientOptions, OptionSlots, OptionsRefs};
 use super::tabs::{SidebarTab, TabsView};
 use super::{
-    canvas, history_panel, layer_panel, menu, palette, properties_panel, status_bar, toolbar,
+    canvas, history_panel, layer_panel, menu, palette, preview_panel, status_bar, toolbar,
     BrushAdjust, BrushToggle, BucketAdjust, BucketToggle, EditorView, GradientAdjust, Intents,
     Refs, LONG_PRESS_MS, PALETTE_MAX, PALETTE_MIN, PALETTE_WIDTH, SIDEBAR_MIN, SIDEBAR_WIDTH,
     TABS_PANEL_HEIGHT, TABS_PANEL_MAX, TABS_PANEL_MIN,
@@ -62,6 +62,8 @@ struct Wiring {
     layer_rows: Rc<RefCell<Vec<crate::document::LayerRow>>>,
     /// 图层缩略图纹理表（面板行绘制用）。
     layer_textures: Rc<RefCell<crate::ui::layer_thumbs::LayerTextures>>,
+    /// 预览面板要标的「主画布可见范围」（文档坐标四角）。
+    preview_viewport: crate::ui::preview_panel::PreviewViewport,
     history_count: Rc<Cell<usize>>,
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,
