@@ -204,6 +204,7 @@ assets/fonts/jinghua-laosong-v3.0.ttf
 cargo run                       # desktop app (winit + wgpu)
 cargo run -- --selfcheck        # headless: record DrawList, inspect, assert (exit 1 on failure)
 cargo run -- --dump             # same, and print the draw commands
+cargo run --release -- --bench  # layer / layer-tree UI micro benchmarks (median of 7)
 cargo run -- --frames 120       # render N frames then exit
 cargo run -- --light            # light theme
 cargo run -- --pixel-font       # built-in bitmap font (no CJK)

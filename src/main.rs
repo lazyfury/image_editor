@@ -16,6 +16,7 @@
 mod app;
 #[cfg(test)]
 mod architecture;
+mod bench;
 mod canvas;
 mod document;
 mod fonts;
@@ -43,6 +44,7 @@ image_editor — 用 igui 画的图像编辑器（Phase 8：移动 / 框选 / �
       --selfcheck   无头自检：录 DrawList + igui_profile 体检 + 断言关键内容，
                     失败退出码 1
       --dump        同 --selfcheck，并打印完整绘制命令
+      --bench       图层 / 图层树 UI 的性能基准（建议配 --release 跑）
       --frames <n>  渲染 n 帧后退出（验证真实渲染管线）
       --light       使用浅色主题（默认深色）
       --pixel-font  使用内置点阵字体（默认系统字体；点阵字体不含中文）
@@ -82,6 +84,8 @@ enum Command {
     SelfCheck {
         dump: bool,
     },
+    /// 图层 / 图层树 UI 性能基准。
+    Bench,
     Help,
 }
 
@@ -90,6 +94,7 @@ fn main() {
     match parse(&args) {
         Ok(Command::Help) => print!("{HELP}"),
         Ok(Command::SelfCheck { dump }) => std::process::exit(selfcheck::run(dump)),
+        Ok(Command::Bench) => std::process::exit(bench::run()),
         Ok(Command::Run(options)) => application::run(options),
         Err(message) => {
             eprintln!("error: {message}\n\n{HELP}");
@@ -107,6 +112,7 @@ fn parse(args: &[String]) -> Result<Command, String> {
         match arg {
             "--selfcheck" => return Ok(Command::SelfCheck { dump: false }),
             "--dump" => return Ok(Command::SelfCheck { dump: true }),
+            "--bench" => return Ok(Command::Bench),
             "--light" => options.light = true,
             "--pixel-font" => options.pixel_font = true,
             "--ui-menu" => options.native_menu = false,

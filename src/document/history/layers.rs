@@ -4,6 +4,8 @@
 //! blend / position / 蒙版启用 + 当前节点），所以移动 / 重命名 / 可见性这些撤销
 //! 代价很小。蒙版的**像素**和图层像素一样走 [`PaintCommand`](super::PaintCommand)。
 
+use std::collections::HashMap;
+
 use super::super::document::Document;
 use super::super::id::LayerId;
 use super::super::layer::{BlendMode, Layer, LayerMask};
@@ -57,25 +59,40 @@ impl LayerStackMeta {
     }
 
     /// 把元数据 / 顺序 / 当前节点写回；像素不动（按 id 复用原 `Layer`）。
+    ///
+    /// 用 id -> 槽位索引一次建表，重建是 O(n)；早先的 `current.remove(index)`
+    /// 写法是 O(n²)（5000 层一次可见性切换要 26ms，见 `--bench`）。
     fn restore(&self, document: &mut Document) {
-        let mut current = std::mem::take(&mut document.layers);
+        let mut current: Vec<Option<Layer>> = std::mem::take(&mut document.layers)
+            .into_iter()
+            .map(Some)
+            .collect();
+        let slots: HashMap<LayerId, usize> = current
+            .iter()
+            .enumerate()
+            .filter_map(|(index, layer)| layer.as_ref().map(|layer| (layer.id, index)))
+            .collect();
         let mut restored = Vec::with_capacity(current.len());
         for meta in &self.layers {
-            if let Some(index) = current.iter().position(|layer| layer.id == meta.id) {
-                let mut layer = current.remove(index);
-                layer.name.clone_from(&meta.name);
-                layer.parent = meta.parent;
-                layer.visible = meta.visible;
-                layer.opacity = meta.opacity;
-                layer.blend_mode = meta.blend_mode;
-                layer.position = meta.position;
-                if let (Some(enabled), Some(mask)) = (meta.mask_enabled, layer.mask.as_mut()) {
-                    mask.enabled = enabled;
-                }
-                restored.push(layer);
+            let Some(&slot) = slots.get(&meta.id) else {
+                continue;
+            };
+            let Some(mut layer) = current[slot].take() else {
+                continue;
+            };
+            layer.name.clone_from(&meta.name);
+            layer.parent = meta.parent;
+            layer.visible = meta.visible;
+            layer.opacity = meta.opacity;
+            layer.blend_mode = meta.blend_mode;
+            layer.position = meta.position;
+            if let (Some(enabled), Some(mask)) = (meta.mask_enabled, layer.mask.as_mut()) {
+                mask.enabled = enabled;
             }
+            restored.push(layer);
         }
-        restored.append(&mut current);
+        // 快照里没有的节点（正常不会出现）按原顺序接在后面。
+        restored.extend(current.into_iter().flatten());
         document.layers = restored;
         document.active_layer = self.active;
         document.active_mask = self.active_mask;

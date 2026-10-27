@@ -316,32 +316,47 @@ impl Document {
         }
     }
 
-    /// 调试 / 测试用的树不变量：子树连续、parent 指向组、没有环。
+    /// 调试 / 测试用的树不变量：前序连续、parent 指向组、没有环。
+    ///
+    /// 用祖先栈一趟扫完（O(n)）：每个节点要么直接接在当前祖先栈顶下面，要么
+    /// 关掉若干层后接在某个祖先下面；parent 不在栈里就说明前序被打乱了。
+    /// 早先的实现对每个节点都 `layer_index` 扫一遍，1 万节点要 ~28ms
+    /// （`insert_subtree` 的 debug 断言会按插入次数放大），见 `--bench`。
     #[doc(hidden)]
     pub fn validate(&self) -> Result<(), String> {
-        let mut seen = std::collections::HashSet::new();
+        use std::collections::HashSet;
+        let mut seen = HashSet::with_capacity(self.layers.len());
+        let mut stack: Vec<LayerId> = Vec::new();
+        let mut indices: std::collections::HashMap<LayerId, usize> =
+            std::collections::HashMap::with_capacity(self.layers.len());
         for (index, layer) in self.layers.iter().enumerate() {
             if !seen.insert(layer.id) {
                 return Err(format!("重复的节点 id：{}", layer.id));
             }
-            if let Some(parent) = layer.parent {
-                let parent_layer = self
-                    .layer(parent)
-                    .ok_or_else(|| format!("{} 的 parent 不存在", layer.id))?;
-                if !parent_layer.is_group() {
-                    return Err(format!("{} 的 parent 不是组", layer.id));
+            indices.insert(layer.id, index);
+            match layer.parent {
+                None => {
+                    if !stack.is_empty() {
+                        stack.clear();
+                    }
                 }
-                let parent_index = self.layer_index(parent).expect("parent exists");
-                if parent_index >= index {
-                    return Err(format!("{} 的 parent 不在它前面（pre-order）", layer.id));
+                Some(parent) => {
+                    // 关掉已经走完的兄弟子树，直到栈顶就是 parent。
+                    while stack.last().is_some_and(|top| *top != parent) {
+                        stack.pop();
+                    }
+                    if stack.last() != Some(&parent) {
+                        return Err(format!("{} 的前序位置与 parent 不一致", layer.id));
+                    }
+                    let Some(&parent_index) = indices.get(&parent) else {
+                        return Err(format!("{} 的 parent 不存在", layer.id));
+                    };
+                    if !self.layers[parent_index].is_group() {
+                        return Err(format!("{} 的 parent 不是组", layer.id));
+                    }
                 }
             }
-            let Some(range) = self.subtree_range(layer.id) else {
-                return Err(format!("{} 不在数组里", layer.id));
-            };
-            if range.start != index {
-                return Err(format!("{} 的子树起点错了", layer.id));
-            }
+            stack.push(layer.id);
         }
         Ok(())
     }
