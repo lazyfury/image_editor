@@ -336,6 +336,8 @@ impl ImageEditorLogic {
 
 impl AppLogic for ImageEditorLogic {
     fn init(&mut self, ctx: &InitContext<'_>) {
+        // 平台插件在 `resumed` 之前已经把窗口发布进 `SharedWindow`。
+        self.window = ctx.service::<SharedWindow>().cloned();
         // 度量插件已经在 `resumed` 时把度量放进服务。
         self.measurer = ctx.service::<Rc<dyn TextMeasurer>>().cloned();
         self.clipboard = ctx.service::<Rc<RefCell<dyn Clipboard>>>().cloned();

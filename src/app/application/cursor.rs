@@ -13,18 +13,21 @@ use super::{ImageEditorLogic, Screen};
 impl ImageEditorLogic {
     /// 每帧调用一次：光标变了才 `set_cursor`。
     pub(super) fn sync_cursor(&mut self) {
+        // 先确认窗口已经发布：没有窗口时不要写缓存，否则窗口就绪后
+        // 同一个 desired 会被缓存挡掉，光标永远不生效。
+        let Some(window) = self
+            .window
+            .as_ref()
+            .and_then(|window| window.borrow().clone())
+        else {
+            return;
+        };
         let desired = self.desired_cursor();
         if self.last_cursor == Some(desired) {
             return;
         }
         self.last_cursor = Some(desired);
-        if let Some(window) = self
-            .window
-            .as_ref()
-            .and_then(|window| window.borrow().clone())
-        {
-            window.set_cursor(desired);
-        }
+        window.set_cursor(desired);
     }
 
     /// 当前该显示的系统光标。
