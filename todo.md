@@ -246,6 +246,20 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 
 ## 3. 紧接着
 
+- [x] **macOS 触控板 / 鼠标输入区分**：igui 升到 **v0.4.0**（`InputEvent::Wheel`
+  带 `device: ScrollDevice` + `phase: TouchPhase`、x 不再丢；新增 `Pinch` / `Rotate`
+  手势；`igui_winit` 转发 `PinchGesture` / `RotationGesture`）。本仓 `ui/input.rs`
+  按设备分流：触控板滚动 = 平移（`Shift` 换轴）、滚轮 = 缩放、捏合 = 锚指针缩放
+  （画布外锚中心、单事件因子夹 0.5–2）、两指旋转 = 绕中心 + 15° 吸附。设计记录见
+  **`docs/input-gestures.md`**；igui 的 `release.md` / `docs/guide/components.md`
+  同批更新。
+- [x] **旋转画布（视图旋转）**：相机加 `CanvasCamera.angle`（`screen = offset +
+  R(angle)·(doc·zoom)`），`paint_document` 在非 0° 时发一条 `SetTransform`（局部坐标
+  的画布矩形交给 GPU 采样，**零 CPU 重采样**），0° 保留轴对齐 + 设备像素对齐的旧路径。
+  非直角强制线性采样（直角仍最近邻）；像素网格、方形笔光标跟着转；`T`/`Shift+T`、
+  视图菜单三项、状态栏 `↻ 15°`；`0` 重置含角度、`F` 适配保留角度。评估与实现记录见
+  **`docs/canvas-rotation.md`**。
+  剩：触控板两指旋转（`RotationGesture`）—— 和上一条的 pinch 同批进 `igui_winit`。
 - [x] **CPU 合成成本收口**（`src/renderer/cpu.rs`）：图层缓冲现在可能比文档大，
   之前的慢路会遍历整块缓冲。改成只遍历「落在渲染目标里的那部分」，合成成本
   只跟文档尺寸有关，不再随缓冲增长（`DirtyRegion` 留给文档变大时再说）。

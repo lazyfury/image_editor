@@ -206,6 +206,7 @@ pub fn check() -> (usize, String) {
     check_chrome_order(&mut failures);
     check_native_chrome_order(&mut failures);
     check_options_bar_height(&mut failures);
+    check_rotation(&mut failures);
     check_dialogs(&mut failures);
     check_bucket(&mut failures);
     check_gradient(&mut failures);

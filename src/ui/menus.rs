@@ -190,6 +190,11 @@ impl EditorView {
             menu::MenuAction::ZoomOut => self.apply_canvas_action(CanvasAction::ZoomOut),
             menu::MenuAction::ZoomReset => self.apply_canvas_action(CanvasAction::Reset),
             menu::MenuAction::ZoomFit => self.apply_canvas_action(CanvasAction::Fit),
+            menu::MenuAction::RotateViewCw => self.apply_canvas_action(CanvasAction::RotateCw),
+            menu::MenuAction::RotateViewCcw => self.apply_canvas_action(CanvasAction::RotateCcw),
+            menu::MenuAction::RotateViewReset => {
+                self.apply_canvas_action(CanvasAction::RotateReset)
+            }
             menu::MenuAction::SelectAll => {
                 self.select_all();
             }

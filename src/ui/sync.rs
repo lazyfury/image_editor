@@ -26,13 +26,14 @@ impl EditorView {
         );
     }
 
-    /// 工具 / 缩放 / 指针像素 -> 状态栏。
+    /// 工具 / 缩放 / 视角 / 指针像素 -> 状态栏。
     pub(super) fn sync_status(&mut self) {
-        let (tool, zoom, width, height, camera) = {
+        let (tool, zoom, angle, width, height, camera) = {
             let state = self.state.borrow();
             (
                 state.active_tool,
                 state.canvas.zoom,
+                state.canvas.angle,
                 state.document.width,
                 state.document.height,
                 state.canvas,
@@ -42,17 +43,26 @@ impl EditorView {
         let pixel = self
             .pointer
             .and_then(|point| document_to_pixel(screen_to_document(camera, point), width, height));
-        let shown = (tool, zoom, width, height, pixel);
+        let shown = (tool, zoom, width, height, pixel, angle);
         if self.shown != Some(shown) {
             set_text(&mut self.tree, self.tool_label, tool.label());
             let coords = match pixel {
                 Some((x, y)) => format!("  ·  ({x}, {y})"),
                 None => String::new(),
             };
+            // 视图转了角度才显示：没转的时候状态栏不多一个「0°」。
+            let rotation = if angle.abs() > 1e-4 {
+                format!("  ·  ↻ {:.0}°", angle.to_degrees())
+            } else {
+                String::new()
+            };
             set_text(
                 &mut self.tree,
                 self.zoom_label,
-                format!("{width} × {height}  ·  {:.0}%{coords}", zoom * 100.0),
+                format!(
+                    "{width} × {height}  ·  {:.0}%{rotation}{coords}",
+                    zoom * 100.0
+                ),
             );
             self.shown = Some(shown);
         }

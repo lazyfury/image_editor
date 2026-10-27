@@ -637,3 +637,67 @@ fn the_properties_window_opens_from_the_options_bar_and_swallows_input() {
     logic.route_event(&InputEvent::KeyDown { key: Key::Escape });
     assert!(logic.popup.is_none(), "Esc 应关掉窗口");
 }
+
+/// 触控板 / 手势事件经宿主路由后落到当前工作区的相机上。
+///
+/// 视图层单测覆盖了语义（平移 / 缩放 / 吸附），这条只盯住宿主的接线：
+/// `route_event` 不拦 `Wheel` / `Pinch` / `Rotate`，也不把它们交给错误的工作区。
+#[test]
+fn gesture_events_reach_the_active_workspace_camera() {
+    use igui_core::{InputEvent, ScrollDevice, Size, TouchPhase, Vec2, ViewportSize};
+
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic.screen = Screen::Editor;
+    let viewport = ViewportSize::new(Size::new(1280.0, 800.0));
+    let editor = &mut logic.workspaces.active_mut().expect("一个工作区").editor;
+    editor.layout(viewport);
+    // 文档中心一定落在画布区域里（宿主层看不到 `canvas_area_rect`）。
+    let point = editor
+        .canvas_camera()
+        .document_to_screen(Vec2::new(64.0, 64.0));
+
+    // 触控板向上滑：平移 40px，缩放不变。
+    let before = editor.canvas_camera();
+    logic.route_event(&InputEvent::Wheel {
+        position: point,
+        delta: Vec2::new(0.0, 40.0),
+        phase: TouchPhase::Moved,
+        device: ScrollDevice::Trackpad,
+    });
+    let panned = logic
+        .workspaces
+        .active()
+        .expect("工作区")
+        .editor
+        .canvas_camera();
+    assert!((panned.offset.y - (before.offset.y - 40.0)).abs() < 1e-3);
+    assert_eq!(panned.zoom, before.zoom);
+
+    // 捏合：缩放。
+    logic.route_event(&InputEvent::Pinch {
+        position: point,
+        factor: 1.25,
+        phase: TouchPhase::Moved,
+    });
+    let zoomed = logic
+        .workspaces
+        .active()
+        .expect("工作区")
+        .editor
+        .canvas_camera();
+    assert!((zoomed.zoom - panned.zoom * 1.25).abs() < 1e-3);
+
+    // 两指旋转：吸到 15°。
+    logic.route_event(&InputEvent::Rotate {
+        position: point,
+        delta: 14.5,
+        phase: TouchPhase::Moved,
+    });
+    let rotated = logic
+        .workspaces
+        .active()
+        .expect("工作区")
+        .editor
+        .canvas_camera();
+    assert!((rotated.angle.to_degrees() - 15.0).abs() < 1e-3);
+}

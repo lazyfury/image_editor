@@ -138,6 +138,15 @@ const RESIZE_GUTTER: f32 = 6.0;
 const FIT_PADDING: f32 = 24.0;
 /// 一个滚轮刻度 / `+`/`-` 的缩放倍率。
 const ZOOM_STEP: f32 = 1.25;
+/// `T` / `Shift+T` 一次转多少度（视图旋转），也是手势吸附的网格。
+const ROTATE_STEP_DEGREES: f32 = 15.0;
+/// 旋转手势的吸附半径（度）：离 15° 倍数这么近就贴上去。
+const ROTATE_SNAP_DEGREES: f32 = 2.0;
+/// 旋转手势的单事件死区（度）：小于它的抖动直接丢掉。
+const ROTATE_DEAD_ZONE_DEGREES: f32 = 0.2;
+/// 捏合单个事件的缩放因子范围：防极端事件一步顶到缩放上下限。
+const PINCH_FACTOR_MIN: f32 = 0.5;
+const PINCH_FACTOR_MAX: f32 = 2.0;
 /// 「羽化」菜单的半径（文档像素）。以后接半径输入框就把它换掉。
 const FEATHER_RADIUS: f32 = 8.0;
 /// 笔刷光标圈的最小屏幕半径（1px 笔缩小时也看得见）与中心十字的半长。
@@ -191,8 +200,8 @@ struct Rename {
     cancel: Rc<Cell<bool>>,
 }
 
-/// 状态栏同步快照：(工具, 缩放, 宽, 高, 指针下的文档像素)。
-type StatusSnapshot = (ActiveTool, f32, u32, u32, Option<(u32, u32)>);
+/// 状态栏同步快照：(工具, 缩放, 宽, 高, 指针下的文档像素, 视图角度)。
+type StatusSnapshot = (ActiveTool, f32, u32, u32, Option<(u32, u32)>, f32);
 
 /// 编辑器视图。
 pub struct EditorView {
@@ -346,9 +355,11 @@ impl EditorView {
         self.scale_factor = scale_factor.max(0.01);
     }
 
-    /// 文档纹理该用哪种采样：缩小用线性（不然细笔迹会断成毛刺），放大用最近邻。
+    /// 文档纹理该用哪种采样：缩小用线性（不然细笔迹会断成毛刺），放大用最近邻；
+    /// 非直角旋转时只能线性（最近邻会沿着旋转边抖）。
     pub fn image_smoothing(&self) -> crate::canvas::ImageSmoothing {
-        crate::canvas::ImageSmoothing::for_zoom(self.state.borrow().canvas.zoom)
+        let camera = self.state.borrow().canvas;
+        crate::canvas::ImageSmoothing::for_view(camera.zoom, camera.angle)
     }
 
     /// 在菜单栏下面预留 `height` 逻辑像素，给宿主画工作区标签条。
@@ -535,6 +546,12 @@ enum CanvasAction {
     ZoomOut,
     Reset,
     Fit,
+    /// 视图顺时针转 15°。
+    RotateCw,
+    /// 视图逆时针转 15°。
+    RotateCcw,
+    /// 角度归零（保留缩放与位置）。
+    RotateReset,
 }
 
 /// 画布快捷键：`+`/`=` 放大、`-` 缩小、`0` 100%、`F` 适配。
@@ -544,6 +561,18 @@ fn canvas_shortcut(key: Key) -> Option<CanvasAction> {
         Key::Character('-') => Some(CanvasAction::ZoomOut),
         Key::Character('0') => Some(CanvasAction::Reset),
         Key::Character('f') | Key::Character('F') => Some(CanvasAction::Fit),
+        _ => None,
+    }
+}
+
+/// 视图旋转：`T` 顺时针 / `Shift+T`（报成大写）逆时针 15°。
+///
+/// `R` 已经被矩形填充占用（`TOOL_KEYS`），所以旋转用 `T`；`T` 不在工具键表里，
+/// 大小写就能区分方向，不需要再看修饰键状态。
+fn rotation_shortcut(key: Key) -> Option<CanvasAction> {
+    match key {
+        Key::Character('t') => Some(CanvasAction::RotateCw),
+        Key::Character('T') => Some(CanvasAction::RotateCcw),
         _ => None,
     }
 }

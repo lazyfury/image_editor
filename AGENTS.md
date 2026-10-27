@@ -83,7 +83,7 @@ src/tools/      Brush/Eraser (in `brush/`: mod = tool + stroke, tip = brush-tip
                 Magic wand (tolerance region -> selection), Gradient (multi-stop
                 ramp), Rectangle/Free fill; `stroke.rs` = smoothing + fixed-distance
                 sampling
-src/canvas/     camera (zoom/pan), coordinate conversion, checkerboard,
+src/canvas/     camera (zoom/pan/view rotation), coordinate conversion, checkerboard,
                 Path (bezier anchors + handles, adaptive flatten), Selection
                 (pixel mask + outline: rect / lasso / wand)
 src/io/         PNG encode/decode + `.igui` workspace files + `.igtl` edit
@@ -115,7 +115,7 @@ plugins; the app implements one `AppLogic`.
 This project consumes the **igui** UI stack from the upstream GitHub repo in
 **git dependency mode** — every `igui_*` crate in `Cargo.toml` points at
 `https://github.com/lazyfury/igui`, pinned to the release tag documented in that
-repo's `release.md` (currently `v0.3.0`). No sibling path checkout is required;
+repo's `release.md` (currently `v0.4.0`). No sibling path checkout is required;
 Cargo fetches the repo once for all crates. Do **not** vendor or fork the igui
 crates here; shared UI-layer changes belong in the igui repo and must keep its
 own gate green. To upgrade, bump the tag here and follow `release.md`'s

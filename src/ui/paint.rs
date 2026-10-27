@@ -54,6 +54,14 @@ impl EditorView {
     }
 
     /// 把文档图像按相机变换画到屏幕空间。调用方负责先裁到画布区域。
+    ///
+    /// 两条路：
+    ///
+    /// - **正着看（0°）**：轴对齐矩形 + 最近邻时对齐设备像素网格（像素画的硬边
+    ///   不抖）；
+    /// - **转过**：一次 `SetTransform`（缩放 + 旋转 + 平移），把**局部坐标**里的
+    ///   文档矩形交给后端，GPU 自己采样。旋转只是 4 个顶点乘一个矩阵，没有 CPU
+    ///   重采样。直角也一样走这条（90° 的采样仍然是像素精确的）。
     fn paint_document(&self, ctx: &mut PaintContext) {
         let (camera, size) = {
             let state = self.state.borrow();
@@ -62,6 +70,18 @@ impl EditorView {
                 Size::new(state.document.width as f32, state.document.height as f32),
             )
         };
+        if !camera.is_upright() {
+            ctx.save();
+            ctx.set_transform(camera.to_transform());
+            ctx.draw_image(
+                DOCUMENT_TEXTURE,
+                Rect::from_min_size(Vec2::ZERO, size),
+                None,
+                Paint::default(),
+            );
+            ctx.restore();
+            return;
+        }
         let min = camera.document_to_screen(Vec2::ZERO);
         let max = camera.document_to_screen(Vec2::new(size.width, size.height));
         let mut rect = Rect::from_min_max(
@@ -79,7 +99,8 @@ impl EditorView {
     /// 像素模式 + 放大到 [`GRID_MIN_ZOOM`] 以上时，在文档上画像素网格。
     ///
     /// 网格画在屏幕空间（相机换算后的坐标），线宽 1 逻辑像素、不随缩放变粗；
-    /// 只画「文档矩形 ∩ 画布区域」里的那部分，所以命令数有界。
+    /// 只画「文档矩形 ∩ 画布区域」里的那部分，所以命令数有界。正着看时就是
+    /// 一族竖直 / 水平的线；转过以后每根线的两端也过相机，网格跟着图一起转。
     fn paint_pixel_grid(&self, ctx: &mut PaintContext) {
         if !self.options.pixel_mode.get() {
             return;
@@ -92,16 +113,18 @@ impl EditorView {
         let Some(area) = self.canvas_area_rect() else {
             return;
         };
+        let document = Size::new(state.document.width as f32, state.document.height as f32);
+        let color = self.theme.palette().border.with_alpha(0.3);
+        if !camera.is_upright() {
+            self.paint_rotated_pixel_grid(ctx, camera, area, document, color);
+            return;
+        }
         let origin = camera.document_to_screen(Vec2::ZERO);
-        let corner = camera.document_to_screen(Vec2::new(
-            state.document.width as f32,
-            state.document.height as f32,
-        ));
+        let corner = camera.document_to_screen(Vec2::new(document.width, document.height));
         let Some(visible) = Rect::from_min_max(origin, corner).intersection(area) else {
             return;
         };
         let (min, max) = (visible.min(), visible.max());
-        let color = self.theme.palette().border.with_alpha(0.3);
         let zoom = camera.zoom;
 
         let x_first = ((min.x - origin.x) / zoom).ceil() as i64;
@@ -115,6 +138,50 @@ impl EditorView {
         for y in y_first..=y_last {
             let sy = origin.y + y as f32 * zoom;
             ctx.draw_line(Vec2::new(min.x, sy), Vec2::new(max.x, sy), 1.0, color);
+        }
+    }
+
+    /// 旋转后的像素网格：把画布区域四角逆变换回文档空间取包围盒，再让每根线
+    /// 的两端都过相机。命令数由「文档 ∩ 包围盒」限定，和正着看同一量级。
+    fn paint_rotated_pixel_grid(
+        &self,
+        ctx: &mut PaintContext,
+        camera: crate::canvas::CanvasCamera,
+        area: Rect,
+        document: Size,
+        color: igui_core::Color,
+    ) {
+        let corners = [
+            Vec2::new(area.left(), area.top()),
+            Vec2::new(area.right(), area.top()),
+            Vec2::new(area.right(), area.bottom()),
+            Vec2::new(area.left(), area.bottom()),
+        ];
+        let mut min = Vec2::splat(f32::MAX);
+        let mut max = Vec2::splat(f32::MIN);
+        for corner in corners {
+            let point = camera.screen_to_document(corner);
+            min = Vec2::new(min.x.min(point.x), min.y.min(point.y));
+            max = Vec2::new(max.x.max(point.x), max.y.max(point.y));
+        }
+        let bounds = Rect::from_min_max(min, max);
+        let Some(visible) = bounds.intersection(Rect::from_min_size(Vec2::ZERO, document)) else {
+            return;
+        };
+        let (min, max) = (visible.min(), visible.max());
+        let x_first = min.x.ceil() as i64;
+        let x_last = max.x.floor() as i64;
+        for x in x_first..=x_last {
+            let from = camera.document_to_screen(Vec2::new(x as f32, min.y));
+            let to = camera.document_to_screen(Vec2::new(x as f32, max.y));
+            ctx.draw_line(from, to, 1.0, color);
+        }
+        let y_first = min.y.ceil() as i64;
+        let y_last = max.y.floor() as i64;
+        for y in y_first..=y_last {
+            let from = camera.document_to_screen(Vec2::new(min.x, y as f32));
+            let to = camera.document_to_screen(Vec2::new(max.x, y as f32));
+            ctx.draw_line(from, to, 1.0, color);
         }
     }
 
@@ -168,7 +235,10 @@ impl EditorView {
         if !self.canvas_area_contains(pointer) {
             return;
         }
-        let zoom = self.state.borrow().canvas.zoom;
+        let (zoom, angle) = {
+            let state = self.state.borrow();
+            (state.canvas.zoom, state.canvas.angle)
+        };
         let tip = self.brush.tip();
         // 直径换算到屏幕；太小（比如 1px 笔缩到 25%）时给个最小半径，不然看不见。
         let radius = (tip.size * zoom * 0.5).max(MIN_CURSOR_RADIUS);
@@ -176,6 +246,14 @@ impl EditorView {
         let white = Paint::new(Color::WHITE);
         let outline = |ctx: &mut PaintContext, width: f32, paint: Paint| match tip.shape {
             BrushShape::Round => ctx.stroke_circle(pointer, radius, width, paint),
+            // 方形笔尖在旋转视图里也得跟着转，不然光标和落笔的方块对不上。
+            BrushShape::Square if angle != 0.0 => {
+                ctx.save();
+                ctx.transform(igui_core::Transform2D::from_rotation_origin(angle, pointer));
+                let rect = Rect::from_center_size(pointer, Size::splat(radius * 2.0));
+                ctx.stroke_rect(rect, width, paint);
+                ctx.restore();
+            }
             BrushShape::Square => {
                 let rect = Rect::from_center_size(pointer, Size::splat(radius * 2.0));
                 ctx.stroke_rect(rect, width, paint);

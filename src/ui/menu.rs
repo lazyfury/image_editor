@@ -37,6 +37,11 @@ pub enum MenuAction {
     ZoomOut,
     ZoomReset,
     ZoomFit,
+    /// 视图顺时针 / 逆时针转 15°。
+    RotateViewCw,
+    RotateViewCcw,
+    /// 视图角度归零。
+    RotateViewReset,
     /// 全选（整个文档）。
     SelectAll,
     /// 反选（没有选区时等于全选）。
@@ -445,6 +450,31 @@ fn view_menu(state: MenuState) -> Vec<MenuEntry> {
             "适配窗口",
             Some("F"),
             MenuAction::ZoomFit,
+            true,
+            false,
+        ),
+        separator(),
+        item(
+            state,
+            "旋转视图 +15°",
+            Some("T"),
+            MenuAction::RotateViewCw,
+            true,
+            false,
+        ),
+        item(
+            state,
+            "旋转视图 −15°",
+            Some("Shift+T"),
+            MenuAction::RotateViewCcw,
+            true,
+            false,
+        ),
+        item(
+            state,
+            "重置旋转",
+            None,
+            MenuAction::RotateViewReset,
             true,
             false,
         ),

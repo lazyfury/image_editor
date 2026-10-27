@@ -1,4 +1,4 @@
-//! 画布：相机（缩放 / 平移）与坐标转换。
+//! 画布：相机（缩放 / 平移 / 视图旋转）与坐标转换。
 //!
 //! [`EditorView::paint`](crate::ui::EditorView) 按 [`CanvasCamera::document_to_screen`]
 //! 把文档图像、像素网格和选区画到屏幕空间（并裁到画布区域），所以
@@ -40,6 +40,17 @@ impl ImageSmoothing {
     pub fn for_zoom(zoom: f32) -> Self {
         if zoom >= 1.0 {
             Self::Nearest
+        } else {
+            Self::Linear
+        }
+    }
+
+    /// 同时看视图角度：**非直角**旋转时最近邻会沿着旋转边抖动（GPU 每像素只
+    /// 采一次样，又没有 mipmap），只能换成线性。直角旋转的采样仍然精确，
+    /// 像素画的硬边照样用最近邻。
+    pub fn for_view(zoom: f32, angle: f32) -> Self {
+        if camera::CanvasCamera::is_right_angle(angle) {
+            Self::for_zoom(zoom)
         } else {
             Self::Linear
         }

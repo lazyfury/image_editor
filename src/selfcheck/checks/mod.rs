@@ -10,6 +10,7 @@ mod fill;
 mod layer;
 mod pen;
 mod pipeline;
+mod rotation;
 mod selection;
 mod timeline;
 
@@ -26,5 +27,6 @@ pub(crate) use fill::{check_bucket, check_gradient};
 pub(crate) use layer::check_rename;
 pub(crate) use pen::check_pen;
 pub(crate) use pipeline::{first_stroke, png_io, pointer_tools, undo_redo};
+pub(crate) use rotation::check_rotation;
 pub(crate) use selection::{check_magic_wand, check_selection_menu, check_selection_merge};
 pub(crate) use timeline::check_timeline;
