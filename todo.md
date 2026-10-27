@@ -270,6 +270,11 @@
   （画布外锚中心、单事件因子夹 0.5–2）、两指旋转 = 绕中心 + 15° 吸附。设计记录见
   **`docs/input-gestures.md`**；igui 的 `release.md` / `docs/guide/components.md`
   同批更新。
+- [x] **系统光标**：`src/app/cursor.rs` 把画布工具 / igui 控件映射成 winit
+  `CursorIcon`（抓手 Grab/Grabbing、缩放 ZoomIn/ZoomOut(Option)、画笔/选区
+  Crosshair、移动 Move、面板 Pointer/Text/Resize），`application/cursor.rs`
+  每帧经 `SharedWindow` 设置并缓存。剩：隐藏系统光标 + 自绘轮廓（B）、任意
+  位图光标（C，需要上游 igui）。
 - [x] **视图工具（抓手 / 缩放 / 空格临时抓手）**：`ActiveTool::{Hand, Zoom}`（`H` /
   `Z`），左键拖动平移 / 点击缩放（`Option` 反向）；按住空格临时抓手，不切工具。
   共用 `src/ui/viewport.rs` 的 `ViewportNav`（中键 / 抓手 / 空格一个 `pan`），

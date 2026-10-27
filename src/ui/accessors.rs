@@ -39,6 +39,17 @@ impl EditorView {
         self.state.borrow().canvas
     }
 
+    /// 指针当前是否落在画布区域里（宿主选光标用）。
+    pub fn pointer_over_canvas(&self) -> bool {
+        self.pointer
+            .is_some_and(|pointer| self.canvas_area_contains(pointer))
+    }
+
+    /// 指针下 igui 控件想要的光标（按钮 / 文本 / 拖拽条…）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        igui_ui::hovered_cursor(&self.tree)
+    }
+
     /// 取走待上传的文档合成结果；宿主把它注册成纹理。没有变化时返回 `None`。
     pub fn take_texture_upload(&mut self) -> Option<PixelBuffer> {
         let full = std::mem::take(&mut self.texture_dirty);

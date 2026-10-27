@@ -327,6 +327,23 @@ pub struct GesturePlugin;   // 在 `.plugin(PointerPlugin)` 之后注册
 也不会产生提示；两个工具都不写文档、不进撤销。实现集中在 `src/ui/viewport.rs`，
 `pan_last` 已重整为 `ViewportNav`（中键 / 抓手 / 空格三个来源）。
 
+### 10.2 系统光标（已实现）
+
+画布上的光标由 `src/app/cursor.rs` 映射、`application/cursor.rs` 每帧通过
+`SharedWindow` 设给 winit（变了才 `set_cursor`）：
+
+| 位置 / 状态 | 光标 |
+|---|---|
+| 平移中（中键 / 抓手 / 空格） | `Grabbing` |
+| 按住空格 / 抓手待命 | `Grab` |
+| 缩放工具（画布内） | `ZoomIn`；`Option` → `ZoomOut` |
+| 画笔 / 橡皮 / 选区 / 钢笔 / 填充 / 吸管 | `Crosshair` |
+| 移动 | `Move` |
+| 面板 / 标签条 / 对话框 | igui `hovered_cursor` → `Pointer` / `Text` / Resize |
+
+不在本期：隐藏系统光标 + 自绘笔刷轮廓、任意位图 `CustomCursor`（需要上游
+igui 暴露 event loop / cursor 服务）。
+
 ---
 
 ## 11. 后续（不在本期）

@@ -30,7 +30,7 @@ use igui_app::{
     LifecycleObserver, Plugin,
 };
 use igui_backend_wgpu::{FontConfig, FontMetrics, FontMode, TextureFilter};
-use igui_core::{Color, EventResult, InputEvent, Key, Modifiers};
+use igui_core::{Color, EventResult, InputEvent, Key, Modifiers, Vec2};
 use igui_render::{DrawList, PaintContext, TextureId};
 use igui_theme::{SurfaceLevel, Theme};
 use igui_ui::{Clipboard, TextMeasurer};
@@ -50,7 +50,9 @@ use crate::ui::{
     HomeEntry, HomeOpenRequest, HomeThumbnail, HomeView, NewDocumentModal, NewDocumentResult,
     NewDocumentSpec, WorkspaceTabAction, WorkspaceTabs, TAB_STRIP_HEIGHT,
 };
+use winit::window::CursorIcon;
 
+mod cursor;
 mod dialogs;
 mod files;
 mod home;
@@ -190,6 +192,12 @@ struct ImageEditorLogic {
     thumbnail_uploads: Vec<(TextureId, PixelBuffer)>,
     /// 要不要用系统菜单栏（`Options::native_menu`；装了之后窗口里那一行折叠）。
     native_menu_wanted: bool,
+    /// 窗口句柄（`SharedWindow` 在 `init` 时取）：宿主直接设光标 / 标题。
+    window: Option<SharedWindow>,
+    /// 最近一次设给 winit 的光标（变了才调 `set_cursor`）。
+    last_cursor: Option<CursorIcon>,
+    /// 最近一次指针位置（宿主层选光标用；画布外的面板也要）。
+    pointer: Option<Vec2>,
     /// macOS 系统菜单栏；`None` = 这个平台没有 / 没装，继续画自绘菜单。
     native_menu: Option<NativeMenu>,
 }
@@ -226,6 +234,9 @@ impl ImageEditorLogic {
             thumbnail_uploads,
             native_menu_wanted: false,
             native_menu: None,
+            window: None,
+            last_cursor: None,
+            pointer: None,
         }
     }
 
@@ -256,6 +267,11 @@ impl ImageEditorLogic {
     pub(super) fn route_event(&mut self, event: &InputEvent) -> EventResult {
         if let InputEvent::ModifiersChanged(modifiers) = event {
             self.modifiers = *modifiers;
+        }
+        if matches!(event, InputEvent::PointerLeave) {
+            self.pointer = None;
+        } else if let Some(position) = event.position() {
+            self.pointer = Some(position);
         }
 
         // 模拟窗口（属性 / 关于 / 快捷键）在模态之前：它开着时输入全归它。
@@ -397,6 +413,7 @@ impl AppLogic for ImageEditorLogic {
             self.title_dirty = false;
             self.apply_title(ctx);
         }
+        self.sync_cursor();
     }
 
     fn layout(&mut self, ctx: &FrameContext<'_>) {

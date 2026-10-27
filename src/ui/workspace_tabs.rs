@@ -121,6 +121,11 @@ impl WorkspaceTabs {
     /// 只有**落在标签条上**（或从标签条上按下、仍被捕获）的指针事件才算被
     /// 标签条处理：`igui_ui::handle_input` 对每个 `PointerUp` 都报 `Handled`，
     /// 不这样过滤会把编辑器的松手事件吞掉，工具按钮就永远不触发。
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        igui_ui::hovered_cursor(&self.tree)
+    }
+
     pub fn event(&mut self, event: &InputEvent) -> EventResult {
         if let InputEvent::PointerDown { position, .. } = event {
             self.captured = self.bar_contains(*position);

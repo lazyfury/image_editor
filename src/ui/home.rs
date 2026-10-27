@@ -177,6 +177,11 @@ impl HomeView {
         igui_ui::handle_input(&mut self.tree, event)
     }
 
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        igui_ui::hovered_cursor(&self.tree)
+    }
+
     pub fn layout(&mut self, viewport: ViewportSize) {
         self.tree.set_viewport_size(viewport.logical_size());
         igui_ui::layout(&mut self.tree, viewport);

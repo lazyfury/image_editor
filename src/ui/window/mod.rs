@@ -167,6 +167,11 @@ impl Window {
         &self.tree
     }
 
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        igui_ui::hovered_cursor(&self.tree)
+    }
+
     /// 改写窗口里某个文本节点（不重建树）。
     pub fn set_text(&mut self, id: NodeId, text: impl Into<String>) {
         set_text(&mut self.tree, id, text);

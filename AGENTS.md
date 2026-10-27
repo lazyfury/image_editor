@@ -18,6 +18,7 @@ This file is the short source of truth for rules. Details live in `README.md`
 
 ```
 src/app/        state (AppState/document session) + workspaces (multi-workspace) +
+                cursor (pure tool -> winit CursorIcon mapping) +
                 single-window host on the igui_app runtime + igui_winit plugins +
                 drop_files (drag-and-drop -> new layer).
                 `application/` holds the host: mod.rs (Options / run / build_app
@@ -27,8 +28,8 @@ src/app/        state (AppState/document session) + workspaces (multi-workspace)
                 (save/open/import/export/close/drop), menu.rs (native menu bar
                 install / per-frame sync / action forwarding), dialogs.rs
                 (simulated windows: open / input / sync / close), shortcuts.rs,
-                plugins.rs (text measure / frame limit), tests.rs (host-level
-                tests).
+                cursor.rs (per-frame winit cursor sync), plugins.rs (text
+                measure / frame limit), tests.rs (host-level tests).
                 `native_menu/` = the macOS system menu bar (mod.rs = API, macos.rs
                 = objc2-app-kit `NSMenu` / `NSMenuItem`, other.rs = no-op).
 src/ui/         views + project-local components: home (recent gallery with

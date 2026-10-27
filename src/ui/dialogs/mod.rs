@@ -102,6 +102,15 @@ impl DialogWindow {
         }
     }
 
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        match self {
+            Self::Settings(window) => window.hovered_cursor(),
+            Self::About(window) => window.hovered_cursor(),
+            Self::Shortcuts(window) => window.hovered_cursor(),
+        }
+    }
+
     pub fn paint(&self, ctx: &mut PaintContext) {
         match self {
             Self::Settings(window) => window.paint(ctx),

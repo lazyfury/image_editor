@@ -33,6 +33,11 @@ pub struct ConfirmDialog {
 }
 
 impl ConfirmDialog {
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        self.window.hovered_cursor()
+    }
+
     /// 建一个确认框（`title` 是标题栏文字，`message` 是正文）。
     pub fn new(theme: &'static dyn Theme, title: &str, message: &str) -> Self {
         let result: Rc<Cell<Option<ConfirmResult>>> = Rc::new(Cell::new(None));

@@ -97,6 +97,11 @@ pub struct SettingsWindow {
 }
 
 impl SettingsWindow {
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        self.window.hovered_cursor()
+    }
+
     /// 建窗口。`cells` 与选项栏是同一批开关，`intents` 与选项栏是同一个队列。
     pub fn new(theme: &'static dyn Theme, cells: OptionCells, intents: Intents) -> Self {
         let mut refs = Refs::default();

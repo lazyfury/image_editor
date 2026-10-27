@@ -701,3 +701,48 @@ fn gesture_events_reach_the_active_workspace_camera() {
         .canvas_camera();
     assert!((rotated.angle.to_degrees() - 15.0).abs() < 1e-3);
 }
+
+/// 画布上的系统光标跟着工具 / 空格 / Option 走（宿主层的选择逻辑）。
+#[test]
+fn the_cursor_follows_the_tool_over_the_canvas() {
+    use igui_core::{InputEvent, Modifiers, Vec2};
+    use winit::window::CursorIcon;
+
+    let mut logic = logic_with_dialog(Rc::new(FakeFileDialog::default()));
+    logic.screen = Screen::Editor;
+    let viewport = igui_core::ViewportSize::new(igui_core::Size::new(1280.0, 800.0));
+    let point = {
+        let workspace = logic.workspaces.active_mut().expect("一个工作区");
+        workspace.editor.layout(viewport);
+        workspace
+            .editor
+            .canvas_camera()
+            .document_to_screen(Vec2::new(64.0, 64.0))
+    };
+    logic.route_event(&InputEvent::PointerMove { position: point });
+    assert_eq!(logic.desired_cursor(), CursorIcon::Crosshair, "画笔");
+
+    logic.route_event(&InputEvent::KeyDown {
+        key: Key::Character('h'),
+    });
+    assert_eq!(logic.desired_cursor(), CursorIcon::Grab, "抓手");
+
+    logic.route_event(&InputEvent::KeyDown {
+        key: Key::Character('z'),
+    });
+    assert_eq!(logic.desired_cursor(), CursorIcon::ZoomIn, "缩放");
+    logic.route_event(&InputEvent::ModifiersChanged(Modifiers {
+        alt: true,
+        ..Modifiers::NONE
+    }));
+    assert_eq!(logic.desired_cursor(), CursorIcon::ZoomOut, "Option 反向");
+
+    logic.route_event(&InputEvent::ModifiersChanged(Modifiers::NONE));
+    logic.route_event(&InputEvent::KeyDown {
+        key: Key::Character('b'),
+    });
+    logic.route_event(&InputEvent::KeyDown { key: Key::Space });
+    assert_eq!(logic.desired_cursor(), CursorIcon::Grab, "空格临时抓手");
+    logic.route_event(&InputEvent::KeyUp { key: Key::Space });
+    assert_eq!(logic.desired_cursor(), CursorIcon::Crosshair, "松开恢复");
+}

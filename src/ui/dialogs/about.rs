@@ -69,6 +69,11 @@ pub struct AboutWindow {
 }
 
 impl AboutWindow {
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        self.window.hovered_cursor()
+    }
+
     pub fn new(theme: &'static dyn Theme, snapshot: AboutSnapshot) -> Self {
         let closed: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let footer_close = closed.clone();

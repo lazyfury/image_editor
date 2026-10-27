@@ -341,6 +341,14 @@ Phase 11），README 只留功能说明。要点：
 | `F` | 适配画布区域（保留当前角度） |
 | `T` / `Shift+T` | 视图顺时针 / 逆时针旋转 15°（绕画布中心） |
 
+### 光标
+
+画布上的**系统光标**跟着工具走（`src/app/cursor.rs`）：抓手 `Grab` / 拖动中
+`Grabbing`，缩放 `ZoomIn` / `Option` 时 `ZoomOut`，画笔 / 橡皮 / 选区 / 钢笔 /
+填充 / 吸管 `Crosshair`，移动 `Move`。画布之外沿用 igui 控件的 hover 光标
+（按钮 `Pointer`、文本 `Text`、分隔条 `ColResize` / `RowResize`）。
+隐藏系统箭头 + 任意位图光标（自绘笔刷图）还没做。
+
 > 修饰键快捷键在**宿主层**处理：`InputEvent::KeyDown` 没有修饰键字段
 > （`igui_core` 刻意保持最小），所以 `app/application.rs` 把 `Ctrl/Cmd+Z`
 > 直接映射到 `EditorView::undo/redo`，不当作普通按键。
@@ -354,6 +362,7 @@ src/
 ├── fonts.rs             # 随包字体定位（assets/fonts/，见 AGENTS.md）
 ├── app/
 │   ├── state.rs         # ActiveTool / CanvasCamera / AppState（纯数据）
+│   ├── cursor.rs        # 画布工具 -> winit 光标的纯映射
 │   ├── tool_groups.rs   # 工具栏分组（组内工具 + 默认脸）
 │   ├── workspaces.rs    # 多工作区（EditorView + 路径 + 脏标记）
 │   └── application/     # winit + wgpu 宿主
@@ -363,6 +372,7 @@ src/
 │       ├── workspace.rs # 工作区新建 / 切标签 / 每帧同步（偏好、纹理采样）
 │       ├── files.rs     # 保存 / 打开 / 导入导出 / 关闭确认 / 拖放
 │       ├── shortcuts.rs # 确认解析 + ⌘ 快捷键
+│       ├── cursor.rs    # 每帧把工具 / 控件光标设给 winit（SharedWindow）
 │       ├── plugins.rs   # 字体度量 / 帧数上限插件
 │       └── tests.rs     # 宿主级测试（模态 / 标签条 / 保存流程）
 ├── icons.rs             # Lucide 图标包加载 + `Icon` 组件（igui_svg）

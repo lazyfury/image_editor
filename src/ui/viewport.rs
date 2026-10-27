@@ -129,7 +129,7 @@ impl EditorView {
         self.nav.end_pan(PanSource::Middle)
     }
 
-    pub(super) fn space_held(&self) -> bool {
+    pub fn space_held(&self) -> bool {
         self.nav.space_held()
     }
 
@@ -141,9 +141,8 @@ impl EditorView {
         self.nav.release_space();
     }
 
-    /// 是否正在平移（测试 / 自检用）。
-    #[allow(dead_code)] // 目前只有测试读它
-    pub(super) fn panning(&self) -> bool {
+    /// 是否正在平移（宿主选光标 / 测试用）。
+    pub fn panning(&self) -> bool {
         self.nav.panning()
     }
 }

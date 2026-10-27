@@ -166,6 +166,11 @@ impl NewDocumentModal {
         self.window.set_text_measurer(measurer);
     }
 
+    /// 指针下的控件光标（宿主选光标用）。
+    pub fn hovered_cursor(&self) -> igui_core::Cursor {
+        self.window.hovered_cursor()
+    }
+
     /// 把共享格里的选择写进标签（只在控件改动后）。
     pub fn update(&mut self) {
         if !self.dirty.replace(false) {
