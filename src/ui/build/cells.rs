@@ -15,7 +15,6 @@ impl Wiring {
             // 所有回调（菜单 / 工具栏 / 选项栏 / 面板）共用一个意图队列；宿主从
             // 同一个队列里取文件动作，路径由它的原生对话框选。
             intents: Intents::new(),
-            workspace_path: Rc::new(RefCell::new(None)),
             tool_faces: TOOL_GROUPS
                 .iter()
                 .map(|group| Rc::new(Cell::new(group.face())))
@@ -41,7 +40,6 @@ impl Wiring {
             ))),
             gradient_reverse: Rc::new(Cell::new(false)),
             menu_refs: Vec::new(),
-            file_refs: Vec::new(),
             group_refs: Vec::new(),
             label_refs: Vec::new(),
             history_refs: Vec::new(),

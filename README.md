@@ -134,7 +134,7 @@ cargo run -- --ui-menu         # 菜单栏画在窗口里（默认用 macOS 系�
   （`CropLayerCommand`）。
 - [x] **Phase 7 — 导入导出**：`src/io/` 用 `png` crate 做编码与解码，拆成
   两个关注点：`codec`（`PixelBuffer <-> PNG 字节`）与 `file`
-  （`路径 <-> PNG 字节` + 文件名规则）。右侧「文件」面板的「导入 PNG…」/
+  （`路径 <-> PNG 字节` + 文件名规则）。「文件」菜单里的「导入 PNG…」/
   「导出 PNG…」走**原生文件对话框**（Phase 23），把图片作为**新图层**放到最
   上面并选中；导入不进撤销栈（与「+ 图层」一致）。
 - [x] **Phase 8 — Move / 框选 / 吸管**：补齐三个工具。
@@ -210,7 +210,7 @@ cargo run -- --ui-menu         # 菜单栏画在窗口里（默认用 macOS 系�
   画廊列出打开中 / 最近工作区。
 - [x] **Phase 23 — 原生文件对话框 / 保存流程 / 拖放**：`io/dialog.rs` 手写平台
   FFI（macOS `NSOpenPanel`/`NSSavePanel`、Windows `comdlg32`、其它 Unix
-  `zenity`/`kdialog`）；文件面板按钮只发 `FileRequest` 意图，宿主解析路径后执行
+  `zenity`/`kdialog`）；菜单 / 快捷键只发 `FileRequest` 意图，宿主解析路径后执行
   「保存 vs 另存为」；`ui/confirm.rs` 关闭脏工作区前确认；`app/drop_files.rs`
   把 `winit` 的 `DroppedFile` 转成新图层导入。
 - [x] **Phase 25 — 模拟窗口（属性 / 关于 / 快捷键）+ 选项栏固定高度**：
@@ -467,10 +467,9 @@ src/
 │   ├── canvas.rs        # 透明画布区域（命中 / 定位用）
 │   ├── selection.rs     # 选区描边（黑白相间马赛克线段）
 │   ├── gradient_editor.rs # 多节点渐变编辑器（色带 + 节点手柄 + 配色行）
-│   ├── file_panel.rs    # Phase 7：文件面板（路径 + 导入 / 导出按钮）
 │   ├── layer_panel.rs   # 图层面板（List + 操作按钮）
 │   ├── history_panel.rs # 历史面板（List：undo/redo 栈，点一步跳过去）
-│   ├── properties_panel.rs  # 当前图层属性（只读）
+│   ├── properties_panel.rs  # 当前图层 / 组 / 蒙版的属性（只读）
 │   ├── rename.rs        # 图层重命名浮层（`Overlays::popover` + `TextInput`）
 │   ├── new_document/    # 「新建文档」浮动窗口
 │   │   ├── mod.rs       #   共享格 + NewDocumentModal（对话框壳的转接）
@@ -550,7 +549,7 @@ src/
 
 ## 文件与导入导出（Phase 7 / 23）
 
-右侧「文件」面板（顶部一行是当前工作区文件的**只读**路径）：
+文件动作都在**「文件」菜单 / 快捷键**里（右侧栏只留图层、历史、属性）：
 
 - 「保存」：工作区有路径就直接写，没有就等同「另存为」（`Ctrl/Cmd+S`）。
 - 「另存为…」：弹原生保存框，默认文件名是工作区名 + `.igui`（`Shift+Ctrl/Cmd+S`）。
@@ -618,7 +617,7 @@ magic + 文档尺寸 / 背景 / 名字 / 激活图层 + 每个图层的名字 / 
 混合模式 / 位置 / 像素尺寸，像素用 **PNG 编码**（复用现有编解码，零新依赖）。
 解码对坏 magic / 截断 / 非法字段返回 `IoError::Invalid`。
 
-**保存 / 打开**：右侧「文件」面板的路径格是共用的——「保存工作区」把当前文档写成
+**保存 / 打开**：「保存工作区」把当前文档写成
 `.igui`（路径扩展名换成 `.igui`），「打开工作区」从路径读成一个新工作区。宿主
 （`app/application.rs`）执行 IO、更新 `Workspace.path` / 脏标记、并把路径记入最近
 列表。

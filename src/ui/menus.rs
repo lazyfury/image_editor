@@ -189,6 +189,9 @@ impl EditorView {
             menu::MenuAction::Redo => {
                 self.redo();
             }
+            menu::MenuAction::Save => self.intents.push(Intent::File(FileRequest::Save)),
+            menu::MenuAction::SaveAs => self.intents.push(Intent::File(FileRequest::SaveAs)),
+            menu::MenuAction::Open => self.intents.push(Intent::File(FileRequest::Open)),
             menu::MenuAction::Import => self.intents.push(Intent::File(FileRequest::ImportPng)),
             menu::MenuAction::Export => self.intents.push(Intent::File(FileRequest::ExportPng)),
             menu::MenuAction::ZoomIn => self.apply_canvas_action(CanvasAction::ZoomIn),

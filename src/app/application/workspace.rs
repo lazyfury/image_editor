@@ -70,11 +70,9 @@ impl ImageEditorLogic {
         }
     }
 
-    /// 每帧同步当前工作区：路径、`update`、笔刷偏好回写、纹理上传与采样方式。
+    /// 每帧同步当前工作区：`update`、笔刷偏好回写、纹理上传与采样方式。
     pub(super) fn sync_active_workspace(&mut self, ctx: &FrameContext<'_>) {
         if let Some(workspace) = self.workspaces.active_mut() {
-            let path = workspace.path.clone();
-            workspace.editor.set_workspace_path(path.as_deref());
             workspace.editor.update();
             // 属性窗口能改「记录编辑过程」；以编辑器为准，变了就写回配置。
             let record = workspace.editor.records_timeline();

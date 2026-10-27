@@ -6,7 +6,7 @@
 use crate::app::state::{ActiveTool, HistoryAction};
 use crate::document::{Color, PixelBuffer};
 use crate::selfcheck::*;
-use crate::ui::{EditorView, FileRequest};
+use crate::ui::EditorView;
 use igui_core::{InputEvent, PointerButton, Vec2};
 
 /// CPU 合成器：一个新文档 + 一笔黑色，应当能合成出对应的像素；
@@ -83,14 +83,6 @@ pub(crate) fn png_io(view: &mut EditorView, failures: &mut Vec<String>) {
         Err(error) => failures.push(format!("导出的 PNG 无法解码：{error}")),
     }
 
-    // 点「导出 PNG…」按钮只留下意图（路径由宿主原生对话框选）。
-    let export_button = view.file_center(FileRequest::ExportPng).expect("导出按钮");
-    click_at(view, export_button);
-    view.update();
-    if view.take_file_request() != Some(FileRequest::ExportPng) {
-        failures.push("导出按钮没有留下导出意图".to_string());
-    }
-
     // 导入：独立写一张 4×3 红色 PNG，导入为新图层，
     // 合成后左上角变红（红色图层在最上面）。
     let import_path = temp_png("import");
@@ -113,13 +105,6 @@ pub(crate) fn png_io(view: &mut EditorView, failures: &mut Vec<String>) {
         }
     }
 
-    // 点「导入 PNG…」按钮同样只留下意图。
-    let import_button = view.file_center(FileRequest::ImportPng).expect("导入按钮");
-    click_at(view, import_button);
-    view.update();
-    if view.take_file_request() != Some(FileRequest::ImportPng) {
-        failures.push("导入按钮没有留下导入意图".to_string());
-    }
     let _ = std::fs::remove_file(&export_path);
     let _ = std::fs::remove_file(&import_path);
 }

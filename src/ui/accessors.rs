@@ -3,7 +3,6 @@
 //! 全是 `&self` / `&mut self` 的薄查询，不含业务逻辑；放在这里让 `mod.rs`
 //! 只留构造 / 更新 / 事件分发。
 
-use std::path::Path;
 use std::rc::Rc;
 
 use igui_core::Vec2;
@@ -304,19 +303,6 @@ impl EditorView {
     pub fn palette_picker_center(&self) -> Option<Vec2> {
         igui_ui::control(&self.tree, self.layout.palette_picker)
             .map(|control| control.rect.center())
-    }
-
-    /// 文件面板按钮的节点 id。
-    pub fn file_node(&self, action: FileRequest) -> Option<NodeId> {
-        self.file_nodes
-            .iter()
-            .find(|(candidate, _)| *candidate == action)
-            .map(|(_, id)| *id)
-    }
-
-    /// 文件面板按钮的中心点（逻辑坐标）；测试与自检模拟点击用。
-    pub fn file_center(&self, action: FileRequest) -> Option<Vec2> {
-        igui_ui::control(&self.tree, self.file_node(action)?).map(|control| control.rect.center())
     }
 
     /// 选项栏 `−` / `+` 按钮的节点。
@@ -625,17 +611,12 @@ impl EditorView {
             .map(|layer| layer.position)
     }
 
-    /// 设置当前工作区文件路径（只读展示；宿主每帧调用）。
-    pub fn set_workspace_path(&mut self, path: Option<&Path>) {
-        *self.workspace_path.borrow_mut() = path.map(Path::to_path_buf);
-    }
-
     /// 请求一个文件动作（快捷键用）。
     pub fn request_file(&self, request: FileRequest) {
         self.intents.push(Intent::File(request));
     }
 
-    /// 文件面板 / 快捷键留下的文件意图；取走一个。
+    /// 菜单 / 快捷键留下的文件意图；取走一个。
     pub fn take_file_request(&self) -> Option<FileRequest> {
         self.intents.take_file()
     }

@@ -17,7 +17,6 @@ pub(super) fn finish(
     let Wiring {
         message,
         intents,
-        workspace_path,
         tool_faces,
         long_press,
         palette_width,
@@ -36,7 +35,6 @@ pub(super) fn finish(
         gradient,
         gradient_reverse,
         menu_refs,
-        file_refs,
         group_refs,
         label_refs,
         history_refs,
@@ -61,7 +59,6 @@ pub(super) fn finish(
     let tool_face_labels = slots(&label_refs);
     let history_nodes = ids(&history_refs);
     let palette_nodes = slots(&palette_refs);
-    let file_nodes = ids(&file_refs);
     let menu_nodes = slots(&menu_refs);
     let brush_buttons = ids(&brush_refs);
     let brush_toggles = ids(&toggle_refs);
@@ -101,8 +98,6 @@ pub(super) fn finish(
         icons,
         history_nodes,
         palette_nodes,
-        file_nodes,
-        workspace_path,
         menu_nodes,
         open_menu: Cell::new(None),
         overlays: Overlays::new(theme),
@@ -184,8 +179,6 @@ pub(super) fn finish(
             tab_buttons,
             tab_contents,
         },
-        path_label: refs.path.get().expect("path label mounted"),
-        shown_path: None,
         icon_count,
         shown: None,
         pointer: None,

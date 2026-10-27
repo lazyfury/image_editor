@@ -30,6 +30,10 @@ pub const MENUS: [&str; 8] = [
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
     Undo,
+    /// 文件：保存 / 另存为 / 打开（面板移除后菜单仍是入口）。
+    Save,
+    SaveAs,
+    Open,
     Redo,
     Import,
     Export,
@@ -313,14 +317,52 @@ fn placeholder(state: MenuState, label: &'static str, note: &'static str) -> Men
     )
 }
 
-/// 「文件」菜单。
+/// 「文件」菜单。文件面板移除后，保存 / 打开也在这里（快捷键同一套）。
 fn file_menu(state: MenuState) -> Vec<MenuEntry> {
     vec![
-        placeholder(state, "新建…", "新建：后续 Phase"),
-        placeholder(state, "打开…", "打开：Phase 10 文件浏览器"),
+        placeholder(state, "新建…", "新建：用主页 / 标签条的「+」"),
+        item(
+            state,
+            crate::ui::FileRequest::Open.label(),
+            Some("Cmd+O"),
+            MenuAction::Open,
+            true,
+            false,
+        ),
         separator(),
-        item(state, "导入 PNG…", None, MenuAction::Import, true, false),
-        item(state, "导出 PNG…", None, MenuAction::Export, true, false),
+        item(
+            state,
+            crate::ui::FileRequest::Save.label(),
+            Some("Cmd+S"),
+            MenuAction::Save,
+            true,
+            false,
+        ),
+        item(
+            state,
+            crate::ui::FileRequest::SaveAs.label(),
+            Some("Shift+Cmd+S"),
+            MenuAction::SaveAs,
+            true,
+            false,
+        ),
+        separator(),
+        item(
+            state,
+            crate::ui::FileRequest::ImportPng.label(),
+            None,
+            MenuAction::Import,
+            true,
+            false,
+        ),
+        item(
+            state,
+            crate::ui::FileRequest::ExportPng.label(),
+            None,
+            MenuAction::Export,
+            true,
+            false,
+        ),
     ]
 }
 

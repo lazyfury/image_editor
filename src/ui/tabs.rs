@@ -1,5 +1,6 @@
-//! 侧栏标签页（项目内组件）：把「文件 / 历史 / 属性」三块内容收进一个卡片 ——
-//! 上面一排标签按钮，下面只露出当前标签的内容。
+//! 侧栏标签页（项目内组件）：把「历史 / 属性」两块内容收进一个卡片 ——
+//! 上面一排标签按钮，下面只露出当前标签的内容。文件动作走菜单 / 快捷键
+//! （宿主弹原生对话框），不再占侧栏一格。
 //!
 //! 只负责外观与点击：内容组件由调用方通过 [`TabsView::tab`] 传入，激活态是
 //! 调用方持有的共享 `Rc<Cell<..>>`；标签按钮点击直接翻转它。真正的显示 / 隐藏
@@ -18,9 +19,8 @@ use igui_ui::{Container, FlexStyle, MouseFilter, SurfaceStyle};
 /// 侧栏标签页。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarTab {
-    #[default]
-    File,
     History,
+    #[default]
     Properties,
 }
 
@@ -28,7 +28,6 @@ impl SidebarTab {
     /// 标签上的文字。
     pub const fn label(self) -> &'static str {
         match self {
-            Self::File => "文件",
             Self::History => "历史",
             Self::Properties => "属性",
         }
@@ -186,21 +185,21 @@ mod tests {
     #[test]
     fn tab_contents_stack_below_the_tab_bar() {
         let theme = crate::theme::editor_theme(false);
-        let active = Rc::new(Cell::new(SidebarTab::File));
-        let file = (NodeRef::new(), NodeRef::new());
+        let active = Rc::new(Cell::new(SidebarTab::History));
         let hist = (NodeRef::new(), NodeRef::new());
+        let props = (NodeRef::new(), NodeRef::new());
         let view = TabsView::new(theme, active)
-            .tab(
-                SidebarTab::File,
-                &file.0,
-                &file.1,
-                Text::small("文件内容", theme),
-            )
             .tab(
                 SidebarTab::History,
                 &hist.0,
                 &hist.1,
                 Text::small("历史内容", theme),
+            )
+            .tab(
+                SidebarTab::Properties,
+                &props.0,
+                &props.1,
+                Text::small("属性内容", theme),
             );
         let mut tree = SceneTree::new();
         tree.add_child(
@@ -210,48 +209,46 @@ mod tests {
         tree.set_viewport_size(Size::new(320.0, 240.0));
         igui_ui::layout(&mut tree, ViewportSize::new(Size::new(320.0, 240.0)));
 
-        let file_rect = igui_ui::control(&tree, file.1.get().unwrap()).unwrap().rect;
         let hist_rect = igui_ui::control(&tree, hist.1.get().unwrap()).unwrap().rect;
-        assert!(file_rect.top() > 0.0, "内容应在标签栏下面：{file_rect:?}");
+        let props_rect = igui_ui::control(&tree, props.1.get().unwrap())
+            .unwrap()
+            .rect;
+        assert!(hist_rect.top() > 0.0, "内容应在标签栏下面：{hist_rect:?}");
         assert!(
-            hist_rect.top() >= file_rect.max().y,
-            "内容应纵向堆叠：file={file_rect:?} hist={hist_rect:?}"
+            props_rect.top() >= hist_rect.max().y,
+            "内容应纵向堆叠：hist={hist_rect:?} props={props_rect:?}"
         );
     }
 
     #[test]
-    fn every_tab_has_a_distinct_label() {
-        let tabs = [
-            SidebarTab::File,
-            SidebarTab::History,
-            SidebarTab::Properties,
-        ];
+    fn every_tab_has_a_distinct_label_and_properties_is_the_default() {
+        let tabs = [SidebarTab::History, SidebarTab::Properties];
         let mut labels: Vec<&str> = tabs.iter().map(|tab| tab.label()).collect();
         labels.sort_unstable();
         labels.dedup();
         assert_eq!(labels.len(), tabs.len());
-        assert_eq!(SidebarTab::default(), SidebarTab::File);
+        assert_eq!(SidebarTab::default(), SidebarTab::Properties);
     }
 
-    /// 建两页标签、排好，返回 `(tree, panel, file_content, hist_content)`。
+    /// 建两页标签、排好，返回 `(tree, panel, history_content, properties_content)`。
     fn mounted() -> (SceneTree, NodeId, NodeId, NodeId) {
         let theme = crate::theme::editor_theme(false);
-        let active = Rc::new(Cell::new(SidebarTab::File));
-        let file = (NodeRef::new(), NodeRef::new());
+        let active = Rc::new(Cell::new(SidebarTab::History));
         let hist = (NodeRef::new(), NodeRef::new());
+        let props = (NodeRef::new(), NodeRef::new());
         let tabs_ref = NodeRef::new();
         let view = TabsView::new(theme, active)
-            .tab(
-                SidebarTab::File,
-                &file.0,
-                &file.1,
-                Text::small("文件内容", theme),
-            )
             .tab(
                 SidebarTab::History,
                 &hist.0,
                 &hist.1,
                 Text::small("历史内容", theme),
+            )
+            .tab(
+                SidebarTab::Properties,
+                &props.0,
+                &props.1,
+                Text::small("属性内容", theme),
             )
             .ref_(&tabs_ref);
         let mut tree = SceneTree::new();
@@ -263,8 +260,8 @@ mod tests {
         (
             tree,
             tabs_ref.get().unwrap(),
-            file.1.get().unwrap(),
             hist.1.get().unwrap(),
+            props.1.get().unwrap(),
         )
     }
 
@@ -274,48 +271,48 @@ mod tests {
 
     #[test]
     fn show_active_keeps_only_one_content_visible() {
-        let (mut tree, panel, file, hist) = mounted();
+        let (mut tree, panel, hist, props) = mounted();
         let viewport = ViewportSize::new(Size::new(320.0, 240.0));
 
         show_active(
             &mut tree,
             panel,
-            SidebarTab::File,
-            &[(SidebarTab::File, file), (SidebarTab::History, hist)],
+            SidebarTab::History,
+            &[(SidebarTab::History, hist), (SidebarTab::Properties, props)],
         );
         igui_ui::layout(&mut tree, viewport);
-        assert!(content_rect(&tree, file).top() > 0.0);
-        assert_eq!(content_rect(&tree, hist), igui_core::Rect::ZERO);
+        assert!(content_rect(&tree, hist).top() > 0.0);
+        assert_eq!(content_rect(&tree, props), igui_core::Rect::ZERO);
     }
 
     #[test]
     fn showing_a_hidden_tab_relays_it_out_from_zero() {
-        let (mut tree, panel, file, hist) = mounted();
+        let (mut tree, panel, hist, props) = mounted();
         let viewport = ViewportSize::new(Size::new(320.0, 240.0));
-        let contents = [(SidebarTab::File, file), (SidebarTab::History, hist)];
-
-        show_active(&mut tree, panel, SidebarTab::File, &contents);
-        igui_ui::layout(&mut tree, viewport);
-        assert_eq!(content_rect(&tree, hist), igui_core::Rect::ZERO);
+        let contents = [(SidebarTab::History, hist), (SidebarTab::Properties, props)];
 
         show_active(&mut tree, panel, SidebarTab::History, &contents);
         igui_ui::layout(&mut tree, viewport);
-        let hist_rect = content_rect(&tree, hist);
+        assert_eq!(content_rect(&tree, props), igui_core::Rect::ZERO);
+
+        show_active(&mut tree, panel, SidebarTab::Properties, &contents);
+        igui_ui::layout(&mut tree, viewport);
+        let props_rect = content_rect(&tree, props);
         assert!(
-            hist_rect.top() > 0.0,
-            "切换后内容应重新排布，而不是停在 (0, 0)：{hist_rect:?}"
+            props_rect.top() > 0.0,
+            "切换后内容应重新排布，而不是停在 (0, 0)：{props_rect:?}"
         );
-        assert_eq!(content_rect(&tree, file), igui_core::Rect::ZERO);
+        assert_eq!(content_rect(&tree, hist), igui_core::Rect::ZERO);
     }
 
     #[test]
     fn a_tab_mounts_a_button_and_a_content_node() {
         let mut tree = SceneTree::new();
-        let active = Rc::new(Cell::new(SidebarTab::File));
+        let active = Rc::new(Cell::new(SidebarTab::Properties));
         let button = NodeRef::new();
         let content = NodeRef::new();
         let view = TabsView::new(crate::theme::editor_theme(false), active).tab(
-            SidebarTab::File,
+            SidebarTab::Properties,
             &button,
             &content,
             Text::small("内容", crate::theme::editor_theme(false)),

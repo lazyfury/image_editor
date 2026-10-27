@@ -13,7 +13,7 @@ impl ImageEditorLogic {
             .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
     }
 
-    /// 文件面板 / 快捷键留下的文件意图。
+    /// 菜单 / 快捷键留下的文件意图。
     pub(super) fn handle_file_requests(&mut self, ctx: &FrameContext<'_>) {
         let request = self
             .workspaces

@@ -22,7 +22,6 @@ mod card;
 mod clipboard;
 mod confirm;
 mod dialogs;
-mod file_panel;
 mod gradient_editor;
 mod history_panel;
 mod home;
@@ -70,7 +69,7 @@ pub use dialogs::{AboutSnapshot, DialogKind, DialogWindow, SettingsSnapshot, Set
 pub use options_bar::OPTIONS_BAR_HEIGHT;
 pub use tabs::SidebarTab;
 
-/// 文件面板 / 快捷键留下的文件意图；宿主取走后弹原生对话框并执行。
+/// 菜单 / 快捷键留下的文件意图；宿主取走后弹原生对话框并执行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileRequest {
     /// ⌘S：有路径直接写，没有就走另存为。
@@ -166,7 +165,7 @@ const ANCHOR_SIZE: f32 = 5.0;
 const HANDLE_DOT: f32 = 2.5;
 /// 像素模式下，出现像素网格的最小缩放。
 const GRID_MIN_ZOOM: f32 = 6.0;
-/// 右侧栏「文件 / 历史 / 属性」标签页面板的默认高度 / 拖拽钳制（逻辑像素）。
+/// 右侧栏「历史 / 属性」标签页面板的默认高度 / 拖拽钳制（逻辑像素）。
 const TABS_PANEL_HEIGHT: f32 = 220.0;
 const TABS_PANEL_MIN: f32 = 120.0;
 const TABS_PANEL_MAX: f32 = 480.0;
@@ -191,7 +190,6 @@ struct Refs {
     palette_panel: NodeRef,
     palette_picker: NodeRef,
     palette_handle: NodeRef,
-    path: NodeRef,
     sidebar: NodeRef,
     sidebar_handle: NodeRef,
 }
@@ -240,13 +238,9 @@ pub struct EditorView {
     /// 撤销 / 重做按钮节点（Phase 6）。
     history_nodes: Vec<(HistoryAction, NodeId)>,
     palette_nodes: Vec<NodeId>,
-    /// 文件面板的按钮节点（Phase 7）。
-    file_nodes: Vec<(FileRequest, NodeId)>,
     /// 回调留下的意图（工具 / 菜单 / 选项栏 / 文件……）；`update` 每帧取走视图
     /// 能处理的部分，[`Intent::File`] 留给宿主。
     intents: Intents,
-    /// 当前工作区文件路径（只读展示，宿主每帧喂）。
-    workspace_path: Rc<RefCell<Option<std::path::PathBuf>>>,
     /// 菜单标题的节点（下拉的锚点），顺序与 [`menu::MENUS`] 一致。
     menu_nodes: Vec<NodeId>,
     /// 当前打开菜单的下标（用于点同一标题时切换成关闭）。
@@ -268,9 +262,6 @@ pub struct EditorView {
     /// 和 `EditorView::layout`（排树）不是一回事：这里是「拖成多宽 / 多高、现在
     /// 停在哪一页」的状态，见 `ui/layout.rs`。
     layout: layout::Layout,
-    /// 路径标签节点，以及上一次写入的内容（避免每帧刷文本）。
-    path_label: NodeId,
-    shown_path: Option<String>,
     /// 图标包里索引到的图标数量（自检 / 报告用）。
     icon_count: usize,
     /// 上一次同步到状态栏的内容，避免每帧都 `set_text`。
@@ -436,7 +427,6 @@ impl EditorView {
     /// 宿主每帧调用：同步状态栏、在文档改动后刷新图层列表并标记重合成。
     pub fn update(&mut self) {
         self.sync_status();
-        self.sync_path();
         // 意图取一次，按到达顺序处理：工具参数当场应用（下面的 `sync_options`
         // 要显示新值），菜单 / 重命名 / 工具切换记下来，留到各自的阶段 —— 顺序
         // 与原来那 12 条请求格一模一样。`Intent::File` 留在队列里给宿主。

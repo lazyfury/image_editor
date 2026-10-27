@@ -11,12 +11,13 @@
 项目」现在是主窗口内的**模拟桌面浮动窗口**（`ui/window/` 的 `Window` +
 `ui/new_document.rs` 的 `NewDocumentModal`：标题栏拖动移动、四条边 / 角拖动
 缩放、关闭按钮 / 遮罩，Esc / 点外取消，输入全吞掉），不再开第二个原生窗口；
-侧栏「文件 / 历史 / 属性」标签页；透明棋盘格背景；默认 128×128 像素画布 +
+侧栏「历史 / 属性」标签页（默认属性；文件动作走菜单 / 快捷键）；透明棋盘格背景；默认 128×128 像素画布 +
 1px 硬边笔 + 最近邻采样；移动图层后画笔对准光标、画布外像素不裁。
 
-再最近：**原生文件对话框 + 保存流程 + 拖放**（Phase 23）——文件面板不再有
-路径输入，每个按钮只发 `FileRequest` 意图，路径由 `io/dialog.rs` 手写的平台
-FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；PNG 拖进窗口当新图层。
+再最近：**原生文件对话框 + 保存流程 + 拖放**（Phase 23）——文件动作都在
+「文件」菜单 / 快捷键里（右侧栏的「文件」面板已移除），只发 `FileRequest`
+意图，路径由 `io/dialog.rs` 手写的平台 FFI 选出来；「保存 / 另存为」分开；
+关闭脏工作区先确认；PNG 拖进窗口当新图层。
 
 **当前主线：第 2 节的「绘画 / 修图路线图」**（绘画优先，一批一批落地）。
 
@@ -744,11 +745,11 @@ padding 归零；渐变色带去掉 `Flex::new()` 默认的 16px padding（40px 
 - [x] **Phase 10 — 文件选择（已改用原生对话框）**：原计划用 `List` 覆盖层自绘
   文件浏览器；实际改成 `io/dialog.rs` 的**手写平台 FFI** 原生对话框（macOS
   `NSOpenPanel`/`NSSavePanel`、Windows `comdlg32`、其它 Unix `zenity`/`kdialog`），
-  文件面板按钮只发意图、宿主解析路径。见 Phase 23。
-- [ ] **Phase 11 — 图层右键菜单**：图层行右键在指针处弹出上下文菜单（重命名 /
-  复制 / 删除 / 显示隐藏 / 上移下移 / 向下合并 / 不透明度）。两个前置（增量）：
-  `Overlays` 支持**原始矩形 / 指针位置**锚点；`igui_ui` 增加右键回调
-  （`PointerButton::Right` 已存在，但 `handle_input` 目前只处理左键）。
+  菜单 / 快捷键只发 `FileRequest` 意图、宿主解析路径（原「文件面板」已移除）。
+  见 Phase 23。
+- [x] **Phase 11 — 图层右键菜单**：图层行右键在指针处弹上下文菜单（编组 / 取消
+  编组 / 新建组 / 复制 / 删除 / 蒙版 / 上移下移 / 裁到文档）。落地走
+  `List::on_context` + `Overlays::menu_at`，见 `docs/layer-tree.md`。
 
 ### 选区与填充（Phase 12–16，已完成）
 
@@ -856,7 +857,7 @@ padding 归零；渐变色带去掉 `Flex::new()` 默认的 16px padding（40px 
   （`LayerMetaCommand`，不克隆像素）、裁到文档（`CropLayerCommand`）全部入历史；
   标签页面板与「图层」之间加 `ResizeHandle::horizontal` 分隔条（可拖高度，
   `clamp_panel_heights` 保证图层不被挤没）。
-- **侧栏标签页（`ui/tabs.rs`）**：文件 / 历史 / 属性三块内容收进一个卡片，
+- **侧栏标签页（`ui/tabs.rs`）**：历史 / 属性两块内容收进一个卡片（默认属性；
   上面 `TabsView` 的标签按钮（选中态底色 + accent 下划线），下面只显示当前页；
   激活态是 `Rc<Cell<SidebarTab>>`，`EditorView` 在激活页变化时调
   `tabs::show_active`（`set_visible` + `mark_dirty`，可见性变化不会自动让布局

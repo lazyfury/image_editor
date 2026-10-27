@@ -60,7 +60,7 @@ pub enum Intent {
     Dialog(crate::ui::DialogKind),
     /// 打开 / 关闭「记录整段编辑过程」（属性窗口的开关）。
     RecordTimeline(bool),
-    /// 文件面板 / 快捷键的文件动作（宿主弹原生对话框并执行）。
+    /// 菜单 / 快捷键的文件动作（宿主弹原生对话框并执行）。
     File(FileRequest),
 }
 

@@ -183,3 +183,24 @@ fn the_edit_menu_cuts_copies_and_pastes_the_selection() {
     };
     assert_eq!(pasted, Color::BLACK, "粘贴回原位");
 }
+
+/// 文件面板移除后，「文件」菜单仍然是保存 / 打开 / 导入导出的入口：
+/// 菜单项只留 `FileRequest` 意图，路径由宿主弹原生对话框。
+#[test]
+fn the_file_menu_emits_file_requests() {
+    use crate::ui::menu::MenuAction;
+    use crate::ui::FileRequest;
+
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    for (action, request) in [
+        (MenuAction::Save, FileRequest::Save),
+        (MenuAction::SaveAs, FileRequest::SaveAs),
+        (MenuAction::Open, FileRequest::Open),
+        (MenuAction::Import, FileRequest::ImportPng),
+        (MenuAction::Export, FileRequest::ExportPng),
+    ] {
+        view.apply_menu_action(action);
+        assert_eq!(view.take_file_request(), Some(request), "菜单项 {action:?}");
+    }
+}

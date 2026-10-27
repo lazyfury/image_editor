@@ -37,9 +37,11 @@ src/ui/         views + project-local components: home (recent gallery with
                 new_document/ (mod = modal shell wiring, form = the form,
                 widgets = stepper / preset / swatch, tests), workspace_tabs,
                 menu, toolbar, options_bar, canvas,
-                layer/file/properties/tabs/palette panels, rename (TextInput
-                popover), window (floating window), confirm (unsaved-changes
-                dialog).
+                layer/history/properties/tabs/palette panels (the right sidebar
+                has no file panel: file actions go through the File menu /
+                shortcuts, and the tab strip defaults to 属性), rename
+                (TextInput popover), window (floating window), confirm
+                (unsaved-changes dialog).
                 `ui/mod.rs` is `EditorView` (fields + `new` + `update`); the rest
                 of it is split by concern: accessors / paint / tools / sync /
                 menus / input / layout / io (each a sibling `ui/*.rs`), plus

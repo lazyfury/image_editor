@@ -233,20 +233,6 @@ impl EditorView {
         state.execute(Box::new(LayerMetaCommand::new(before, after, "重命名图层")));
     }
 
-    // -- 文件 / 路径（Phase 7） ------------------------------------------
-
-    /// 工作区文件路径每帧同步（只读展示）。
-    pub(super) fn sync_path(&mut self) {
-        let display = match &*self.workspace_path.borrow() {
-            Some(path) => path.display().to_string(),
-            None => "未保存（⌘S 保存）".to_string(),
-        };
-        if self.shown_path.as_deref() != Some(display.as_str()) {
-            set_text(&mut self.tree, self.path_label, display.clone());
-            self.shown_path = Some(display);
-        }
-    }
-
     /// 工具选项栏：工具名 / 提示 / 笔刷配置，按当前工具显示。
     pub(super) fn sync_options(&mut self) {
         let tool = self.state.borrow().active_tool;

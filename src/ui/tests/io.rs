@@ -1,4 +1,4 @@
-//! PNG 进出 + 文件按钮只发意图。
+//! PNG 进出（文件动作走菜单 / 快捷键，由宿主弹原生对话框）。
 
 use super::*;
 
@@ -52,29 +52,4 @@ fn a_failed_export_is_an_error() {
         .join("image_editor_definitely_missing_dir")
         .join("x.png");
     assert!(view.export_png_to(&missing.to_string_lossy()).is_err());
-}
-
-/// 每个文件按钮只留下对应的意图（路径由宿主原生对话框选）。
-#[test]
-fn file_buttons_emit_their_intent() {
-    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
-    view.layout(viewport());
-    for action in [
-        FileRequest::Save,
-        FileRequest::SaveAs,
-        FileRequest::Open,
-        FileRequest::ImportPng,
-        FileRequest::ExportPng,
-    ] {
-        let center = view
-            .file_center(action)
-            .unwrap_or_else(|| panic!("{action:?} 按钮"));
-        click(&mut view, center);
-        view.update();
-        assert_eq!(
-            view.take_file_request(),
-            Some(action),
-            "{action:?} 应留下意图"
-        );
-    }
 }

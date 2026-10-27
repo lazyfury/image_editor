@@ -10,7 +10,6 @@ mod panels;
 mod tree;
 
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -32,10 +31,10 @@ use crate::tools::{
 use super::options_bar::{options_bar, BarInputs, GradientOptions, OptionSlots, OptionsRefs};
 use super::tabs::{SidebarTab, TabsView};
 use super::{
-    canvas, file_panel, history_panel, layer_panel, menu, palette, properties_panel, status_bar,
-    toolbar, BrushAdjust, BrushToggle, BucketAdjust, BucketToggle, EditorView, FileRequest,
-    GradientAdjust, Intents, Refs, LONG_PRESS_MS, PALETTE_MAX, PALETTE_MIN, PALETTE_WIDTH,
-    SIDEBAR_MIN, SIDEBAR_WIDTH, TABS_PANEL_HEIGHT, TABS_PANEL_MAX, TABS_PANEL_MIN,
+    canvas, history_panel, layer_panel, menu, palette, properties_panel, status_bar, toolbar,
+    BrushAdjust, BrushToggle, BucketAdjust, BucketToggle, EditorView, GradientAdjust, Intents,
+    Refs, LONG_PRESS_MS, PALETTE_MAX, PALETTE_MIN, PALETTE_WIDTH, SIDEBAR_MIN, SIDEBAR_WIDTH,
+    TABS_PANEL_HEIGHT, TABS_PANEL_MAX, TABS_PANEL_MIN,
 };
 
 /// 构造 `EditorView`（`EditorView::new` 转交到这里）。
@@ -51,7 +50,6 @@ struct Wiring {
     message: Rc<RefCell<Option<String>>>,
     /// 回调留下的意图（工具 / 菜单 / 选项栏 / 文件……）。
     intents: Intents,
-    workspace_path: Rc<RefCell<Option<PathBuf>>>,
     tool_faces: Vec<Rc<Cell<ActiveTool>>>,
     long_press: Rc<RefCell<toolbar::LongPress>>,
     palette_width: Rc<Cell<f32>>,
@@ -72,7 +70,6 @@ struct Wiring {
     gradient: Rc<RefCell<Gradient>>,
     gradient_reverse: Rc<Cell<bool>>,
     menu_refs: Vec<NodeRef>,
-    file_refs: Vec<(FileRequest, NodeRef)>,
     group_refs: Vec<NodeRef>,
     label_refs: Vec<NodeRef>,
     history_refs: Vec<(HistoryAction, NodeRef)>,

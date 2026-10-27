@@ -4,7 +4,7 @@
 //! 锚点数 + 「建立选区 / 填充 / 描边 / 清除」；其余工具显示一句操作提示。按钮只
 //! 往意图队列里塞一个 [`Intent`]，真正的改动由
 //! [`EditorView::update`](crate::ui::EditorView) 统一执行 —— 回调拿不到
-//! `&mut self`，和菜单 / 文件面板一个套路。
+//! `&mut self`，和菜单 / 面板一个套路。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

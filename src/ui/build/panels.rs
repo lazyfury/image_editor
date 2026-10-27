@@ -101,18 +101,12 @@ pub(super) fn main_row(
     (row, lists)
 }
 
-/// 右栏：上面是「文件 / 历史 / 属性」标签页，下面是图层列表，中间一条可拖的分隔条。
+/// 右栏：上面是「历史 / 属性」标签页，下面是图层列表，中间一条可拖的分隔条。
 fn sidebar(
     theme: &'static dyn Theme,
     state: &Rc<RefCell<AppState>>,
     wiring: &mut Wiring,
 ) -> (impl Component, Lists) {
-    let file_panel = file_panel::file_panel(
-        theme,
-        wiring.intents.clone(),
-        &wiring.refs.path,
-        &mut wiring.file_refs,
-    );
     let layer_list = layer_panel::layer_list(
         theme,
         state.clone(),
@@ -134,15 +128,9 @@ fn sidebar(
         &wiring.refs.props_geometry,
     );
 
-    // 侧栏标签页：文件 / 历史 / 属性共用一个卡片。按钮与内容容器各留一个
-    // `NodeRef`，建完后收进 `tab_buttons` / `tab_contents` 供交互与可见性同步。
+    // 侧栏标签页：历史 / 属性共用一个卡片（默认停在「属性」）。按钮与内容容器
+    // 各留一个 `NodeRef`，建完后收进 `tab_buttons` / `tab_contents` 供交互与可见性同步。
     let mut tabs_view = TabsView::new(theme, wiring.active_tab.clone());
-    let file_button = NodeRef::new();
-    let file_content = NodeRef::new();
-    tabs_view = tabs_view.tab(SidebarTab::File, &file_button, &file_content, file_panel);
-    wiring
-        .tab_refs
-        .push((SidebarTab::File, file_button, file_content));
     let history_button = NodeRef::new();
     let history_content = NodeRef::new();
     tabs_view = tabs_view.tab(

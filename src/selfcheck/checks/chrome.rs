@@ -266,11 +266,11 @@ pub(crate) fn resizable_panels(view: &mut EditorView, failures: &mut Vec<String>
         failures.push("拖调色盘分隔条没有变宽".to_string());
     }
 
-    // 右侧栏标签页：「文件 / 历史 / 属性」共用一个面板。点标签切换内容，
-    // 面板与「图层」之间的分隔条可以拖动调高。
+    // 右侧栏标签页：「历史 / 属性」共用一个面板，默认停在「属性」。
+    // 点标签切换内容，面板与「图层」之间的分隔条可以拖动调高。
     let tabs_tab = crate::ui::SidebarTab::History;
-    if view.active_tab() != crate::ui::SidebarTab::File {
-        failures.push("标签页默认应停在「文件」".to_string());
+    if view.active_tab() != crate::ui::SidebarTab::Properties {
+        failures.push("标签页默认应停在「属性」".to_string());
     }
     let tabs_before = view.tabs_height();
     match view.tabs_handle_center() {
@@ -302,13 +302,12 @@ pub(crate) fn resizable_panels(view: &mut EditorView, failures: &mut Vec<String>
     }
     if view.active_tab() != tabs_tab
         || !view.tab_content_visible(tabs_tab)
-        || view.tab_content_visible(crate::ui::SidebarTab::File)
         || view.tab_content_visible(crate::ui::SidebarTab::Properties)
     {
         failures.push("点「历史」标签没有切换面板".to_string());
     }
-    // 回到「文件」标签再录帧：下面的语义检查要看到文件面板的按钮文字。
-    if let Some(center) = view.tab_center(crate::ui::SidebarTab::File) {
+    // 回到「属性」标签再录帧：下面的语义检查要看到属性面板的文字。
+    if let Some(center) = view.tab_center(crate::ui::SidebarTab::Properties) {
         click_at(view, center);
         view.update();
         view.layout(viewport());
