@@ -31,8 +31,9 @@ impl ToolGroup {
 
 /// 工具栏从上到下的分组。
 ///
-/// 画笔 / 橡皮 / 钢笔各自单独一组；矩形填充和自由填充归一组；油漆桶单独一组。
-pub const TOOL_GROUPS: [ToolGroup; 8] = [
+/// 画笔 / 橡皮 / 钢笔各自单独一组；矩形填充和自由填充归一组；油漆桶单独一组；
+/// 抓手和缩放（视图工具）合成最后一组，脸是抓手。
+pub const TOOL_GROUPS: [ToolGroup; 9] = [
     ToolGroup {
         tools: &[ActiveTool::Move],
     },
@@ -60,6 +61,9 @@ pub const TOOL_GROUPS: [ToolGroup; 8] = [
     },
     ToolGroup {
         tools: &[ActiveTool::Eyedropper],
+    },
+    ToolGroup {
+        tools: &[ActiveTool::Hand, ActiveTool::Zoom],
     },
 ];
 
@@ -99,7 +103,7 @@ mod tests {
         for single in [0, 1, 2, 4, 7] {
             assert!(TOOL_GROUPS[single].is_single(), "组 {single}");
         }
-        for expandable in [3, 5, 6] {
+        for expandable in [3, 5, 6, 8] {
             assert!(!TOOL_GROUPS[expandable].is_single(), "组 {expandable}");
         }
     }

@@ -313,6 +313,20 @@ pub struct GesturePlugin;   // 在 `.plugin(PointerPlugin)` 之后注册
 4. [x] 测试：igui 单测 + 视图单测 + 宿主接线测试。
 5. [x] 文档：README 操作表、`todo.md`、igui `release.md` / `docs/guide/components.md`。
 
+### 10.1 工具入口（抓手 / 缩放 / 空格）
+
+同一套相机动作，除了手势之外再给三个「工具入口」（不改上面任何手势语义）：
+
+| 入口 | 行为 | 说明 |
+|---|---|---|
+| 抓手工具 `H` | 左键拖动平移 | 和中键 / 触控板共用 `ViewportNav.pan` |
+| 缩放工具 `Z` | 点击放大一档；`Option/Alt` + 点击缩小 | 以指针为锚，复用 `CanvasCamera::zoom_at` |
+| 按住 `Space` | 临时抓手 | **不切换** `active_tool`，松开空格 / 鼠标即恢复 |
+
+路由顺序：`input.rs` 里视图导航先于 `begin_tool`，所以蒙版 / 图层组不会拦它，
+也不会产生提示；两个工具都不写文档、不进撤销。实现集中在 `src/ui/viewport.rs`，
+`pan_last` 已重整为 `ViewportNav`（中键 / 抓手 / 空格三个来源）。
+
 ---
 
 ## 11. 后续（不在本期）

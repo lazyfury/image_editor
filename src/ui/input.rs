@@ -39,10 +39,23 @@ impl EditorView {
         }
         match event {
             InputEvent::KeyDown { key } => {
-                if let Some(tool) = shortcut_tool(*key) {
-                    self.state.borrow_mut().active_tool = tool;
-                    tracing::info!(target: "image_editor", tool = tool.label(), "tool_changed");
+                // 空格 = 临时抓手：只在没有 Cmd/Ctrl、也没有在重命名时接管。
+                if matches!(key, Key::Space)
+                    && !self.modifiers.ctrl
+                    && !self.modifiers.meta
+                    && self.rename.is_none()
+                {
+                    self.hold_space();
                     return EventResult::Handled;
+                }
+                // 工具键不带修饰键：`Cmd+Z` 撤销、`Cmd+H` 隐藏窗口这些不能被
+                // `Z` / `H` 工具键抢走（宿主已经先处理了一部分，这里再兜一层）。
+                if !self.modifiers.ctrl && !self.modifiers.meta {
+                    if let Some(tool) = shortcut_tool(*key) {
+                        self.state.borrow_mut().active_tool = tool;
+                        tracing::info!(target: "image_editor", tool = tool.label(), "tool_changed");
+                        return EventResult::Handled;
+                    }
                 }
                 if let Some(action) = canvas_shortcut(*key) {
                     self.apply_canvas_action(action);
@@ -76,6 +89,16 @@ impl EditorView {
                         return EventResult::Handled;
                     }
                 }
+            }
+            // 松开空格 = 退出临时抓手（只在我们接管过的时候消费）。
+            InputEvent::KeyUp { key } if matches!(key, Key::Space) && self.space_held() => {
+                self.release_space();
+                return EventResult::Handled;
+            }
+            // 按住空格时系统还会补一个 `TextInput(" ")`，别让它落进输入框 /
+            // 触发按钮；空格接管期间一律吞掉。
+            InputEvent::TextInput { text } if self.space_held() && text == " " => {
+                return EventResult::Handled;
             }
             // 滚轮 / 触控板滚动：设备不同、语义不同（见 `docs/input-gestures.md`）。
             // 指针不在画布上就交回 `igui_ui`，面板里的列表照常滚。
@@ -140,6 +163,12 @@ impl EditorView {
                 position,
                 button: PointerButton::Left,
             } => {
+                if self.canvas_area_contains(*position) {
+                    let tool = self.state.borrow().active_tool;
+                    if self.press_navigation(tool, *position) {
+                        return EventResult::Handled;
+                    }
+                }
                 self.layer_drag_press(*position);
                 if self.canvas_area_contains(*position) {
                     self.begin_tool(*position);
@@ -157,19 +186,16 @@ impl EditorView {
                 button: PointerButton::Middle,
             } => {
                 if self.canvas_area_contains(*position) {
-                    self.pan_last = Some(*position);
+                    self.press_middle_pan(*position);
                     return EventResult::Handled;
                 }
             }
             InputEvent::PointerMove { position } => {
                 self.pointer = self.canvas_area_contains(*position).then_some(*position);
-                if self.layer_drag_move(*position) {
+                if self.drag_navigation(*position) {
                     return EventResult::Handled;
                 }
-                if let Some(last) = self.pan_last {
-                    let delta = *position - last;
-                    self.pan_last = Some(*position);
-                    self.state.borrow_mut().canvas.pan_by(delta);
+                if self.layer_drag_move(*position) {
                     return EventResult::Handled;
                 }
                 if self.is_dragging() {
@@ -190,6 +216,9 @@ impl EditorView {
                 position,
                 button: PointerButton::Left,
             } => {
+                if self.release_navigation() {
+                    return EventResult::Handled;
+                }
                 if self.layer_drag_release(*position) {
                     return EventResult::Handled;
                 }
@@ -201,7 +230,7 @@ impl EditorView {
             InputEvent::PointerUp {
                 button: PointerButton::Middle,
                 ..
-            } if self.pan_last.take().is_some() => {
+            } if self.release_middle_pan() => {
                 return EventResult::Handled;
             }
             _ => {}
@@ -236,7 +265,7 @@ impl EditorView {
     }
 
     /// 屏幕空间的「内容位移」平移画布（正数 = 内容向右 / 向下移动）。
-    fn pan_canvas(&mut self, content: Vec2) {
+    pub(super) fn pan_canvas(&mut self, content: Vec2) {
         self.state.borrow_mut().canvas.pan_by(content);
     }
 

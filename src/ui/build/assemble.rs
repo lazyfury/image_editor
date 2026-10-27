@@ -192,7 +192,7 @@ pub(super) fn finish(
         show_checkerboard: true,
         fitted: false,
         viewport: ViewportSize::new(Size::new(1280.0, 800.0)),
-        pan_last: None,
+        nav: Default::default(),
         brush: BrushTool::paint(),
         move_tool: MoveTool::new(),
         pen: PenTool::new(),

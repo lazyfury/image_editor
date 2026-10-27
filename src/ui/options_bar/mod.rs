@@ -301,6 +301,8 @@ pub const fn options_hint(tool: ActiveTool) -> &'static str {
         ActiveTool::RectangleFill => "拖动矩形 · 松手用前景色填充",
         ActiveTool::FreeFill => "按住拖出自由形状 · 松手填充内部",
         ActiveTool::Eyedropper => "点击画布取合成后的颜色",
+        ActiveTool::Hand => "拖动平移画布 · 按住空格临时平移",
+        ActiveTool::Zoom => "点击放大 · 按住 Option 点击缩小",
         ActiveTool::Brush | ActiveTool::Eraser => "",
     }
 }

@@ -28,11 +28,13 @@ pub enum ActiveTool {
     RectangleFill,
     FreeFill,
     Eyedropper,
+    Hand,
+    Zoom,
 }
 
 impl ActiveTool {
     /// 工具栏从上到下的顺序。
-    pub const ALL: [ActiveTool; 12] = [
+    pub const ALL: [ActiveTool; 14] = [
         ActiveTool::Move,
         ActiveTool::Brush,
         ActiveTool::Eraser,
@@ -45,6 +47,8 @@ impl ActiveTool {
         ActiveTool::RectangleFill,
         ActiveTool::FreeFill,
         ActiveTool::Eyedropper,
+        ActiveTool::Hand,
+        ActiveTool::Zoom,
     ];
 
     /// 工具栏上的短标签。
@@ -62,6 +66,8 @@ impl ActiveTool {
             Self::RectangleFill => "矩形填充",
             Self::FreeFill => "自由填充",
             Self::Eyedropper => "吸管",
+            Self::Hand => "抓手",
+            Self::Zoom => "缩放",
         }
     }
 
@@ -80,6 +86,8 @@ impl ActiveTool {
             Self::RectangleFill => "square",
             Self::FreeFill => "paintbrush",
             Self::Eyedropper => "pipette",
+            Self::Hand => "hand",
+            Self::Zoom => "zoom-in",
         }
     }
 
@@ -98,6 +106,8 @@ impl ActiveTool {
             Self::RectangleFill => "矩形填充",
             Self::FreeFill => "自由填充",
             Self::Eyedropper => "吸管",
+            Self::Hand => "抓手工具",
+            Self::Zoom => "缩放工具",
         }
     }
 }
@@ -233,7 +243,7 @@ mod tests {
         assert_eq!(state.active_tool.label(), "画笔工具");
         assert_eq!(state.active_tool.short_label(), "画笔");
         assert_eq!(ActiveTool::ALL.first(), Some(&ActiveTool::Move));
-        assert_eq!(ActiveTool::ALL.last(), Some(&ActiveTool::Eyedropper));
+        assert_eq!(ActiveTool::ALL.last(), Some(&ActiveTool::Zoom));
     }
 
     #[test]

@@ -270,6 +270,11 @@
   （画布外锚中心、单事件因子夹 0.5–2）、两指旋转 = 绕中心 + 15° 吸附。设计记录见
   **`docs/input-gestures.md`**；igui 的 `release.md` / `docs/guide/components.md`
   同批更新。
+- [x] **视图工具（抓手 / 缩放 / 空格临时抓手）**：`ActiveTool::{Hand, Zoom}`（`H` /
+  `Z`），左键拖动平移 / 点击缩放（`Option` 反向）；按住空格临时抓手，不切工具。
+  共用 `src/ui/viewport.rs` 的 `ViewportNav`（中键 / 抓手 / 空格一个 `pan`），
+  路由在 `begin_tool` 之前，蒙版 / 图层组不拦；滚轮 / 触控板 / 中键 / 捏合语义不变。
+  剩：缩放工具拖框缩放（旋转视图下的矩形适配）留作后续。
 - [x] **旋转画布（视图旋转）**：相机加 `CanvasCamera.angle`（`screen = offset +
   R(angle)·(doc·zoom)`），`paint_document` 在非 0° 时发一条 `SetTransform`（局部坐标
   的画布矩形交给 GPU 采样，**零 CPU 重采样**），0° 保留轴对齐 + 设备像素对齐的旧路径。
@@ -429,13 +434,13 @@
   `min_size.height = OPTIONS_BAR_HEIGHT`（取 `theme.row_height()`，约 32）+
   `Align::Center`；渐变行的色带预览压到 ~20px（它现在是 40 的元凶）；提示文字用
   单行 `Text::caption` 不换行。
-- 验收：单测「切遍 10 个工具，`options_bar_rect()` 高度都等于 `OPTIONS_BAR_HEIGHT`，
+- 验收：单测「切遍 14 个工具，`options_bar_rect()` 高度都等于 `OPTIONS_BAR_HEIGHT`，
   且 `bottom()` 不变」；`--selfcheck` 里同一断言（切工具的循环与 §1.ac 的探针同款）。
 
 落地：`OPTIONS_BAR_HEIGHT = 32`（= 主题行高）钉在整行和四个 `*_row` 上，纵向
 padding 归零；渐变色带去掉 `Flex::new()` 默认的 16px padding（40px 的元凶）。
 单测 `the_options_bar_keeps_one_height_across_tools` + 自检
-`check_options_bar_height`（走 `ui::TOOL_KEYS` 的 12 个工具键）。
+`check_options_bar_height`（走 `ui::TOOL_KEYS` 的 14 个工具键）。
 
 ### 1.ad 模拟窗口：设置 / 关于 / 快捷键（已完成）
 
@@ -823,8 +828,8 @@ padding 归零；渐变色带去掉 `Flex::new()` 默认的 16px padding（40px 
   改过节点就冻结。五种类型（线性 / 对称 / 径向 / 角度 / 菱形）；拖一条轴实时改
   图层预览、松手一条 undo；选项栏切类型 / 「反向」/「编辑…」，编辑器是色带 +
   可拖动节点 + 「前景色/背景色/删除/重置」。快捷键 `N`，并进油漆桶组。
-- **工具栏分组 + 长按展开**（`app/tool_groups.rs` + `ui/toolbar.rs`）：9 个工具
-  收成 7 个组按钮（移动 / 画笔 / 橡皮 / 选区 / 油漆桶 / 填充形状 / 吸管），
+- **工具栏分组 + 长按展开**（`app/tool_groups.rs` + `ui/toolbar.rs`）：14 个工具
+  收成 9 个组按钮（移动 / 画笔 / 橡皮 / 选区 / 油漆桶 / 填充形状 / 吸管 / 视图），
   组按钮画当前「脸」的
   图标 + 标签（图标用 `foreground` 动态画）+ 右下小三角；短按激活脸，长按
   （350ms / 6px 容差）用 `Overlays::popover(Placement::Right)` 展开浮层选工具；

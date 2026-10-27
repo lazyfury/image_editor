@@ -75,6 +75,11 @@ impl EditorView {
     /// 左键落下：把屏幕点换算成文档坐标，交给当前工具。
     pub(super) fn begin_tool(&mut self, screen: Vec2) {
         let tool = self.state.borrow().active_tool;
+        // 视图工具在 `input` 的导航分支就消费了；这里兜一层，保证它们永远
+        // 不会落到文档上（蒙版 / 图层组的守卫也不该拦它们）。
+        if matches!(tool, ActiveTool::Hand | ActiveTool::Zoom) {
+            return;
+        }
         // 蒙版只用画笔 / 橡皮编辑：其它工具会写到图层像素上，直接拦掉。
         if self.state.borrow().document.active_mask
             && !matches!(tool, ActiveTool::Brush | ActiveTool::Eraser)
@@ -109,6 +114,7 @@ impl EditorView {
             ActiveTool::RectangleFill => self.begin_rect_fill(position),
             ActiveTool::Gradient => self.begin_gradient(position),
             ActiveTool::Eyedropper => self.pick_color(position),
+            ActiveTool::Hand | ActiveTool::Zoom => {}
         }
     }
 

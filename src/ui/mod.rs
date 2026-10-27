@@ -51,6 +51,7 @@ mod sync;
 mod tabs;
 mod toolbar;
 mod tools;
+mod viewport;
 mod window;
 mod workspace_tabs;
 
@@ -284,8 +285,8 @@ pub struct EditorView {
     /// 是否已做过首次适配。
     fitted: bool,
     viewport: ViewportSize,
-    /// 中键平移时上一次的指针位置。
-    pan_last: Option<Vec2>,
+    /// 视图导航的瞬时状态（中键 / 抓手 / 空格平移 + 空格按住标记）。
+    nav: viewport::ViewportNav,
     /// 画笔 / 橡皮引擎（同一个，靠 `mode` 区分）。
     brush: BrushTool,
     /// 移动工具（Phase 8）。
@@ -643,11 +644,12 @@ fn left_pointer(position: Vec2) -> PointerEvent {
     }
 }
 
-/// 工具快捷键表：`V` 移动、`B` 画笔、`E` 橡皮、`M` 框选、`L` 套索、`I` 吸管 …
+/// 工具快捷键表：`V` 移动、`B` 画笔、`E` 橡皮、`M` 框选、`L` 套索、`I` 吸管、
+/// `H` 抓手、`Z` 缩放 …
 ///
 /// **一份数据两处用**：[`shortcut_tool`] 拿它做映射，快捷键窗口
 /// （`ui/dialogs/shortcuts.rs`）拿它生成表格 —— 加一个工具键只改这里。
-pub const TOOL_KEYS: [(char, ActiveTool); 12] = [
+pub const TOOL_KEYS: [(char, ActiveTool); 14] = [
     ('V', ActiveTool::Move),
     ('B', ActiveTool::Brush),
     ('E', ActiveTool::Eraser),
@@ -660,6 +662,8 @@ pub const TOOL_KEYS: [(char, ActiveTool); 12] = [
     ('R', ActiveTool::RectangleFill),
     ('U', ActiveTool::FreeFill),
     ('I', ActiveTool::Eyedropper),
+    ('H', ActiveTool::Hand),
+    ('Z', ActiveTool::Zoom),
 ];
 
 /// 工具快捷键的查询（大小写都认）。

@@ -31,6 +31,7 @@ mod preview;
 mod selection;
 mod toolbar;
 mod tools;
+mod viewport;
 
 /// 一个切到画笔、选项栏已排好版的新视图。
 fn brush_view() -> EditorView {

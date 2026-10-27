@@ -52,6 +52,9 @@ src/ui/         views + project-local components: home (recent gallery with
                 rect-fill/gradient/eyedropper, select = rect/lasso/wand/free-fill
                 + selection commands, pen = pen pointer + keys, adjust = options
                 bar `−`/`+` requests -> tool parameters.
+                `ui/viewport.rs` holds view navigation: Hand / Zoom tools and the
+                temporary Space hand, sharing one pan state with middle-drag
+                (trackpad / wheel / pinch / rotate routes are unchanged).
                 `ui/layer_panel.rs` is the tree list (indent / eye / disclosure
                 arrow / thumbnail — a folder icon for groups, which have no
                 preview — / mask icon leads, `List::on_cell` + `on_context`), `ui/layer_drag.rs`
