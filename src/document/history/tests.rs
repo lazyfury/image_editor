@@ -148,7 +148,8 @@ fn add_and_remove_layer_commands_round_trip() {
     let layer = Layer::new("L", PixelBuffer::filled(2, 2, Color::RED));
     let id = layer.id;
 
-    let mut add = AddLayerCommand::new(layer, document.layers.len(), before_active);
+    let (parent, index) = document.insertion_slot();
+    let mut add = AddLayerCommand::new(layer, parent, index, before_active);
     add.execute(&mut document);
     assert!(document.layer(id).is_some());
     assert_eq!(document.active_layer, Some(id));

@@ -75,6 +75,27 @@ impl EditorView {
     /// 左键落下：把屏幕点换算成文档坐标，交给当前工具。
     pub(super) fn begin_tool(&mut self, screen: Vec2) {
         let tool = self.state.borrow().active_tool;
+        // 蒙版只用画笔 / 橡皮编辑：其它工具会写到图层像素上，直接拦掉。
+        if self.state.borrow().document.active_mask
+            && !matches!(tool, ActiveTool::Brush | ActiveTool::Eraser)
+        {
+            *self.message.borrow_mut() = Some("蒙版只能用画笔编辑".to_string());
+            return;
+        }
+        if self.state.borrow().document.active_is_group()
+            && matches!(
+                tool,
+                ActiveTool::Brush
+                    | ActiveTool::Eraser
+                    | ActiveTool::PaintBucket
+                    | ActiveTool::RectangleFill
+                    | ActiveTool::Gradient
+                    | ActiveTool::Move
+            )
+        {
+            *self.message.borrow_mut() = Some("这是图层组：先选中组里的图层".to_string());
+            return;
+        }
         let position = self.document_position(screen);
         match tool {
             ActiveTool::Brush | ActiveTool::Eraser => self.begin_brush(tool, position),
@@ -93,6 +114,20 @@ impl EditorView {
 
     pub(super) fn continue_tool(&mut self, screen: Vec2) {
         let tool = self.state.borrow().active_tool;
+        if self.state.borrow().document.active_is_group()
+            && matches!(
+                tool,
+                ActiveTool::Brush
+                    | ActiveTool::Eraser
+                    | ActiveTool::PaintBucket
+                    | ActiveTool::RectangleFill
+                    | ActiveTool::Gradient
+                    | ActiveTool::Move
+            )
+        {
+            *self.message.borrow_mut() = Some("这是图层组：先选中组里的图层".to_string());
+            return;
+        }
         let position = self.document_position(screen);
         match tool {
             ActiveTool::Brush | ActiveTool::Eraser if self.brush.is_drawing() => {
@@ -116,6 +151,20 @@ impl EditorView {
 
     pub(super) fn end_tool(&mut self, screen: Vec2) {
         let tool = self.state.borrow().active_tool;
+        if self.state.borrow().document.active_is_group()
+            && matches!(
+                tool,
+                ActiveTool::Brush
+                    | ActiveTool::Eraser
+                    | ActiveTool::PaintBucket
+                    | ActiveTool::RectangleFill
+                    | ActiveTool::Gradient
+                    | ActiveTool::Move
+            )
+        {
+            *self.message.borrow_mut() = Some("这是图层组：先选中组里的图层".to_string());
+            return;
+        }
         let position = self.document_position(screen);
         match tool {
             ActiveTool::Brush | ActiveTool::Eraser if self.brush.is_drawing() => {

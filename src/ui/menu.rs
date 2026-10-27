@@ -37,6 +37,20 @@ pub enum MenuAction {
     ZoomOut,
     ZoomReset,
     ZoomFit,
+    /// 图层：新建图层 / 新建组 / 复制 / 删除 / 编组 / 取消编组。
+    NewLayer,
+    NewGroup,
+    DuplicateLayer,
+    DeleteLayer,
+    GroupLayer,
+    UngroupLayer,
+    /// 蒙版：从选区添加 / 删除 / 启用停用 / 反相。
+    AddLayerMask,
+    DeleteLayerMask,
+    ToggleLayerMask,
+    InvertLayerMask,
+    MoveLayerUp,
+    MoveLayerDown,
     /// 视图顺时针 / 逆时针转 15°。
     RotateViewCw,
     RotateViewCcw,
@@ -157,6 +171,10 @@ pub struct MenuState {
     pub can_paste: bool,
     /// 「视图 → 显示棋盘格」的勾选。
     pub checkerboard: bool,
+    /// 当前节点是组。
+    pub is_group: bool,
+    /// 当前节点有蒙版。
+    pub has_mask: bool,
 }
 
 impl MenuState {
@@ -169,6 +187,8 @@ impl MenuState {
             has_selection: false,
             can_paste: false,
             checkerboard: false,
+            is_group: false,
+            has_mask: false,
         }
     }
 }
@@ -184,6 +204,8 @@ pub fn item_counts() -> (usize, usize) {
         has_selection: true,
         can_paste: true,
         checkerboard: false,
+        is_group: false,
+        has_mask: true,
     };
     let mut items = 0;
     let mut placeholders = 0;
@@ -375,18 +397,109 @@ fn image_menu(state: MenuState) -> Vec<MenuEntry> {
 /// 「图层」菜单。
 fn layer_menu(state: MenuState) -> Vec<MenuEntry> {
     vec![
-        placeholder(state, "新建图层", "新建图层：用右侧图层面板"),
-        placeholder(state, "复制图层", "复制图层：后续 Phase"),
+        item(
+            state,
+            "新建图层",
+            Some("Shift+Cmd+N"),
+            MenuAction::NewLayer,
+            true,
+            false,
+        ),
+        item(state, "新建组", None, MenuAction::NewGroup, true, false),
+        item(
+            state,
+            "复制图层",
+            Some("Cmd+J"),
+            MenuAction::DuplicateLayer,
+            true,
+            false,
+        ),
+        item(
+            state,
+            "删除图层",
+            Some("Cmd+⌫"),
+            MenuAction::DeleteLayer,
+            true,
+            false,
+        ),
         separator(),
-        placeholder(state, "上移一层", "上移一层：用右侧图层面板"),
-        placeholder(state, "下移一层", "下移一层：用右侧图层面板"),
+        item(
+            state,
+            "编组",
+            Some("Cmd+G"),
+            MenuAction::GroupLayer,
+            !state.is_group,
+            false,
+        ),
+        item(
+            state,
+            "取消编组",
+            Some("Shift+Cmd+G"),
+            MenuAction::UngroupLayer,
+            state.is_group,
+            false,
+        ),
+        separator(),
+        item(
+            state,
+            "从选区添加蒙版",
+            None,
+            MenuAction::AddLayerMask,
+            state.has_selection && !state.has_mask,
+            false,
+        ),
+        item(
+            state,
+            if state.has_mask {
+                "停用蒙版"
+            } else {
+                "启用蒙版"
+            },
+            None,
+            MenuAction::ToggleLayerMask,
+            state.has_mask,
+            false,
+        ),
+        item(
+            state,
+            "反相蒙版",
+            None,
+            MenuAction::InvertLayerMask,
+            state.has_mask,
+            false,
+        ),
+        item(
+            state,
+            "删除蒙版",
+            None,
+            MenuAction::DeleteLayerMask,
+            state.has_mask,
+            false,
+        ),
+        separator(),
+        item(
+            state,
+            "上移一层",
+            None,
+            MenuAction::MoveLayerUp,
+            true,
+            false,
+        ),
+        item(
+            state,
+            "下移一层",
+            None,
+            MenuAction::MoveLayerDown,
+            true,
+            false,
+        ),
         separator(),
         item(
             state,
             "裁到文档",
             None,
             MenuAction::CropLayerToDocument,
-            true,
+            !state.is_group,
             false,
         ),
     ]
@@ -518,6 +631,8 @@ mod tests {
             has_selection: false,
             can_paste: false,
             checkerboard: false,
+            is_group: false,
+            has_mask: false,
         }
     }
 

@@ -27,6 +27,7 @@ impl Wiring {
             tabs_height: Rc::new(Cell::new(TABS_PANEL_HEIGHT)),
             layer_count: Rc::new(Cell::new(0)),
             layer_selected: Rc::new(Cell::new(None)),
+            layer_rows: Rc::new(RefCell::new(Vec::new())),
             history_count: Rc::new(Cell::new(0)),
             // 选项栏开关是显示源，`EditorView::update` 每帧把它们写进工具。
             pixel_mode: Rc::new(Cell::new(true)),

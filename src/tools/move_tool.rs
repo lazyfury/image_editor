@@ -40,6 +40,10 @@ impl Tool for MoveTool {
             self.layer = None;
             return;
         };
+        if layer.is_group() {
+            self.layer = None;
+            return;
+        }
         self.layer = Some(layer.id);
         self.origin = event.position;
         self.start = layer.position;

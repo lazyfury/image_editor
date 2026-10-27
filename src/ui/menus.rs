@@ -44,13 +44,18 @@ impl EditorView {
     /// 宿主在主页把 [`MenuState::none`] 交给原生菜单栏，整张菜单置灰。
     pub fn menu_state(&self) -> menu::MenuState {
         let state = self.state.borrow();
+        let document = &state.document;
         menu::MenuState {
             has_document: true,
             can_undo: state.can_undo(),
             can_redo: state.can_redo(),
-            has_selection: state.selection.is_some(),
+            has_selection: state.selection.as_ref().is_some_and(|s| !s.is_empty()),
             can_paste: self.has_clipboard(),
             checkerboard: self.show_checkerboard,
+            is_group: document.active_is_group(),
+            has_mask: document
+                .active_layer()
+                .is_some_and(|layer| layer.mask.is_some()),
         }
     }
 
@@ -195,6 +200,18 @@ impl EditorView {
             menu::MenuAction::RotateViewReset => {
                 self.apply_canvas_action(CanvasAction::RotateReset)
             }
+            menu::MenuAction::NewLayer => self.layer_action(LayerAction::NewLayer),
+            menu::MenuAction::NewGroup => self.layer_action(LayerAction::NewGroup),
+            menu::MenuAction::DuplicateLayer => self.layer_action(LayerAction::Duplicate),
+            menu::MenuAction::DeleteLayer => self.layer_action(LayerAction::Delete),
+            menu::MenuAction::GroupLayer => self.layer_action(LayerAction::Group),
+            menu::MenuAction::UngroupLayer => self.layer_action(LayerAction::Ungroup),
+            menu::MenuAction::AddLayerMask => self.layer_action(LayerAction::AddMask),
+            menu::MenuAction::DeleteLayerMask => self.layer_action(LayerAction::DeleteMask),
+            menu::MenuAction::ToggleLayerMask => self.layer_action(LayerAction::ToggleMask),
+            menu::MenuAction::InvertLayerMask => self.layer_action(LayerAction::InvertMask),
+            menu::MenuAction::MoveLayerUp => self.layer_action(LayerAction::MoveUp),
+            menu::MenuAction::MoveLayerDown => self.layer_action(LayerAction::MoveDown),
             menu::MenuAction::SelectAll => {
                 self.select_all();
             }
@@ -251,6 +268,10 @@ impl EditorView {
             *self.message.borrow_mut() = Some("没有可裁剪的图层".to_string());
             return;
         };
+        if layer.is_group() {
+            *self.message.borrow_mut() = Some("图层组没有像素可裁".to_string());
+            return;
+        }
         if layer.position == crate::document::Point::ZERO
             && layer.pixels.width == state.document.width
             && layer.pixels.height == state.document.height
@@ -260,8 +281,14 @@ impl EditorView {
         }
         let id = layer.id;
         let before = layer.pixels.clone();
+        let before_mask = layer.mask.as_ref().map(|mask| mask.pixels.clone());
         let position = layer.position;
-        state.execute(Box::new(CropLayerCommand::new(id, before, position)));
+        state.execute(Box::new(CropLayerCommand::new(
+            id,
+            before,
+            before_mask,
+            position,
+        )));
         self.texture_dirty = true;
         *self.message.borrow_mut() = Some("已裁到文档大小".to_string());
     }

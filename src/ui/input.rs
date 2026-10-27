@@ -70,8 +70,11 @@ impl EditorView {
                 if matches!(key, Key::Delete | Key::Backspace) && self.delete_selection() {
                     return EventResult::Handled;
                 }
-                if matches!(key, Key::Escape) && self.clear_selection() {
-                    return EventResult::Handled;
+                if matches!(key, Key::Escape) {
+                    self.layer_drag_cancel();
+                    if self.clear_selection() {
+                        return EventResult::Handled;
+                    }
                 }
             }
             // 滚轮 / 触控板滚动：设备不同、语义不同（见 `docs/input-gestures.md`）。
@@ -132,12 +135,20 @@ impl EditorView {
                     return EventResult::Handled;
                 }
             }
+            // 图层列表的拖动：先记起点（不消费），真拖起来之后由 move / up 消费。
             InputEvent::PointerDown {
                 position,
                 button: PointerButton::Left,
             } => {
+                self.layer_drag_press(*position);
                 if self.canvas_area_contains(*position) {
                     self.begin_tool(*position);
+                    return EventResult::Handled;
+                }
+            }
+            // 双击组行 = 展开 / 折叠（`List` 只有整行点击，逐格点击要上游改）。
+            InputEvent::DoubleClick { position } => {
+                if self.toggle_layer_group_at(*position) {
                     return EventResult::Handled;
                 }
             }
@@ -152,6 +163,9 @@ impl EditorView {
             }
             InputEvent::PointerMove { position } => {
                 self.pointer = self.canvas_area_contains(*position).then_some(*position);
+                if self.layer_drag_move(*position) {
+                    return EventResult::Handled;
+                }
                 if let Some(last) = self.pan_last {
                     let delta = *position - last;
                     self.pan_last = Some(*position);
@@ -176,6 +190,9 @@ impl EditorView {
                 position,
                 button: PointerButton::Left,
             } => {
+                if self.layer_drag_release(*position) {
+                    return EventResult::Handled;
+                }
                 if self.is_dragging() {
                     self.end_tool(*position);
                     return EventResult::Handled;

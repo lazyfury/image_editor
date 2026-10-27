@@ -1,7 +1,7 @@
 //! 像素笔触命令：记录受影响区域的前后像素（一笔的撤销内存 ∝ 笔迹覆盖面积）。
 
 use super::super::color::Color;
-use super::super::document::Document;
+use super::super::document::{Document, PixelTarget};
 use super::super::id::LayerId;
 use super::super::pixel_buffer::PixelBuffer;
 use super::super::region::PixelRegion;
@@ -11,6 +11,8 @@ use super::{Command, ReplayPatch};
 #[derive(Debug)]
 pub struct PaintCommand {
     layer: LayerId,
+    /// 写图层缓冲还是它的蒙版。
+    target: PixelTarget,
     region: PixelRegion,
     before: Vec<Color>,
     after: Vec<Color>,
@@ -25,9 +27,21 @@ impl PaintCommand {
         after: &PixelBuffer,
         label: &'static str,
     ) -> Option<Self> {
+        Self::capture_target(PixelTarget::Layer, layer, before, after, label)
+    }
+
+    /// 同 [`capture`](Self::capture)，但可以指定写图层还是蒙版。
+    pub fn capture_target(
+        target: PixelTarget,
+        layer: LayerId,
+        before: &PixelBuffer,
+        after: &PixelBuffer,
+        label: &'static str,
+    ) -> Option<Self> {
         let region = PixelRegion::diff(before, after)?;
         Some(Self {
             layer,
+            target,
             region,
             before: before.region(region),
             after: after.region(region),
@@ -46,6 +60,18 @@ impl PaintCommand {
         after: &PixelBuffer,
         label: &'static str,
     ) -> Option<Self> {
+        Self::capture_in_target(PixelTarget::Layer, layer, region, before, after, label)
+    }
+
+    /// 同 [`capture_in`](Self::capture_in)，但可以指定写图层还是蒙版。
+    pub fn capture_in_target(
+        target: PixelTarget,
+        layer: LayerId,
+        region: PixelRegion,
+        before: &PixelBuffer,
+        after: &PixelBuffer,
+        label: &'static str,
+    ) -> Option<Self> {
         let region = region.clamped(after.width, after.height);
         if region.area() == 0 {
             return None;
@@ -57,6 +83,7 @@ impl PaintCommand {
         }
         Some(Self {
             layer,
+            target,
             region,
             before: before_pixels,
             after: after_pixels,
@@ -64,11 +91,20 @@ impl PaintCommand {
         })
     }
 
-    /// 把 `pixels` 写回目标图层；图层已被删掉时返回 `false`。
+    /// 命令写入的目标缓冲（目标被删掉时 `None`）。
+    fn target_pixels<'a>(&self, document: &'a mut Document) -> Option<&'a mut PixelBuffer> {
+        let layer = document.layer_mut(self.layer)?;
+        match self.target {
+            PixelTarget::Layer => Some(&mut layer.pixels),
+            PixelTarget::Mask => layer.mask.as_mut().map(|mask| &mut mask.pixels),
+        }
+    }
+
+    /// 把 `pixels` 写回目标（图层或蒙版）；目标被删掉时返回 `false`。
     fn write(&self, document: &mut Document, pixels: &[Color]) -> bool {
-        match document.layer_mut(self.layer) {
-            Some(layer) => {
-                layer.pixels.put_region(self.region, pixels);
+        match self.target_pixels(document) {
+            Some(target) => {
+                target.put_region(self.region, pixels);
                 true
             }
             None => false,
@@ -82,11 +118,16 @@ impl Command for PaintCommand {
     }
 
     fn replay(&self) -> Option<ReplayPatch<'_>> {
-        Some(ReplayPatch {
-            layer: self.layer,
-            region: self.region,
-            pixels: &self.after,
-        })
+        // `.igtl` 的补丁还没有「目标」字段：蒙版笔画先当作一次结构步骤
+        // （有 label、没有像素补丁），等时间线格式升版再补。
+        match self.target {
+            PixelTarget::Layer => Some(ReplayPatch {
+                layer: self.layer,
+                region: self.region,
+                pixels: &self.after,
+            }),
+            PixelTarget::Mask => None,
+        }
     }
 
     fn execute(&mut self, document: &mut Document) {

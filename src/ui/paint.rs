@@ -50,6 +50,7 @@ impl EditorView {
         self.paint_gradient_preview(ctx);
         ctx.restore();
         igui_ui::paint(&self.tree, ctx);
+        self.paint_layer_drag(ctx);
         self.overlays.paint(ctx);
     }
 

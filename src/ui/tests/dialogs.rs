@@ -118,6 +118,8 @@ fn the_shortcut_table_covers_tools_and_menus() {
         has_selection: true,
         can_paste: true,
         checkerboard: false,
+        is_group: false,
+        has_mask: true,
     };
     let mut menu_shortcuts = 0;
     for index in 0..crate::ui::menu::MENUS.len() {

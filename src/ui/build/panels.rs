@@ -116,8 +116,10 @@ fn sidebar(
     let layer_list = layer_panel::layer_list(
         theme,
         state.clone(),
+        wiring.layer_rows.clone(),
         wiring.layer_count.clone(),
         wiring.layer_selected.clone(),
+        wiring.intents.clone(),
     );
     let layer_state = layer_list.state();
     let history_list =

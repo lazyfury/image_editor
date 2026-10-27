@@ -50,6 +50,10 @@ src/ui/         views + project-local components: home (recent gallery with
                 rect-fill/gradient/eyedropper, select = rect/lasso/wand/free-fill
                 + selection commands, pen = pen pointer + keys, adjust = options
                 bar `−`/`+` requests -> tool parameters.
+                `ui/layer_panel.rs` is the tree list (indent/collapse/mask glyph,
+                `List::on_context`), `ui/layer_drag.rs` the drag reorder/reparent
+                (app-level, using `ListState::rows()`), `ui/layer_actions.rs` the
+                shared layer actions + context menu (group/mask/order/duplicate).
                 `ui/layout.rs` also owns `Layout`: the draggable panel widths /
                 heights, the nodes they resize, and the sidebar tab state (an
                 `EditorView.layout` field instead of 14 loose fields).
@@ -72,9 +76,14 @@ src/ui/         views + project-local components: home (recent gallery with
                 top-to-bottom column order), tree.rs (orchestrator -> SceneTree),
                 assemble.rs (`NodeRef` -> `NodeId`, then the `EditorView` literal).
 src/document/   Document / Layer / PixelBuffer / Color / Gradient;
+                layers are a **flat pre-order DFS array** (`parent` + contiguous
+                subtree) with `LayerKind::{Raster,Group}`, `LayerMask` and
+                `Document::rows()`; masks are grayscale coverage.
                 `history/` = Command + undo/redo stacks (mod), pixel command
-                (paint), layer commands (layers), full-session recorder
-                (recorder: timestamps + after-patches for the future timelapse)
+                (paint, with a layer/mask target), layer commands (layers:
+                subtree insert/remove, move, group/ungroup, mask), full-session
+                recorder (recorder: timestamps + after-patches for the future
+                timelapse)
 src/renderer/   CPU compositor (layers -> one PixelBuffer)
 src/tools/      Brush/Eraser (in `brush/`: mod = tool + stroke, tip = brush-tip
                 geometry/hardness, mask = per-stroke coverage mask + compositing,

@@ -29,6 +29,8 @@ mod home;
 mod input;
 mod intents;
 mod io;
+mod layer_actions;
+mod layer_drag;
 mod layer_panel;
 mod layout;
 pub mod menu;
@@ -53,6 +55,7 @@ mod workspace_tabs;
 pub use confirm::{ConfirmDialog, ConfirmResult};
 pub use home::{thumbnail_texture, HomeEntry, HomeOpenRequest, HomeThumbnail, HomeView};
 pub use intents::{Intent, Intents};
+pub use layer_actions::LayerAction;
 pub use new_document::{NewDocumentModal, NewDocumentResult, NewDocumentSpec};
 pub use options_bar::BrushAdjust;
 pub use options_bar::BrushToggle;
@@ -200,8 +203,8 @@ struct Rename {
     cancel: Rc<Cell<bool>>,
 }
 
-/// 状态栏同步快照：(工具, 缩放, 宽, 高, 指针下的文档像素, 视图角度)。
-type StatusSnapshot = (ActiveTool, f32, u32, u32, Option<(u32, u32)>, f32);
+/// 状态栏同步快照：(工具, 缩放, 宽, 高, 指针下的文档像素, 视图角度, 编辑目标)。
+type StatusSnapshot = (ActiveTool, f32, u32, u32, Option<(u32, u32)>, f32, u8);
 
 /// 编辑器视图。
 pub struct EditorView {
@@ -310,6 +313,10 @@ pub struct EditorView {
     /// 图层列表的共享行数 / 选中行 / 状态。
     layer_count: Rc<Cell<usize>>,
     layer_selected: Rc<Cell<Option<usize>>>,
+    /// 图层行缓存：`Document::rows()` 的结果（面板 / 拖拽 / 自检共用）。
+    layer_rows: Rc<RefCell<Vec<crate::document::LayerRow>>>,
+    /// 正在进行的图层拖拽（排序 / 换父）。
+    layer_drag: Option<layer_drag::LayerDrag>,
     layer_state: ListState,
     /// 历史列表的共享行数 / 状态；历史长度变了就刷新。
     history_count: Rc<Cell<usize>>,
@@ -443,6 +450,13 @@ impl EditorView {
                 }
                 Intent::OpenGradientEditor => self.open_gradient_editor(),
                 Intent::RenameLayer(anchor) => request_rename = Some(anchor),
+                Intent::LayerMenu { target, position } => {
+                    self.open_layer_context_menu(target, position)
+                }
+                Intent::LayerAction { target, action } => {
+                    self.overlays.close_all();
+                    self.apply_layer_action(target, action);
+                }
                 Intent::MenuAction(action) => request_menu_action = Some(action),
                 Intent::OpenMenu(index) => request_menu = Some(index),
                 Intent::Tool(tool) => request_tool = Some(tool),

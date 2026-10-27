@@ -12,9 +12,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use igui_core::NodeId;
+use igui_core::{NodeId, Vec2};
 
 use crate::app::state::ActiveTool;
+use crate::document::LayerId;
+use crate::ui::layer_actions::LayerAction;
 use crate::ui::menu::MenuAction;
 use crate::ui::options_bar::{BrushAdjust, BucketAdjust, GradientAdjust, PenAction};
 use crate::ui::FileRequest;
@@ -23,7 +25,7 @@ use crate::ui::FileRequest;
 ///
 /// 变体的分组就是处理它的地方：工具参数在 `update` 开头、菜单 / 重命名在各自的
 /// 一段、[`Intent::Tool`] 在工具栏轮询之后、[`Intent::File`] 由宿主取走。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Intent {
     /// 工具按钮 / 浮层 / 快捷键选中了一个工具。
     Tool(ActiveTool),
@@ -47,6 +49,13 @@ pub enum Intent {
     Pen(PenAction),
     /// 点了图层面板的「重命名」，锚在这个按钮上。
     RenameLayer(NodeId),
+    /// 右键点了某个图层行：在指针处打开上下文菜单。
+    LayerMenu { target: LayerId, position: Vec2 },
+    /// 上下文菜单 / 菜单栏 / 面板按钮里的图层动作。
+    LayerAction {
+        target: LayerId,
+        action: LayerAction,
+    },
     /// 打开一个模拟窗口（属性 / 关于 / 快捷键；宿主执行）。
     Dialog(crate::ui::DialogKind),
     /// 打开 / 关闭「记录整段编辑过程」（属性窗口的开关）。

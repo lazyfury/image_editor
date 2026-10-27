@@ -171,6 +171,19 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
 
 ### 第 3 批：图层（合成器）
 
+- [x] **图层树 / 分组 / 蒙版 / 拖拽 / 上下文菜单**：`Document.layers` 保持扁平
+  「前序 DFS + parent + 子树连续」，新增 `LayerKind::{Raster,Group}` / `LayerMask` /
+  `expanded` / `rows()` / `insert|remove_subtree` / `move_node|before|after|into` /
+  `active_surface_mut`（组不可画、蒙版可画）。渲染器递归 + **隔离组**（区域大小
+  scratch，组 opacity/mask 压回父级）+ 蒙版覆盖率，`sample_pixel` 同源；文件升
+  `IGUIWS02`（组 / 蒙版 / 折叠，兼容读 `IGUIWS01`）。面板用 `Document::rows()` 驱动
+  缩进 / 折叠 / 蒙版字形，右键 `List::on_context` + `Overlays::menu_at`，拖拽在应用层用
+  `ListState::rows()` + 自绘投放线（**没改 igui**）；菜单栏「图层」与快捷键
+  （`Cmd+G`/`Shift+Cmd+G`/`Cmd+J`/`Shift+Cmd+N`/`Cmd+⌫`）接同一批动作。蒙版：从选区
+  创建 / 删除 / 启停 / 反相 + 画笔编辑（亮度→覆盖率），油漆桶等被拦。历史加子树
+  插入/删除、移动、编组/取消编组、蒙版命令（蒙版像素走 `PaintCommand` 的 target）。
+  剩：画布上的蒙版预览、图层缩略图、逐格点击（都要纹理 / 上游 `List` 钩子）。
+  设计与偏差见 **`docs/layer-tree.md`**。
 - [ ] **图层混合模式**：`BlendMode` 从只有 `Normal` 扩到 正片叠底 / 滤色 / 叠加 /
   柔光 / 变亮 / 变暗 / 差值；`.igui` 的 `u8` 判别值只追加不重排。
   - 改哪里：`src/document/layer.rs`（枚举 + `label()`）、`src/renderer/cpu.rs`
@@ -181,7 +194,8 @@ FFI 选出来；「保存 / 另存为」分开；关闭脏工作区先确认；P
   - 改哪里：`Layer`（`alpha_locked: bool`，进 `LayerMetaCommand` 与 `.igui`）、
     `src/tools/brush/mask.rs::Writer::put`（锁定且 `base.a == 0` 直接跳过）。
 - [ ] **复制图层 / 合并向下**：`LayerCommand` + 图层菜单（"复制图层"占位已存在）。
-- [ ] **图层右键菜单**（Phase 11 前置已具备一部分，等 `Overlays` 指针锚点）。
+- [~] **图层右键菜单**：并入上面的「图层树 / 分组 / 蒙版 / 拖拽」条目（`List::on_context`
+  + `Overlays::menu_at` 已经够用，Phase 11 的指针锚点不需要再等）。
 
 ### 第 4 批：变换
 

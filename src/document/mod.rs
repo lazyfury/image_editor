@@ -28,15 +28,15 @@ mod point;
 mod region;
 
 pub use color::Color;
-pub use document::{Document, DEFAULT_HEIGHT, DEFAULT_WIDTH};
+pub use document::{Document, LayerRow, PaintSurface, PixelTarget, DEFAULT_HEIGHT, DEFAULT_WIDTH};
 pub use gradient::{Gradient, GradientStop};
 pub use history::{
-    AddLayerCommand, Command, CropLayerCommand, History, LayerMetaCommand, LayerStackMeta,
-    PaintCommand, RecordedStep, Recorder, RemoveLayerCommand, ReplayPatch, SetLayerPositionCommand,
-    StepPatch,
+    AddLayerCommand, Command, CropLayerCommand, GroupCommand, History, LayerMetaCommand,
+    LayerStackMeta, MaskCommand, MoveLayerCommand, MoveTarget, PaintCommand, RecordedStep,
+    Recorder, RemoveLayerCommand, ReplayPatch, SetLayerPositionCommand, StepPatch, UngroupCommand,
 };
 pub use id::{DocumentId, LayerId};
-pub use layer::{BlendMode, Layer};
+pub use layer::{BlendMode, Layer, LayerKind, LayerMask};
 pub use pixel_buffer::PixelBuffer;
 pub use point::Point;
 pub use region::PixelRegion;

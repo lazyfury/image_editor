@@ -25,8 +25,8 @@ mod recorder;
 mod tests;
 
 pub use layers::{
-    AddLayerCommand, CropLayerCommand, LayerMetaCommand, LayerStackMeta, RemoveLayerCommand,
-    SetLayerPositionCommand,
+    AddLayerCommand, CropLayerCommand, GroupCommand, LayerMetaCommand, LayerStackMeta, MaskCommand,
+    MoveLayerCommand, MoveTarget, RemoveLayerCommand, SetLayerPositionCommand, UngroupCommand,
 };
 pub use paint::PaintCommand;
 pub use recorder::{RecordedStep, Recorder, StepPatch, DEFAULT_STEP_LIMIT};

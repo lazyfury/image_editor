@@ -24,7 +24,7 @@ pub(crate) use chrome::{
 };
 pub(crate) use clipboard::check_clipboard;
 pub(crate) use fill::{check_bucket, check_gradient};
-pub(crate) use layer::check_rename;
+pub(crate) use layer::{check_layer_tree, check_rename};
 pub(crate) use pen::check_pen;
 pub(crate) use pipeline::{first_stroke, png_io, pointer_tools, undo_redo};
 pub(crate) use rotation::check_rotation;

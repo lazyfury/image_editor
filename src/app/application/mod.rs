@@ -299,6 +299,9 @@ impl ImageEditorLogic {
                     if clipboard_shortcut(&mut workspace.editor, command, shift, event) {
                         return EventResult::Handled;
                     }
+                    if layer_shortcut(&mut workspace.editor, command, shift, event) {
+                        return EventResult::Handled;
+                    }
                     if let Some(request) = file_shortcut(command, shift, event) {
                         workspace.editor.request_file(request);
                         return EventResult::Handled;

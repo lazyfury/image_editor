@@ -34,6 +34,10 @@ impl EditorView {
 
     /// 复制选区内容（不动像素）。
     pub fn copy_selection(&mut self) -> bool {
+        if self.state.borrow().document.active_mask {
+            *self.message.borrow_mut() = Some("蒙版编辑时不能复制图层像素".to_string());
+            return false;
+        }
         let selection = self.state.borrow().selection.clone();
         let Some(selection) = selection else {
             *self.message.borrow_mut() = Some("没有选区可复制".to_string());
@@ -108,9 +112,14 @@ impl EditorView {
         let mut layer = Layer::new("粘贴", clipboard.to_buffer());
         layer.position = Point::new(clipboard.origin.x as i32, clipboard.origin.y as i32);
         let mut state = self.state.borrow_mut();
-        let index = state.document.layers.len();
         let before_active = state.document.active_layer;
-        state.execute(Box::new(AddLayerCommand::new(layer, index, before_active)));
+        let (parent, index) = state.document.insertion_slot();
+        state.execute(Box::new(AddLayerCommand::new(
+            layer,
+            parent,
+            index,
+            before_active,
+        )));
         drop(state);
         self.mark_texture_dirty();
         *self.message.borrow_mut() = Some(format!("已粘贴为新图层 {width} × {height}"));
@@ -137,6 +146,10 @@ impl EditorView {
 
     /// 删除选区内容（`Delete` / `Backspace`）：把选区里的 alpha 按覆盖率清掉。
     pub fn delete_selection(&mut self) -> bool {
+        if self.state.borrow().document.active_mask {
+            *self.message.borrow_mut() = Some("蒙版编辑时不能删图层像素".to_string());
+            return false;
+        }
         let selection = self.state.borrow().selection.clone();
         let Some(selection) = selection else {
             return false;

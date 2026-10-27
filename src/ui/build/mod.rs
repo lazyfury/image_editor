@@ -60,6 +60,8 @@ struct Wiring {
     tabs_height: Rc<Cell<f32>>,
     layer_count: Rc<Cell<usize>>,
     layer_selected: Rc<Cell<Option<usize>>>,
+    /// 图层行的缓存（`Document::rows()` 的结果，面板 / 拖拽 / 自检共用）。
+    layer_rows: Rc<RefCell<Vec<crate::document::LayerRow>>>,
     history_count: Rc<Cell<usize>>,
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,

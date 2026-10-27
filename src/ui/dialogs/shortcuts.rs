@@ -37,6 +37,8 @@ fn table_state() -> MenuState {
         has_selection: true,
         can_paste: true,
         checkerboard: false,
+        is_group: false,
+        has_mask: true,
     }
 }
 

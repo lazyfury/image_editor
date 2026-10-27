@@ -25,7 +25,9 @@ use igui_core::Vec2;
 use super::stroke;
 use super::tool::{PointerEvent, Tool, ToolContext};
 use crate::canvas::Selection;
-use crate::document::{Color, Document, LayerId, PaintCommand, PixelBuffer, PixelRegion};
+use crate::document::{
+    Color, Document, LayerId, PaintCommand, PixelBuffer, PixelRegion, PixelTarget,
+};
 
 pub use tip::{BrushShape, Symmetry};
 
@@ -43,6 +45,8 @@ pub enum BrushMode {
 #[derive(Debug, Clone, PartialEq)]
 struct PendingStroke {
     layer: LayerId,
+    /// 写图层缓冲还是蒙版。
+    target: PixelTarget,
     before: PixelBuffer,
     /// 本笔的覆盖率蒙版（与图层缓冲区同尺寸），让 `opacity` 按「一笔」算。
     mask: StrokeMask,
@@ -263,24 +267,33 @@ impl BrushTool {
     /// 当前这一笔的写入上下文（目标图层 + 落笔前快照 + 本笔蒙版）。
     fn writer<'a>(&'a mut self, document: &'a mut Document) -> Option<Writer<'a>> {
         let document_size = (document.width, document.height);
-        let layer = document.active_layer_mut()?;
-        let offset = layer.position;
-        let target = &mut layer.pixels;
         let clip = self.clip.clone();
         let (mode, color, opacity) = (self.mode, self.color, self.opacity);
         let pending = self.pending.as_mut()?;
-        let PendingStroke { before, mask, .. } = pending;
+        let PendingStroke {
+            target: pending_target,
+            before,
+            mask,
+            ..
+        } = pending;
+        let surface = document.active_surface_mut()?;
+        // 笔画中途切了「编辑蒙版」：这一笔就作废，别把颜色写进错误的缓冲。
+        if surface.target != *pending_target {
+            return None;
+        }
+        let mask_mode = surface.target == PixelTarget::Mask;
         Some(Writer {
             mode,
             color,
             opacity,
             clip,
-            offset,
+            offset: surface.position,
             symmetry: self.symmetry,
             document: document_size,
             before,
             mask,
-            target,
+            target: surface.pixels,
+            mask_mode,
             dirty: None,
         })
     }
@@ -295,14 +308,30 @@ impl BrushTool {
         self.reset_sampling();
         self.stroke_dirty = None;
         self.dirty_since_take = None;
-        if let Some(id) = ctx.document.active_layer().map(|layer| layer.id) {
-            let (dx, dy) = ctx.document.ensure_layer_covers_document(id);
-            ctx.history.translate_layer(id, dx, dy);
+        let Some((id, target)) = ctx
+            .document
+            .active_surface_mut()
+            .map(|surface| (surface.id, surface.target))
+        else {
+            self.pending = None;
+            return;
+        };
+        let (dx, dy) = ctx.document.ensure_layer_covers_document(id);
+        ctx.history.translate_layer(id, dx, dy);
+        let Some(surface) = ctx.document.active_surface_mut() else {
+            self.pending = None;
+            return;
+        };
+        if surface.target != target {
+            self.pending = None;
+            return;
         }
-        self.pending = ctx.document.active_layer().map(|layer| PendingStroke {
-            layer: layer.id,
-            before: layer.pixels.clone(),
-            mask: StrokeMask::new(layer.pixels.width, layer.pixels.height),
+        let (width, height) = (surface.pixels.width, surface.pixels.height);
+        self.pending = Some(PendingStroke {
+            layer: id,
+            target,
+            before: surface.pixels.clone(),
+            mask: StrokeMask::new(width, height),
         });
     }
 
@@ -315,19 +344,26 @@ impl BrushTool {
             return;
         };
         let document_region = self.stroke_dirty.take();
-        let command = match (ctx.document.layer(pending.layer), document_region) {
-            (Some(layer), Some(region)) => {
+        let label = if pending.target == PixelTarget::Mask {
+            "蒙版画笔"
+        } else {
+            self.name()
+        };
+        let after = ctx.document.surface_pixels(pending.layer, pending.target);
+        let command = match (ctx.document.layer(pending.layer), after, document_region) {
+            (Some(layer), Some(after), Some(region)) => {
                 let region = region.in_buffer(
                     (layer.position.x, layer.position.y),
-                    layer.pixels.width,
-                    layer.pixels.height,
+                    after.width,
+                    after.height,
                 );
-                PaintCommand::capture_in(
+                PaintCommand::capture_in_target(
+                    pending.target,
                     pending.layer,
                     region,
                     &pending.before,
-                    &layer.pixels,
-                    self.name(),
+                    after,
+                    label,
                 )
             }
             _ => None,

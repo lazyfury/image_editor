@@ -72,6 +72,9 @@ pub struct Writer<'a> {
     pub(super) before: &'a PixelBuffer,
     pub(super) mask: &'a mut StrokeMask,
     pub(super) target: &'a mut PixelBuffer,
+    /// 写的是蒙版：颜色按亮度转成覆盖率（画黑 = 隐藏、画白 = 显示），
+    /// 橡皮写黑。
+    pub mask_mode: bool,
     /// 本笔**实际写过**的像素包围盒（文档坐标）：局部合成与撤销区域都用它。
     pub(super) dirty: Option<PixelRegion>,
 }
@@ -125,6 +128,21 @@ impl Writer<'_> {
         self.dirty = Some(self.dirty.map_or(touched, |dirty| dirty.union(touched)));
         let alpha = peak * self.opacity;
         let base = self.before.get_pixel(bx, by);
+        if self.mask_mode {
+            // 蒙版只存灰度：画笔颜色取亮度，橡皮直接写黑（盖住）。
+            let color = match self.mode {
+                BrushMode::Paint => {
+                    let Color { r, g, b, .. } = self.color;
+                    let value = (0.299 * r as f32 + 0.587 * g as f32 + 0.114 * b as f32)
+                        .round()
+                        .clamp(0.0, 255.0) as u8;
+                    Color::new(value, value, value, 255)
+                }
+                BrushMode::Erase => Color::BLACK,
+            };
+            self.target.blend_from(bx, by, base, color, alpha);
+            return;
+        }
         match self.mode {
             BrushMode::Paint => self.target.blend_from(bx, by, base, self.color, alpha),
             BrushMode::Erase => self.target.erase_from(bx, by, base, alpha),
@@ -166,6 +184,7 @@ mod tests {
                 before: &self.before,
                 mask: &mut self.mask,
                 target: &mut self.target,
+                mask_mode: false,
             }
         }
 

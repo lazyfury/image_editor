@@ -1,78 +1,105 @@
-//! 图层面板：`Document` 图层栈的增删改排序 + 可见性 / 不透明度。
+//! 图层面板：树形列表（缩进 / 折叠 / 蒙版）+ 作用在「当前节点」的按钮。
 //!
-//! 列表用 `igui_components::List`（虚拟化）—— 但图层数通常很少，用它的理由
-//! 是**行内容会整体重绑**：文档改动后 `ListState::invalidate` + `sync` 就能
-//! 刷新眼睛、名字和不透明度，不必手搓动态子树。
+//! 行数据来自 [`Document::rows`]（前序 DFS -> 从上到下的显示顺序，折叠的组不带
+//! 子节点），面板持有一份缓存，`refresh_layers()` 里重建一次，`List` 的行源只按
+//! 下标读。右键菜单走 `List::on_context` + [`EditorView::open_layer_context_menu`]。
 //!
 //! 顶部的眼睛 / 不透明度是列表的列；**操作按钮作用于“当前图层”**（先在列表里
 //! 选中一行）。这是刻意的：`List` 的行是文本单元，没有逐格点击，把动作放到
 //! 选中对象上既符合编辑器习惯，也不用给列表加第二套交互。
 //!
-//! 所有按钮回调只写共享的 [`AppState`]（`Document` 的变更会让 `revision`
-//! 前进），由 [`EditorView::update`](crate::ui::EditorView) 统一重合成与刷新。
+//! 所有按钮回调只写共享的 [`AppState`] 或往意图队列里塞 [`Intent::LayerAction`]，
+//! 由 [`EditorView::update`](crate::ui::EditorView) 统一执行并重合成。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use igui_components::{Button, Column, Component, Divider, Flex, List, ListColumn, Text};
-use igui_core::{Edges, NodeId};
+use igui_core::{Edges, NodeId, Vec2};
 use igui_scene::SceneTree;
 use igui_theme::{space, TextSize, Theme, Tone};
 use igui_ui::MouseFilter;
 
 use crate::app::state::AppState;
-use crate::document::{
-    AddLayerCommand, Document, Layer, LayerMetaCommand, PixelBuffer, RemoveLayerCommand,
-};
+use crate::document::{AddLayerCommand, Document, Layer, LayerMetaCommand, LayerRow, PixelBuffer};
+
 use crate::ui::card::Card;
 
-use super::{Intent, Intents};
+use super::{Intent, Intents, LayerAction};
 
 /// 图层行高（逻辑像素）。列表的池大小按它算。
 pub const LAYER_ROW_HEIGHT: f32 = 28.0;
+/// 每级缩进的逻辑像素。
+const INDENT: f32 = 12.0;
 
-/// 图层列表：第 0 行是**最上面的图层**（跟 Photoshop 一致），所以数据下标
-/// 要翻转。眼睛 / 名字 / 不透明度三列。
+/// 图层列表：第 0 行是**最上面的节点**（跟 Photoshop 一致），数据来自行缓存。
+#[allow(clippy::too_many_arguments)]
 pub fn layer_list(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
+    rows: Rc<RefCell<Vec<LayerRow>>>,
     count: Rc<Cell<usize>>,
     selected: Rc<Cell<Option<usize>>>,
+    intents: Intents,
 ) -> List {
     let source = {
-        let state = state.clone();
+        let rows = rows.clone();
         move |index: usize| {
-            let state = state.borrow();
-            let layers = &state.document.layers;
-            let Some(layer) = layers.get(layers.len().wrapping_sub(1 + index)) else {
+            let rows = rows.borrow();
+            let Some(row) = rows.get(index) else {
                 return Vec::new();
             };
-            let eye = if layer.visible { "◉" } else { "○" };
+            let eye = if row.visible { "◉" } else { "○" };
+            let mut name = String::new();
+            if row.is_group {
+                name.push_str(if row.expanded { "▾ " } else { "▸ " });
+            }
+            if row.has_mask {
+                name.push_str(if row.mask_enabled { "◧ " } else { "◨ " });
+            }
+            name.push_str(&row.name);
             vec![
                 eye.to_string(),
-                layer.name.clone(),
-                format!("{:.0}%", layer.opacity * 100.0),
+                name,
+                format!("{:.0}%", row.opacity * 100.0),
             ]
+        }
+    };
+
+    let indent = {
+        let rows = rows.clone();
+        move |index: usize| {
+            rows.borrow()
+                .get(index)
+                .map_or(0.0, |row| row.depth as f32 * INDENT)
         }
     };
 
     let activate = {
         let state = state.clone();
+        let rows = rows.clone();
         move |index: usize| {
-            let mut state = state.borrow_mut();
-            let len = state.document.layers.len();
-            if let Some(id) = state
-                .document
-                .layers
-                .get(len.wrapping_sub(1 + index))
-                .map(|layer| layer.id)
-            {
-                state.document.select_layer(id);
+            let Some(id) = rows.borrow().get(index).map(|row| row.id) else {
+                return;
+            };
+            state.borrow_mut().document.select_layer(id);
+        }
+    };
+
+    let context = {
+        let rows = rows.clone();
+        move |index: usize, position: Vec2| {
+            if let Some(id) = rows.borrow().get(index).map(|row| row.id) {
+                intents.push(Intent::LayerMenu {
+                    target: id,
+                    position,
+                });
             }
         }
     };
 
     List::new(theme, LAYER_ROW_HEIGHT, source)
+        .spacer(indent)
         .columns(vec![
             ListColumn::fixed(22.0),
             ListColumn::flexible(),
@@ -81,6 +108,7 @@ pub fn layer_list(
         .count(count)
         .selected(selected)
         .on_activate(activate)
+        .on_context(context)
         .grow(1.0)
 }
 
@@ -104,7 +132,7 @@ pub fn layer_panel(
         .child(action_buttons(theme, state, intents))
 }
 
-/// 两排按钮，全部作用于“当前图层”。所有动作都走 [`AppState::execute`]，所以可撤销。
+/// 两排按钮，全部作用于“当前节点”。树操作走 [`Intent::LayerAction`]（可撤销）。
 fn action_buttons(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
@@ -114,25 +142,33 @@ fn action_buttons(
         let state = state.clone();
         button(theme, "+ 图层", move |_tree, _id| {
             let mut state = state.borrow_mut();
-            let index = state.document.layers.len();
+            let count = state.document.layers.len();
             let before_active = state.document.active_layer;
             let (width, height) = (state.document.width, state.document.height);
+            let (parent, index) = state.document.insertion_slot();
             let layer = Layer::new(
-                format!("图层 {}", index + 1),
+                format!("图层 {}", count + 1),
                 PixelBuffer::new(width, height),
             );
-            state.execute(Box::new(AddLayerCommand::new(layer, index, before_active)));
+            state.execute(Box::new(AddLayerCommand::new(
+                layer,
+                parent,
+                index,
+                before_active,
+            )));
         })
     };
-    let delete = {
-        let state = state.clone();
-        button(theme, "− 删除", move |_tree, _id| {
-            let mut state = state.borrow_mut();
-            if let Some(id) = state.document.active_layer {
-                state.execute(Box::new(RemoveLayerCommand::new(id, Some(id))));
-            }
-        })
+    let add_group = {
+        let intents = intents.clone();
+        action_button(theme, "+ 组", state.clone(), intents, LayerAction::NewGroup)
     };
+    let delete = action_button(
+        theme,
+        "− 删除",
+        state.clone(),
+        intents.clone(),
+        LayerAction::Delete,
+    );
     let rename = {
         let intents = intents.clone();
         button(theme, "重命名", move |_tree, id| {
@@ -190,34 +226,14 @@ fn action_buttons(
             });
         })
     };
-    let up = {
-        let state = state.clone();
-        button(theme, "↑", move |_tree, _id| {
-            let mut state = state.borrow_mut();
-            let Some(id) = state.document.active_layer else {
-                return;
-            };
-            if let Some(index) = state.document.layer_index(id) {
-                meta_edit(&mut state, "上移一层", |document| {
-                    document.move_layer(id, index + 1);
-                });
-            }
-        })
-    };
-    let down = {
-        let state = state.clone();
-        button(theme, "↓", move |_tree, _id| {
-            let mut state = state.borrow_mut();
-            let Some(id) = state.document.active_layer else {
-                return;
-            };
-            if let Some(index) = state.document.layer_index(id) {
-                meta_edit(&mut state, "下移一层", |document| {
-                    document.move_layer(id, index.saturating_sub(1));
-                });
-            }
-        })
-    };
+    let up = action_button(
+        theme,
+        "↑",
+        state.clone(),
+        intents.clone(),
+        LayerAction::MoveUp,
+    );
+    let down = action_button(theme, "↓", state.clone(), intents, LayerAction::MoveDown);
 
     Column::new()
         .gap(space::XXS)
@@ -227,6 +243,7 @@ fn action_buttons(
                 .padding(Edges::ZERO)
                 .mouse_filter(MouseFilter::Ignore)
                 .child(add)
+                .child(add_group)
                 .child(delete)
                 .child(rename),
         )
@@ -241,6 +258,22 @@ fn action_buttons(
                 .child(up)
                 .child(down),
         )
+}
+
+/// 作用在当前节点上的按钮：点一下塞一个 [`Intent::LayerAction`]。
+fn action_button(
+    theme: &'static dyn Theme,
+    label: &'static str,
+    state: Rc<RefCell<AppState>>,
+    intents: Intents,
+    action: LayerAction,
+) -> Button {
+    button(theme, label, move |_tree, _id| {
+        let target = state.borrow().document.active_layer;
+        if let Some(target) = target {
+            intents.push(Intent::LayerAction { target, action });
+        }
+    })
 }
 
 /// 做一次“只改图层元数据”的编辑，并压入一步可撤销的命令。

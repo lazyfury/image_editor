@@ -23,10 +23,15 @@ impl EditorView {
         let size = (pixels.width, pixels.height);
         let name = crate::io::file_label(Path::new(path));
         let mut state = self.state.borrow_mut();
-        let index = state.document.layers.len();
         let before_active = state.document.active_layer;
+        let (parent, index) = state.document.insertion_slot();
         let layer = Layer::new(name, pixels);
-        state.execute(Box::new(AddLayerCommand::new(layer, index, before_active)));
+        state.execute(Box::new(AddLayerCommand::new(
+            layer,
+            parent,
+            index,
+            before_active,
+        )));
         drop(state);
         self.texture_dirty = true;
         Ok(size)

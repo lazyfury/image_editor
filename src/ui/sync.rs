@@ -28,10 +28,18 @@ impl EditorView {
 
     /// 工具 / 缩放 / 视角 / 指针像素 -> 状态栏。
     pub(super) fn sync_status(&mut self) {
-        let (tool, zoom, angle, width, height, camera) = {
+        let (tool, mode, zoom, angle, width, height, camera) = {
             let state = self.state.borrow();
+            let mode = if state.document.active_is_group() {
+                1
+            } else if state.document.active_mask {
+                2
+            } else {
+                0
+            };
             (
                 state.active_tool,
+                mode,
                 state.canvas.zoom,
                 state.canvas.angle,
                 state.document.width,
@@ -43,9 +51,14 @@ impl EditorView {
         let pixel = self
             .pointer
             .and_then(|point| document_to_pixel(screen_to_document(camera, point), width, height));
-        let shown = (tool, zoom, width, height, pixel, angle);
+        let shown = (tool, zoom, width, height, pixel, angle, mode);
         if self.shown != Some(shown) {
-            set_text(&mut self.tree, self.tool_label, tool.label());
+            let label = match mode {
+                1 => format!("{}（组）", tool.label()),
+                2 => format!("{}（蒙版）", tool.label()),
+                _ => tool.label().to_string(),
+            };
+            set_text(&mut self.tree, self.tool_label, label);
             let coords = match pixel {
                 Some((x, y)) => format!("  ·  ({x}, {y})"),
                 None => String::new(),
@@ -68,9 +81,11 @@ impl EditorView {
         }
     }
 
-    /// 文档改动后：更新列表行数与选中行，并让已挂载的行重新读数据。
+    /// 文档改动后：重建行缓存（缩进 / 折叠 / 蒙版），更新行数与选中行。
     pub(super) fn refresh_layers(&mut self) {
-        let count = self.state.borrow().document.layers.len();
+        let rows = self.state.borrow().document.rows();
+        let count = rows.len();
+        *self.layer_rows.borrow_mut() = rows;
         self.layer_count.set(count);
         self.layer_selected.set(self.active_list_index());
         self.layer_state.invalidate();
@@ -88,22 +103,59 @@ impl EditorView {
 
     /// 当前图层在“最上面为 0”的列表里的下标。
     pub(super) fn active_list_index(&self) -> Option<usize> {
-        let state = self.state.borrow();
-        let document = &state.document;
-        document
-            .active_layer
-            .and_then(|id| document.layer_index(id))
-            .map(|index| document.layers.len() - 1 - index)
+        let active = self.state.borrow().document.active_layer?;
+        self.layer_rows
+            .borrow()
+            .iter()
+            .position(|row| row.id == active)
+            .or_else(|| {
+                // 缓存还没重建时退回到文档的行列表（构造期 / 自检直接调）。
+                self.state
+                    .borrow()
+                    .document
+                    .rows()
+                    .iter()
+                    .position(|row| row.id == active)
+            })
     }
 
     /// 当前图层 -> 属性面板。
     pub(super) fn sync_properties(&mut self) {
         let (name, detail, geometry) = {
             let state = self.state.borrow();
-            match state.document.active_layer() {
+            let document = &state.document;
+            match document.active_layer() {
+                Some(layer) if layer.is_group() => {
+                    let children = document.children(Some(layer.id)).len();
+                    (
+                        format!("组「{}」", layer.name),
+                        format!(
+                            "不透明度 {:.0}%  ·  {} 个子节点",
+                            layer.opacity * 100.0,
+                            children
+                        ),
+                        if layer.mask.is_some() {
+                            "蒙版：有".to_string()
+                        } else {
+                            String::new()
+                        },
+                    )
+                }
                 Some(layer) => (
                     layer.name.clone(),
-                    format!("不透明度 {:.0}%  ·  Normal", layer.opacity * 100.0),
+                    format!(
+                        "不透明度 {:.0}%  ·  Normal{}",
+                        layer.opacity * 100.0,
+                        if layer.mask.is_some() {
+                            if state.document.active_mask {
+                                "  ·  编辑蒙版"
+                            } else {
+                                "  ·  有蒙版"
+                            }
+                        } else {
+                            ""
+                        }
+                    ),
                     format!(
                         "偏移 ({}, {})  ·  缓冲 {}×{}",
                         layer.position.x, layer.position.y, layer.pixels.width, layer.pixels.height

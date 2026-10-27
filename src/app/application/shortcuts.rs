@@ -91,6 +91,40 @@ pub(super) fn selection_shortcut(
     }
 }
 
+/// Ctrl/Cmd+G 编组、Shift+Ctrl/Cmd+G 取消编组、Cmd+J 复制、Shift+Cmd+N 新建图层、
+/// Cmd+Backspace 删除当前节点；命中返回 `true`。
+pub(super) fn layer_shortcut(
+    editor: &mut EditorView,
+    command: bool,
+    shift: bool,
+    event: &InputEvent,
+) -> bool {
+    if !command {
+        return false;
+    }
+    if matches!(
+        event,
+        InputEvent::KeyDown {
+            key: Key::Backspace | Key::Delete
+        }
+    ) {
+        editor.layer_action(crate::ui::LayerAction::Delete);
+        return true;
+    }
+    let Some(key) = command_key(event) else {
+        return false;
+    };
+    let action = match key {
+        'g' if shift => crate::ui::LayerAction::Ungroup,
+        'g' => crate::ui::LayerAction::Group,
+        'j' => crate::ui::LayerAction::Duplicate,
+        'n' if shift => crate::ui::LayerAction::NewLayer,
+        _ => return false,
+    };
+    editor.layer_action(action);
+    true
+}
+
 /// Ctrl/Cmd+Z 撤销、Shift+Ctrl/Cmd+Z（或 Ctrl+Y）重做；命中返回 `true`。
 pub(super) fn history_shortcut(
     editor: &mut EditorView,

@@ -216,12 +216,17 @@ impl EditorView {
             .map(|(_, id)| *id)
     }
 
-    /// 图层面板「重命名」按钮的中心（点它弹重命名浮层）。
-    pub fn rename_button_center(&self) -> Option<Vec2> {
-        let node = self.tree.iter().find(|&node| {
+    /// 图层面板「重命名」按钮的节点（重命名浮层的锚点）。
+    pub(super) fn rename_anchor(&self) -> Option<NodeId> {
+        self.tree.iter().find(|&node| {
             igui_ui::content(&self.tree, node).and_then(|content| content.as_text())
                 == Some("重命名")
-        })?;
+        })
+    }
+
+    /// 图层面板「重命名」按钮的中心（点它弹重命名浮层）。
+    pub fn rename_button_center(&self) -> Option<Vec2> {
+        let node = self.rename_anchor()?;
         igui_ui::control(&self.tree, node).map(|control| control.rect.center())
     }
 
@@ -230,6 +235,40 @@ impl EditorView {
         self.rename
             .as_ref()
             .and_then(|rename| rename.edit.borrow().clone())
+    }
+
+    /// 图层行的可见数量（折叠的组不计子节点）。
+    pub fn layer_row_count(&self) -> usize {
+        self.layer_rows.borrow().len()
+    }
+
+    /// 图层行的名字列（含 `▾` / `◧` 前缀），从上到下。
+    pub fn layer_row_names(&self) -> Vec<String> {
+        self.layer_rows
+            .borrow()
+            .iter()
+            .map(|row| {
+                let mut name = String::new();
+                if row.is_group {
+                    name.push_str(if row.expanded { "▾ " } else { "▸ " });
+                }
+                if row.has_mask {
+                    name.push_str(if row.mask_enabled { "◧ " } else { "◨ " });
+                }
+                name.push_str(&row.name);
+                name
+            })
+            .collect()
+    }
+
+    /// 第 `index` 个可见图层行的中心点（测试 / 自检模拟点击用）。
+    pub fn layer_row_center(&self, index: usize) -> Option<Vec2> {
+        let range = self.layer_state.visible_range();
+        if !range.contains(&index) {
+            return None;
+        }
+        let node = *self.layer_state.rows().get(index - range.start)?;
+        igui_ui::control(&self.tree, node).map(|control| control.rect.center())
     }
 
     /// 调色盘色块数量。
