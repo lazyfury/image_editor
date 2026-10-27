@@ -119,6 +119,20 @@ impl ImageEditorLogic {
                 if let Some(pixels) = workspace.editor.take_texture_upload() {
                     upload_texture(&backend, &pixels);
                 }
+                // 图层缩略图（每层一张小纹理，视图已按视口 + 节流重建）。
+                for (texture, pixels) in workspace.editor.take_layer_thumbnail_uploads() {
+                    let mut backend = backend.borrow_mut();
+                    backend.set_texture_filter(texture, TextureFilter::Linear);
+                    if let Err(error) =
+                        backend.update_texture(texture, pixels.width, pixels.height, &pixels.data)
+                    {
+                        tracing::warn!(
+                            target: "image_editor",
+                            %error,
+                            "layer_thumbnail_upload_failed"
+                        );
+                    }
+                }
             }
         }
     }

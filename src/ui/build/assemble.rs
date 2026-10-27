@@ -27,6 +27,7 @@ pub(super) fn finish(
         layer_count,
         layer_selected,
         layer_rows,
+        layer_textures,
         history_count,
         pixel_mode,
         square_mode,
@@ -212,6 +213,13 @@ pub(super) fn finish(
         layer_rows,
         layer_drag: None,
         last_active_mask: false,
+        layer_textures,
+        layer_thumb_uploads: Vec::new(),
+        // 第一次 update 就应该有缩略图：假装刚过完节流窗口。
+        layer_thumb_at: std::time::Instant::now()
+            .checked_sub(crate::ui::layer_thumbs::THUMB_INTERVAL)
+            .unwrap_or_else(std::time::Instant::now),
+        layer_thumb_dirty: true,
         layer_state,
         history_count,
         history_state,

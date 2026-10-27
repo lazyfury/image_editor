@@ -39,6 +39,7 @@ pub fn layer_list(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     rows: Rc<RefCell<Vec<LayerRow>>>,
+    textures: Rc<RefCell<crate::ui::layer_thumbs::LayerTextures>>,
     count: Rc<Cell<usize>>,
     selected: Rc<Cell<Option<usize>>>,
     intents: Intents,
@@ -50,12 +51,7 @@ pub fn layer_list(
             let Some(row) = rows.get(index) else {
                 return Vec::new();
             };
-            let eye = if row.visible { "◉" } else { "○" };
-            vec![
-                eye.to_string(),
-                row.name.clone(),
-                format!("{:.0}%", row.opacity * 100.0),
-            ]
+            vec![row.name.clone(), format!("{:.0}%", row.opacity * 100.0)]
         }
     };
 
@@ -65,6 +61,40 @@ pub fn layer_list(
             rows.borrow()
                 .get(index)
                 .map_or(0.0, |row| row.depth as f32 * INDENT)
+        }
+    };
+
+    // 眼睛：可见实心圆、隐藏空心圆。
+    let eye = {
+        let rows = rows.clone();
+        move |ctx: &mut PaintContext, rect: Rect, index: usize| {
+            let rows = rows.borrow();
+            let Some(row) = rows.get(index) else {
+                return;
+            };
+            let paint = Paint::new(theme.palette().muted);
+            if row.visible {
+                ctx.fill_circle(rect.center(), 3.5, paint);
+            } else {
+                ctx.stroke_circle(rect.center(), 3.5, 1.0, paint);
+            }
+        }
+    };
+
+    // 图层缩略图：有纹理就画，没有（组 / 首帧未上传）画个占位方框。
+    let thumbnail = {
+        let rows = rows.clone();
+        let textures = textures.clone();
+        move |ctx: &mut PaintContext, rect: Rect, index: usize| {
+            let Some(id) = rows.borrow().get(index).map(|row| row.id) else {
+                return;
+            };
+            let square = Rect::from_center_size(rect.center(), Size::splat(20.0));
+            let texture = textures.borrow().get(&id).copied();
+            match texture {
+                Some(texture) => ctx.draw_image(texture, square, None, Paint::default()),
+                None => ctx.stroke_rect(square, 1.0, Paint::new(theme.palette().muted)),
+            }
         }
     };
 
@@ -143,18 +173,18 @@ pub fn layer_list(
                 return;
             };
             match cell {
-                // 1 = 三角（组），2 = 蒙版，3 = 眼睛；其余列 / 空白都当选中。
-                1 if row.is_group => intents.push(Intent::LayerAction {
+                // 0 缩进 / 1 眼睛 / 2 三角 / 3 缩略图 / 4 蒙版；其余列当选中。
+                1 => intents.push(Intent::LayerAction {
+                    target: row.id,
+                    action: LayerAction::ToggleVisible,
+                }),
+                2 if row.is_group => intents.push(Intent::LayerAction {
                     target: row.id,
                     action: LayerAction::ToggleExpand,
                 }),
-                2 if row.has_mask => intents.push(Intent::LayerAction {
+                4 if row.has_mask => intents.push(Intent::LayerAction {
                     target: row.id,
                     action: LayerAction::ToggleEditTarget,
-                }),
-                3 => intents.push(Intent::LayerAction {
-                    target: row.id,
-                    action: LayerAction::ToggleVisible,
                 }),
                 _ => {
                     state.borrow_mut().document.select_layer(row.id);
@@ -178,10 +208,11 @@ pub fn layer_list(
 
     List::new(theme, LAYER_ROW_HEIGHT, source)
         .spacer(indent)
+        .icon(20.0, eye)
         .icon(14.0, triangle)
+        .icon(26.0, thumbnail)
         .icon(16.0, mask_icon)
         .columns(vec![
-            ListColumn::fixed(22.0),
             ListColumn::flexible(),
             ListColumn::fixed(44.0).tone(Tone::Muted),
         ])

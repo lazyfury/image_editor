@@ -59,6 +59,12 @@ impl EditorView {
         if self.layer_state.sync(&mut self.tree) {
             igui_ui::layout(&mut self.tree, viewport);
         }
+        // 缩略图重建要在行池 sync 之后：只缩视口里那几行（节流由时间窗口管）。
+        if self.layer_thumb_dirty && self.thumbnails_due() {
+            self.layer_thumb_dirty = false;
+            self.mark_thumbnails_rebuilt();
+            self.rebuild_layer_thumbnails();
+        }
         if self.history_state.sync(&mut self.tree) {
             igui_ui::layout(&mut self.tree, viewport);
         }

@@ -32,6 +32,7 @@ mod io;
 mod layer_actions;
 mod layer_drag;
 mod layer_panel;
+mod layer_thumbs;
 mod layout;
 mod mask_view;
 pub mod menu;
@@ -320,6 +321,14 @@ pub struct EditorView {
     layer_drag: Option<layer_drag::LayerDrag>,
     /// 上一次的「编辑蒙版」状态：变了要重合成（画布上要加 / 去掉红色叠加）。
     last_active_mask: bool,
+    /// 图层缩略图：`LayerId -> TextureId`（面板行绘制用）。
+    layer_textures: Rc<RefCell<layer_thumbs::LayerTextures>>,
+    /// 待上传的图层缩略图。
+    layer_thumb_uploads: Vec<(igui_render::TextureId, crate::document::PixelBuffer)>,
+    /// 上次重建缩略图的时间（节流用）。
+    layer_thumb_at: std::time::Instant,
+    /// 文档变了、缩略图还没跟上（节流窗口内先攒着）。
+    layer_thumb_dirty: bool,
     layer_state: ListState,
     /// 历史列表的共享行数 / 状态；历史长度变了就刷新。
     history_count: Rc<Cell<usize>>,
@@ -508,6 +517,8 @@ impl EditorView {
             self.texture_dirty = true;
             self.refresh_layers();
             self.sync_properties();
+            // 缩略图节流：画笔每帧都推进 revision，但没必要每次都缩一遍。
+            self.layer_thumb_dirty = true;
         }
         if active != self.last_active {
             self.last_active = active;

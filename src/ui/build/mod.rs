@@ -62,6 +62,8 @@ struct Wiring {
     layer_selected: Rc<Cell<Option<usize>>>,
     /// 图层行的缓存（`Document::rows()` 的结果，面板 / 拖拽 / 自检共用）。
     layer_rows: Rc<RefCell<Vec<crate::document::LayerRow>>>,
+    /// 图层缩略图纹理表（面板行绘制用）。
+    layer_textures: Rc<RefCell<crate::ui::layer_thumbs::LayerTextures>>,
     history_count: Rc<Cell<usize>>,
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,

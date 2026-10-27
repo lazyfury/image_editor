@@ -594,7 +594,7 @@ fn clicking_the_eye_cell_toggles_visibility() {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
     view.layout(viewport());
     let id = view.state.borrow().document.active_layer().unwrap().id;
-    let eye = view.layer_cell_center(0, 3).expect("眼睛格子");
+    let eye = view.layer_cell_center(0, 1).expect("眼睛格子");
     super::click_at(&mut view, eye);
     assert!(!view.state.borrow().document.layer(id).unwrap().visible);
 
@@ -614,7 +614,7 @@ fn clicking_the_triangle_cell_collapses_the_group() {
     view.layout(viewport());
     assert_eq!(view.layer_row_count(), 3);
 
-    let triangle = view.layer_cell_center(0, 1).expect("三角格子");
+    let triangle = view.layer_cell_center(0, 2).expect("三角格子");
     super::click_at(&mut view, triangle);
     assert_eq!(view.layer_row_count(), 2, "点三角折叠，子节点不占行");
     assert!(view.layer_row_names()[0].starts_with("▸ "));
@@ -633,12 +633,12 @@ fn clicking_the_mask_cell_switches_the_edit_target() {
     view.update();
     view.layout(viewport());
 
-    let mask = view.layer_cell_center(0, 2).expect("蒙版格子");
+    let mask = view.layer_cell_center(0, 4).expect("蒙版格子");
     super::click_at(&mut view, mask);
     assert!(view.state.borrow().document.active_mask);
 
     // 再点一下回到图层像素。
-    let mask = view.layer_cell_center(0, 2).expect("蒙版格子");
+    let mask = view.layer_cell_center(0, 4).expect("蒙版格子");
     super::click_at(&mut view, mask);
     assert!(!view.state.borrow().document.active_mask);
 }
@@ -648,13 +648,105 @@ fn clicking_the_mask_cell_switches_the_edit_target() {
 fn clicking_the_name_cell_selects_the_row() {
     let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
     view.layout(viewport());
+    // 构造期那一轮先取走。
+    let _ = view.take_layer_thumbnail_uploads();
     let background = view.state.borrow().document.layers[0].id;
     let top = view.state.borrow_mut().document.add_layer("上层");
     view.update();
     view.layout(viewport());
     assert_eq!(view.state.borrow().document.active_layer, Some(top));
 
-    let name = view.layer_cell_center(1, 4).expect("名字格子");
+    let name = view.layer_cell_center(1, 5).expect("名字格子");
     super::click_at(&mut view, name);
     assert_eq!(view.state.borrow().document.active_layer, Some(background));
+}
+
+// -- 图层缩略图 ----------------------------------------------------------
+
+/// 视口里的栅格层各上传一张小纹理（≤ 22px），组没有像素不传。
+#[test]
+fn raster_rows_upload_a_scaled_thumbnail() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    // 构造期那一轮先取走。
+    let _ = view.take_layer_thumbnail_uploads();
+    let background = view.state.borrow().document.layers[0].id;
+    let top = view.state.borrow_mut().document.add_layer("上层");
+    view.layout(viewport());
+    // 构造期已经重建过一次，节流窗口里要手动拨回时间。
+    view.layer_thumb_at = std::time::Instant::now()
+        .checked_sub(crate::ui::layer_thumbs::THUMB_INTERVAL)
+        .unwrap();
+    view.update();
+    view.layout(viewport());
+
+    let uploads = view.take_layer_thumbnail_uploads();
+    assert_eq!(uploads.len(), 2, "两个栅格层各一张");
+    for (_, pixels) in &uploads {
+        assert!(pixels.width <= crate::ui::layer_thumbs::THUMB_MAX);
+        assert!(pixels.height <= crate::ui::layer_thumbs::THUMB_MAX);
+    }
+    let ids: Vec<_> = uploads.iter().map(|(texture, _)| *texture).collect();
+    assert_ne!(ids[0], ids[1], "每层一张独立的纹理");
+    assert_eq!(
+        view.state.borrow().document.layer(background).unwrap().name,
+        "背景"
+    );
+    assert_eq!(
+        view.state.borrow().document.layer(top).unwrap().name,
+        "上层"
+    );
+
+    // 组没有像素：行里有 3 行、但只给 2 个栅格层缩略图。
+    view.layer_action(LayerAction::Group);
+    let group = view
+        .state
+        .borrow()
+        .document
+        .active_layer
+        .expect("组是当前节点");
+    view.layer_thumb_at = std::time::Instant::now()
+        .checked_sub(crate::ui::layer_thumbs::THUMB_INTERVAL)
+        .unwrap();
+    view.update();
+    view.layout(viewport());
+    let uploads = view.take_layer_thumbnail_uploads();
+    assert!(view
+        .state
+        .borrow()
+        .document
+        .layer(group)
+        .unwrap()
+        .is_group());
+    assert_eq!(view.layer_row_count(), 3);
+    assert_eq!(uploads.len(), 2, "组不占缩略图，两个栅格层各一张");
+}
+
+/// 缩略图按时间节流：连续两次 update 只有一次重建。
+#[test]
+fn thumbnails_are_throttled_between_updates() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.update();
+    let _ = view.take_layer_thumbnail_uploads();
+
+    // 一次编辑推进 revision，但节流窗口里不重建。
+    view.state.borrow_mut().document.add_layer("上层");
+    view.update();
+    view.layout(viewport());
+    assert!(
+        view.take_layer_thumbnail_uploads().is_empty(),
+        "250ms 内不重复缩图"
+    );
+
+    // 把时间拨回去，下一次 update 就重建。
+    view.layer_thumb_at = std::time::Instant::now()
+        .checked_sub(crate::ui::layer_thumbs::THUMB_INTERVAL)
+        .unwrap();
+    view.update();
+    view.layout(viewport());
+    assert!(
+        !view.take_layer_thumbnail_uploads().is_empty(),
+        "到点后重建"
+    );
 }
