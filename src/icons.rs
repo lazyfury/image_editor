@@ -51,7 +51,7 @@ impl IconSet {
         }
     }
 
-    /// 包里索引到的图标数量（vendor 子集为 20，完整包为 2000+）。
+    /// 包里索引到的图标数量（vendor 子集十几个，完整包为 2000+）。
     pub fn len(&self) -> usize {
         self.pack.len()
     }
@@ -160,6 +160,24 @@ mod tests {
             Color::BLACK,
         );
         assert!(!ctx.into_draw_list().is_empty(), "icon drew no commands");
+    }
+
+    /// 图层面板行用的图标：显示 / 隐藏、图层组（文件夹）。
+    #[test]
+    fn the_layer_panel_icons_are_vendored_and_parse() {
+        let icons = IconSet::load();
+        for name in ["eye", "eye-off", "folder", "folder-open"] {
+            let document = icons
+                .document(name)
+                .unwrap_or_else(|| panic!("缺少图标 `{name}`"));
+            let mut ctx = PaintContext::new();
+            document.draw(
+                &mut ctx,
+                Rect::from_min_size(igui_core::Vec2::ZERO, Size::splat(16.0)),
+                Color::BLACK,
+            );
+            assert!(!ctx.into_draw_list().is_empty(), "`{name}` 没画出命令");
+        }
     }
 
     #[test]

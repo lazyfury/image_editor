@@ -118,6 +118,7 @@ fn sidebar(
         state.clone(),
         wiring.layer_rows.clone(),
         wiring.layer_textures.clone(),
+        wiring.icons.clone(),
         wiring.layer_count.clone(),
         wiring.layer_selected.clone(),
         wiring.intents.clone(),

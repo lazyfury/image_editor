@@ -23,6 +23,7 @@ use igui_ui::MouseFilter;
 
 use crate::app::state::AppState;
 use crate::document::{AddLayerCommand, Document, Layer, LayerMetaCommand, LayerRow, PixelBuffer};
+use crate::icons::IconSet;
 
 use crate::ui::card::Card;
 
@@ -31,7 +32,9 @@ use super::{Intent, Intents, LayerAction};
 /// 图层行高（逻辑像素）。列表的池大小按它算。
 pub const LAYER_ROW_HEIGHT: f32 = 28.0;
 /// 每级缩进的逻辑像素。
-const INDENT: f32 = 12.0;
+const INDENT: f32 = 10.0;
+/// 行内图标尺寸（眼睛 / 文件夹 / 蒙版）。
+const ICON: f32 = 14.0;
 
 /// 图层列表：第 0 行是**最上面的节点**（跟 Photoshop 一致），数据来自行缓存。
 #[allow(clippy::too_many_arguments)]
@@ -40,6 +43,7 @@ pub fn layer_list(
     state: Rc<RefCell<AppState>>,
     rows: Rc<RefCell<Vec<LayerRow>>>,
     textures: Rc<RefCell<crate::ui::layer_thumbs::LayerTextures>>,
+    icons: Rc<IconSet>,
     count: Rc<Cell<usize>>,
     selected: Rc<Cell<Option<usize>>>,
     intents: Intents,
@@ -64,19 +68,27 @@ pub fn layer_list(
         }
     };
 
-    // 眼睛：可见实心圆、隐藏空心圆。
+    // 眼睛：可见 `eye`、隐藏 `eye-off`（Lucide，矢量描边，不用纹理）。
     let eye = {
         let rows = rows.clone();
+        let icons = icons.clone();
         move |ctx: &mut PaintContext, rect: Rect, index: usize| {
             let rows = rows.borrow();
             let Some(row) = rows.get(index) else {
                 return;
             };
-            let paint = Paint::new(theme.palette().muted);
-            if row.visible {
-                ctx.fill_circle(rect.center(), 3.5, paint);
+            let name = if row.visible { "eye" } else { "eye-off" };
+            let color = if row.visible {
+                theme.palette().foreground
             } else {
-                ctx.stroke_circle(rect.center(), 3.5, 1.0, paint);
+                theme.palette().muted
+            };
+            if let Some(document) = icons.document(name) {
+                document.draw(
+                    ctx,
+                    Rect::from_center_size(rect.center(), Size::splat(ICON)),
+                    color,
+                );
             }
         }
     };
@@ -98,9 +110,10 @@ pub fn layer_list(
         }
     };
 
-    // 三角：组才画（展开向下、折叠向右）。
-    let triangle = {
+    // 组：`folder-open`（展开）/ `folder`（折叠）；栅格层这里留空。
+    let folder = {
         let rows = rows.clone();
+        let icons = icons.clone();
         move |ctx: &mut PaintContext, rect: Rect, index: usize| {
             let rows = rows.borrow();
             let Some(row) = rows.get(index) else {
@@ -109,23 +122,18 @@ pub fn layer_list(
             if !row.is_group {
                 return;
             }
-            let center = rect.center();
-            let paint = Paint::new(theme.palette().muted);
-            let (a, b, c) = if row.expanded {
-                (
-                    center + Vec2::new(-4.0, -2.0),
-                    center + Vec2::new(0.0, 2.0),
-                    center + Vec2::new(4.0, -2.0),
-                )
+            let name = if row.expanded {
+                "folder-open"
             } else {
-                (
-                    center + Vec2::new(-2.0, -4.0),
-                    center + Vec2::new(2.0, 0.0),
-                    center + Vec2::new(-2.0, 4.0),
-                )
+                "folder"
             };
-            ctx.draw_line(a, b, 1.0, paint);
-            ctx.draw_line(b, c, 1.0, paint);
+            if let Some(document) = icons.document(name) {
+                document.draw(
+                    ctx,
+                    Rect::from_center_size(rect.center(), Size::splat(ICON)),
+                    theme.palette().muted,
+                );
+            }
         }
     };
 
@@ -173,7 +181,8 @@ pub fn layer_list(
                 return;
             };
             match cell {
-                // 0 缩进 / 1 眼睛 / 2 三角 / 3 缩略图 / 4 蒙版；其余列当选中。
+                // 0 缩进 / 1 眼睛 / 2 文件夹（展开折叠）/ 3 缩略图 / 4 蒙版；
+                // 其余列（名字 / 不透明度）当选中。
                 1 => intents.push(Intent::LayerAction {
                     target: row.id,
                     action: LayerAction::ToggleVisible,
@@ -208,13 +217,15 @@ pub fn layer_list(
 
     List::new(theme, LAYER_ROW_HEIGHT, source)
         .spacer(indent)
-        .icon(20.0, eye)
-        .icon(14.0, triangle)
-        .icon(26.0, thumbnail)
-        .icon(16.0, mask_icon)
+        .icon(18.0, eye)
+        .icon(16.0, folder)
+        .icon(24.0, thumbnail)
+        .icon(14.0, mask_icon)
+        .padding(space::XS)
+        .gap(space::XXS)
         .columns(vec![
             ListColumn::flexible(),
-            ListColumn::fixed(44.0).tone(Tone::Muted),
+            ListColumn::fixed(42.0).tone(Tone::Muted),
         ])
         .count(count)
         .selected(selected)

@@ -750,3 +750,75 @@ fn thumbnails_are_throttled_between_updates() {
         "到点后重建"
     );
 }
+
+/// 行内间距：图标格子紧凑、互不重叠，名字列仍然是中间最宽的一格。
+#[test]
+fn the_layer_row_icons_are_compact_and_do_not_overlap() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    let row = view.layer_state.rows()[0];
+    let rects: Vec<igui_core::Rect> = view
+        .tree
+        .children(row)
+        .expect("行里有格子")
+        .iter()
+        .filter_map(|id| igui_ui::control(&view.tree, *id).map(|control| control.rect))
+        .collect();
+    // 缩进 + 眼睛 + 文件夹 + 缩略图 + 蒙版 + 名字 + 不透明度。
+    assert_eq!(rects.len(), 7, "行格子数：{rects:?}");
+    for pair in rects.windows(2) {
+        assert!(
+            pair[0].right() <= pair[1].left() + 0.01,
+            "格子重叠或顺序不对：{:?} -> {:?}",
+            pair[0],
+            pair[1]
+        );
+    }
+    let widths: Vec<f32> = rects.iter().map(|rect| rect.size.width).collect();
+    let name = widths[5];
+    assert!(
+        widths[1..5].iter().all(|width| *width < 30.0),
+        "图标格子要紧凑：{widths:?}"
+    );
+    let widest_icon = widths[1..5].iter().copied().fold(0.0f32, f32::max);
+    assert!(
+        name > widest_icon && name >= 80.0,
+        "名字列要拿到主要宽度：{widths:?}"
+    );
+}
+
+/// 眼睛是矢量图标：可见 / 隐藏两套路径，切换时行的绘制命令跟着变。
+#[test]
+fn the_eye_icon_changes_when_the_layer_is_hidden() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    let id = view.state.borrow().document.active_layer().unwrap().id;
+    let eye_rect = {
+        let row = view.layer_state.rows()[0];
+        let child = view.tree.children(row).expect("行格子")[1];
+        igui_ui::control(&view.tree, child).expect("眼睛格子").rect
+    };
+    let lines_in_eye = |view: &EditorView| {
+        paint_commands(view)
+            .iter()
+            .filter(|command| match command {
+                DrawCommand::Line { from, to, .. } => {
+                    let mid = (*from + *to) * 0.5;
+                    eye_rect.contains(mid)
+                }
+                _ => false,
+            })
+            .count()
+    };
+
+    let visible = lines_in_eye(&view);
+    assert!(visible > 0, "可见层要画出 eye 图标");
+    view.state
+        .borrow_mut()
+        .document
+        .set_layer_visible(id, false);
+    view.update();
+    let hidden = lines_in_eye(&view);
+    assert!(hidden > 0, "隐藏层要画出 eye-off 图标");
+    assert_ne!(visible, hidden, "两套图标的路径数不同，命令应跟着变");
+}

@@ -317,13 +317,16 @@ composite_node(node, target, region):
 `List` 的 leads 在前、columns 在后，所以顺序是：
 
 ```
-leads:    [缩进 spacer][▸/▾ icon 14px][蒙版 icon 16px]
-columns:  [眼睛 22px][名字 flexible][不透明度 44px]
+leads:    [缩进 spacer 10px/级][eye/eye-off 18px][folder/folder-open 16px]
+          [缩略图 24px][蒙版 icon 14px]
+columns:  [名字 flexible][不透明度 42px]
+（行内 gap = space::XXS、左右 padding = space::XS）
 ```
 
 - 缩进：`List::spacer(|row| depth as f32 * 12.0)`。
-- 三角 / 蒙版字形：`List::icon`（自绘）；未展开的组画 `▸`，展开画 `▾`；有蒙版的行
-  画 `◧`（停用画 `◨`），没有蒙版留空。
+- 眼睛 / 文件夹：Lucide 矢量图标（`assets/icons/eye.svg` / `eye-off.svg` /
+  `folder.svg` / `folder-open.svg`，经 `igui_svg` 描边，不占纹理）；隐藏层的眼睛用
+  muted 色。有蒙版的行画一个自绘小方块（启用时左半填色）。
 - 眼睛 / 名字 / 不透明度：现有三列不变。
 - **行数据要缓存**：`rows()` 是 O(节点数)；`List` 的 `source` 每绑一行调一次，直接算会
   O(n²)。面板持一份 `Rc<RefCell<Vec<LayerRow>>>`，`refresh_layers()` 里重建一次，
