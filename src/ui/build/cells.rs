@@ -29,6 +29,7 @@ impl Wiring {
             layer_rows: Rc::new(RefCell::new(Vec::new())),
             layer_textures: Rc::new(RefCell::new(crate::ui::layer_thumbs::LayerTextures::new())),
             preview_viewport: Rc::new(Cell::new(None)),
+            preview_filter: Rc::new(Cell::new(crate::canvas::PreviewFilter::default())),
             history_count: Rc::new(Cell::new(0)),
             // 选项栏开关是显示源，`EditorView::update` 每帧把它们写进工具。
             pixel_mode: Rc::new(Cell::new(true)),

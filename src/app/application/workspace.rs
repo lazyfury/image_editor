@@ -18,6 +18,7 @@ impl ImageEditorLogic {
         // 系统菜单栏装了就把窗口里那一行折叠（标签条贴顶，见 `layout`）。
         editor.set_menu_bar_visible(self.native_menu.is_none());
         editor.apply_preferences(&self.preferences.brush);
+        editor.set_preview_filter(self.preferences.preview_filter);
         // 过程记录（延时动画用）跟随偏好；关着时 `History` 不建录制器。
         editor.set_record_timeline(self.preferences.record_timeline);
         editor.set_image_clipboard(self.image_clipboard.clone());
@@ -98,6 +99,18 @@ impl ImageEditorLogic {
                     );
                 }
             }
+            // 预览纹理的采样方式：面板按钮写进视图，这里回写偏好并应用到后端。
+            let preview_filter = workspace.editor.preview_filter();
+            if self.preferences.preview_filter != preview_filter {
+                self.preferences.preview_filter = preview_filter;
+                if let Err(error) = crate::io::save_preferences(&self.preferences) {
+                    tracing::warn!(
+                        target: "image_editor",
+                        %error,
+                        "preferences_write_failed"
+                    );
+                }
+            }
             if let Some(backend) = ctx.service::<SharedBackend>().cloned() {
                 let scale = backend.borrow().scale_factor();
                 workspace.editor.set_scale_factor(scale);
@@ -118,6 +131,16 @@ impl ImageEditorLogic {
                     upload_texture(&backend, &pixels);
                 }
                 // 预览面板：显示合成结果的小图，200ms 节流。
+                if self.preview_filter != Some(preview_filter) {
+                    self.preview_filter = Some(preview_filter);
+                    backend.borrow_mut().set_texture_filter(
+                        crate::ui::PREVIEW_TEXTURE,
+                        match preview_filter {
+                            crate::canvas::PreviewFilter::Linear => TextureFilter::Linear,
+                            crate::canvas::PreviewFilter::Nearest => TextureFilter::Nearest,
+                        },
+                    );
+                }
                 if let Some(pixels) = workspace.editor.take_preview_upload() {
                     let mut backend = backend.borrow_mut();
                     backend.set_texture_filter(crate::ui::PREVIEW_TEXTURE, TextureFilter::Linear);

@@ -180,6 +180,8 @@ struct ImageEditorLogic {
     preferences: crate::io::EditorPreferences,
     /// 上一次设给后端的文档纹理采样方式（变了才调 `set_texture_filter`）。
     image_smoothing: crate::canvas::ImageSmoothing,
+    /// 上一次设给后端的预览纹理采样方式（`None` = 还没设过）。
+    preview_filter: Option<crate::canvas::PreviewFilter>,
     /// 像素剪贴板：所有工作区共用一块（跨工作区复制粘贴）。
     image_clipboard: Rc<RefCell<Option<crate::tools::PixelClipboard>>>,
     /// 文档换了标题，下一帧写回原生窗口。
@@ -218,6 +220,7 @@ impl ImageEditorLogic {
             modifiers: Modifiers::NONE,
             preferences: crate::io::EditorPreferences::default(),
             image_smoothing: crate::canvas::ImageSmoothing::Linear,
+            preview_filter: None,
             image_clipboard: Rc::new(RefCell::new(None)),
             title_dirty: false,
             thumbnail_uploads,
@@ -242,6 +245,7 @@ impl ImageEditorLogic {
         self.preferences = crate::io::EditorPreferences {
             brush: preferences.brush.clamped(),
             record_timeline: preferences.record_timeline,
+            preview_filter: preferences.preview_filter,
         };
         self
     }

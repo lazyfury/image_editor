@@ -121,9 +121,14 @@ fn sidebar(
     let history_list =
         history_panel::history_list(theme, state.clone(), wiring.history_count.clone());
     let history_state = history_list.state();
-    let preview =
-        preview_panel::preview_panel(theme, state.clone(), wiring.preview_viewport.clone())
-            .ref_(&wiring.refs.preview);
+    let preview = preview_panel::preview_panel(
+        theme,
+        state.clone(),
+        wiring.preview_viewport.clone(),
+        wiring.preview_filter.clone(),
+        wiring.intents.clone(),
+    )
+    .ref_(&wiring.refs.preview);
     let properties = properties_panel::properties_panel(
         theme,
         &wiring.refs.props_name,

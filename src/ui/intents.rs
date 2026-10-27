@@ -56,6 +56,8 @@ pub enum Intent {
         target: LayerId,
         action: LayerAction,
     },
+    /// 预览面板的采样方式（线性 / 最近邻）。
+    PreviewFilter(crate::canvas::PreviewFilter),
     /// 打开一个模拟窗口（属性 / 关于 / 快捷键；宿主执行）。
     Dialog(crate::ui::DialogKind),
     /// 打开 / 关闭「记录整段编辑过程」（属性窗口的开关）。

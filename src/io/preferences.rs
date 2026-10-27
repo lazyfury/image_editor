@@ -113,6 +113,8 @@ pub struct EditorPreferences {
     pub brush: BrushPreferences,
     /// 记录整段编辑过程（延时动画 / 过程回放用）；默认关。
     pub record_timeline: bool,
+    /// 预览面板的采样方式（线性 / 最近邻）。
+    pub preview_filter: crate::canvas::PreviewFilter,
 }
 
 impl EditorPreferences {
@@ -121,6 +123,13 @@ impl EditorPreferences {
         text.push_str(&format!(
             "record_timeline={}\n",
             u8::from(self.record_timeline)
+        ));
+        text.push_str(&format!(
+            "preview_filter={}\n",
+            match self.preview_filter {
+                crate::canvas::PreviewFilter::Linear => "linear",
+                crate::canvas::PreviewFilter::Nearest => "nearest",
+            }
         ));
         text
     }
@@ -131,9 +140,21 @@ impl EditorPreferences {
             Some((key, value)) => key.trim() == "record_timeline" && value.trim() != "0",
             None => false,
         });
+        let preview_filter = text
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .find_map(|(key, value)| match key.trim() {
+                "preview_filter" => Some(match value.trim() {
+                    "nearest" => crate::canvas::PreviewFilter::Nearest,
+                    _ => crate::canvas::PreviewFilter::Linear,
+                }),
+                _ => None,
+            })
+            .unwrap_or_default();
         Self {
             brush: BrushPreferences::parse(text),
             record_timeline,
+            preview_filter,
         }
     }
 }
@@ -212,6 +233,7 @@ mod tests {
                 spacing: 0.12,
             },
             record_timeline: true,
+            preview_filter: crate::canvas::PreviewFilter::Nearest,
         };
         save_at(&path, &prefs).expect("写偏好");
         assert_eq!(load_at(&path), prefs);
@@ -232,6 +254,29 @@ mod tests {
         )
         .expect("写偏好");
         assert!(load_at(&path).record_timeline);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 预览采样方式默认线性，写 `nearest` 后能读回来。
+    #[test]
+    fn the_preview_filter_defaults_to_linear_and_round_trips() {
+        assert_eq!(
+            EditorPreferences::default().preview_filter,
+            crate::canvas::PreviewFilter::Linear
+        );
+        let path = temp_path("preview_filter");
+        save_at(
+            &path,
+            &EditorPreferences {
+                preview_filter: crate::canvas::PreviewFilter::Nearest,
+                ..EditorPreferences::default()
+            },
+        )
+        .expect("写偏好");
+        assert_eq!(
+            load_at(&path).preview_filter,
+            crate::canvas::PreviewFilter::Nearest
+        );
         let _ = std::fs::remove_file(&path);
     }
 

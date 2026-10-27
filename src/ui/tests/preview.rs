@@ -1,4 +1,4 @@
-//! 预览面板：默认标签、纹理上传与「主画布可见范围」框。
+//! 预览面板：默认标签、纹理上传、可见范围框、采样方式按钮。
 
 use super::*;
 
@@ -97,4 +97,27 @@ fn the_preview_upload_is_throttled() {
     view.mark_region_dirty(crate::document::PixelRegion::new(0, 0, 1, 1));
     let _ = view.take_texture_upload().expect("局部合成");
     assert!(view.take_preview_upload().is_some(), "到点后重新上传");
+}
+
+/// 底部「线性 / 最近邻」按钮切换预览的采样方式（默认线性）。
+#[test]
+fn the_preview_filter_buttons_switch_the_sampling() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.update();
+    view.layout(viewport());
+    use crate::canvas::PreviewFilter;
+    assert_eq!(view.preview_filter(), PreviewFilter::Linear);
+
+    let nearest = view
+        .preview_filter_center(PreviewFilter::Nearest)
+        .expect("最近邻按钮");
+    super::click_at(&mut view, nearest);
+    assert_eq!(view.preview_filter(), PreviewFilter::Nearest);
+
+    let linear = view
+        .preview_filter_center(PreviewFilter::Linear)
+        .expect("线性按钮");
+    super::click_at(&mut view, linear);
+    assert_eq!(view.preview_filter(), PreviewFilter::Linear);
 }

@@ -4,18 +4,21 @@
 //! 所以不需要再合成一遍；主画布的可见范围由相机 + 画布矩形换算成**文档坐标的
 //! 四个角**，旋转视图时也是精确的四边形而不是包围盒。
 //!
-//! 面板只画、不接收输入（`MouseFilter::Ignore`），点击落到侧栏容器上。
+//! 面板底部有一排「线性 / 最近邻」按钮，选择预览纹理的采样方式（存进偏好）。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use igui_components::{Component, Flex};
-use igui_core::{Edges, Rect, Size, Vec2};
+use igui_components::{Button, Component, Flex};
+use igui_core::{Color, Edges, Rect, Size, Vec2};
 use igui_render::{Paint, TextureId};
-use igui_theme::Theme;
-use igui_ui::MouseFilter;
+use igui_theme::{radius, space, TextSize, Theme};
+use igui_ui::{Align, InteractState, MouseFilter, SurfaceStyle};
 
 use crate::app::state::AppState;
+use crate::canvas::PreviewFilter;
+
+use super::{Intent, Intents};
 
 /// 预览纹理 id：文档=1、主页画廊从 2 起、图层缩略图从 100000 起，取中间一段。
 pub const PREVIEW_TEXTURE: TextureId = TextureId::new(64);
@@ -29,15 +32,32 @@ const PREVIEW_PADDING: f32 = 6.0;
 /// 主画布可见范围的**文档坐标**四角（左上、右上、右下、左下）。
 pub type PreviewViewport = Rc<Cell<Option<[Vec2; 4]>>>;
 
-/// 预览面板内容：一个铺满可用高度的自绘区域。
+/// 预览面板内容：自绘的预览区域 + 底部采样方式按钮。
 pub fn preview_panel(
+    theme: &'static dyn Theme,
+    state: Rc<RefCell<AppState>>,
+    viewport: PreviewViewport,
+    filter: Rc<Cell<PreviewFilter>>,
+    intents: Intents,
+) -> impl Component {
+    Flex::column()
+        .grow(1.0)
+        .gap(space::XS)
+        .padding(Edges::ZERO)
+        .mouse_filter(MouseFilter::Ignore)
+        .child(preview_view(theme, state, viewport))
+        .child(filter_row(theme, filter, intents))
+}
+
+/// 预览图本身（只画，不接收输入）。
+fn preview_view(
     theme: &'static dyn Theme,
     state: Rc<RefCell<AppState>>,
     viewport: PreviewViewport,
 ) -> impl Component {
     Flex::new()
         .grow(1.0)
-        .min_size(0.0, 120.0)
+        .min_size(0.0, 100.0)
         .padding(Edges::ZERO)
         .mouse_filter(MouseFilter::Ignore)
         .foreground(move |ctx, rect, _state| {
@@ -76,6 +96,42 @@ pub fn preview_panel(
 
             ctx.stroke_rect(fit, 1.0, Paint::new(theme.palette().border.with_alpha(0.6)));
         })
+}
+
+/// 底部一行：线性 / 最近邻，点一下切到那个过滤方式（`update` 写回共享格）。
+fn filter_row(
+    theme: &'static dyn Theme,
+    filter: Rc<Cell<PreviewFilter>>,
+    intents: Intents,
+) -> impl Component {
+    let mut row = Flex::row()
+        .align(Align::Center)
+        .gap(space::XXS)
+        .padding(Edges::ZERO)
+        .mouse_filter(MouseFilter::Ignore);
+    for option in PreviewFilter::ALL {
+        let selected = filter.clone();
+        let click = filter.clone();
+        let intents = intents.clone();
+        row = row.child(
+            Button::ghost(option.label(), theme)
+                .font_size(TextSize::Small.px())
+                .dynamic_background(move |interact: InteractState| {
+                    if selected.get() == option {
+                        SurfaceStyle::new(theme.palette().selection).radius(radius::SM)
+                    } else if interact.hovered || interact.pressed {
+                        SurfaceStyle::new(theme.palette().surface_hover).radius(radius::SM)
+                    } else {
+                        SurfaceStyle::new(Color::TRANSPARENT)
+                    }
+                })
+                .on_click(move |_tree, _id| {
+                    click.set(option);
+                    intents.push(Intent::PreviewFilter(option));
+                }),
+        );
+    }
+    row
 }
 
 /// 把 `document` 按比例塞进 `rect`（留 `padding`），保持宽高比、居中。

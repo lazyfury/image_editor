@@ -92,6 +92,31 @@ impl EditorView {
         self.preview_upload.take()
     }
 
+    /// 预览面板当前的采样方式。
+    pub fn preview_filter(&self) -> crate::canvas::PreviewFilter {
+        self.preview_filter.get()
+    }
+
+    /// 设置预览采样方式（宿主启动时用偏好初始化）。
+    pub fn set_preview_filter(&mut self, filter: crate::canvas::PreviewFilter) {
+        self.preview_filter.set(filter);
+    }
+
+    /// 「线性 / 最近邻」按钮的中心（测试模拟点击用）。
+    #[allow(dead_code)] // 只有测试点；自检不点这个按钮。
+    ///
+    /// 只找**预览面板里**的同名文字：渐变类型也有「线性」，不限定范围会点到别处。
+    pub fn preview_filter_center(&self, filter: crate::canvas::PreviewFilter) -> Option<Vec2> {
+        let label = filter.label();
+        let area = self.preview_rect()?;
+        let node = self.tree.iter().find(|&node| {
+            igui_ui::content(&self.tree, node).and_then(|content| content.as_text()) == Some(label)
+                && igui_ui::control(&self.tree, node)
+                    .is_some_and(|control| area.contains(control.rect.center()))
+        })?;
+        igui_ui::control(&self.tree, node).map(|control| control.rect.center())
+    }
+
     /// 预览面板的矩形（测试 / 自检用）。
     #[allow(dead_code)] // 只有测试读；自检看的是命令流。
     pub fn preview_rect(&self) -> Option<igui_core::Rect> {

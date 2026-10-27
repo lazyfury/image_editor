@@ -339,6 +339,8 @@ pub struct EditorView {
     last_active: Option<LayerId>,
     /// 预览面板的可见范围（文档坐标四角）；`update` 每帧写。
     preview_viewport: crate::ui::preview_panel::PreviewViewport,
+    /// 预览面板的采样方式（面板按钮 / 偏好写，宿主读后设纹理过滤）。
+    preview_filter: Rc<Cell<crate::canvas::PreviewFilter>>,
     /// 待上传的预览图（显示合成结果缩到 256px）。
     preview_upload: Option<crate::document::PixelBuffer>,
     /// 上次生成预览的时间（节流）。
@@ -462,6 +464,7 @@ impl EditorView {
                     };
                 }
                 Intent::OpenGradientEditor => self.open_gradient_editor(),
+                Intent::PreviewFilter(filter) => self.preview_filter.set(filter),
                 Intent::RenameLayer(anchor) => request_rename = Some(anchor),
                 Intent::LayerMenu { target, position } => {
                     self.open_layer_context_menu(target, position)

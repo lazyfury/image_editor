@@ -492,7 +492,8 @@ src/
 
 ## 编辑过程记录（延时动画的口子）
 
-偏好 `preferences` 里 `record_timeline=1`（默认关）后，整段编辑过程会**全部**
+偏好 `preferences` 里也有 `preview_filter=linear|nearest`（预览面板的采样方式，
+默认 `linear`）；`record_timeline=1`（默认关）后，整段编辑过程会**全部**
 留在内存里（每步：时间戳 + 命令名 + 一块「改后像素」补丁，独立于撤销栈），
 保存 / 关闭工作区时顺手写到同名 `.igtl`（`x.igui` -> `x.igtl`）。格式是手写
 二进制（magic `IGTL0001`，读写一对在 `src/io/timeline.rs`），给以后的「延时动画 /

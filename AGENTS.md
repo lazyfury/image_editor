@@ -59,7 +59,7 @@ src/ui/         views + project-local components: home (recent gallery with
                 `ListState::rows()`), `ui/layer_actions.rs` the shared layer
                 actions + context menu (group/mask/order/duplicate),
                 `ui/layer_thumbs.rs` the per-layer thumbnail textures (viewport +
-                250ms throttle, uploaded by the host like the gallery ones), and
+                250ms throttle, uploaded by the host like the gallery ones),
                 `ui/mask_view.rs` the red "hidden by mask" tint that only exists
                 in the displayed texture.
                 `ui/layout.rs` also owns `Layout`: the draggable panel widths /

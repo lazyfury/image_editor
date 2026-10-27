@@ -64,6 +64,8 @@ struct Wiring {
     layer_textures: Rc<RefCell<crate::ui::layer_thumbs::LayerTextures>>,
     /// 预览面板要标的「主画布可见范围」（文档坐标四角）。
     preview_viewport: crate::ui::preview_panel::PreviewViewport,
+    /// 预览面板的采样方式（面板按钮写、宿主读后设纹理过滤）。
+    preview_filter: Rc<Cell<crate::canvas::PreviewFilter>>,
     history_count: Rc<Cell<usize>>,
     pixel_mode: Rc<Cell<bool>>,
     square_mode: Rc<Cell<bool>>,

@@ -23,6 +23,28 @@ pub use selection::{MergeMode, Selection};
 
 use igui_render::TextureId;
 
+/// 预览面板（Navigator）的采样方式：用户可选。
+///
+/// 预览图本身是缩到 ≤256px 的合成结果，这里选的是**画到面板里**时用哪种过滤：
+/// `Linear` 平滑、`Nearest` 像素块清晰（像素画用户常用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreviewFilter {
+    #[default]
+    Linear,
+    Nearest,
+}
+
+impl PreviewFilter {
+    pub const ALL: [Self; 2] = [Self::Linear, Self::Nearest];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Linear => "线性",
+            Self::Nearest => "最近邻",
+        }
+    }
+}
+
 /// 文档纹理的采样方式。
 ///
 /// **放大（`zoom >= 1`）用最近邻**：像素画的硬边不该被插值糊掉；
