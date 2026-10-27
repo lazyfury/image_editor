@@ -1,4 +1,4 @@
-//! 侧栏标签页（项目内组件）：把「历史 / 预览」两块内容收进一个卡片 ——
+//! 侧栏标签页（项目内组件）：把「预览 / 属性 / 历史」三块内容收进一个卡片 ——
 //! 上面一排标签按钮，下面只露出当前标签的内容。文件动作走菜单 / 快捷键
 //! （宿主弹原生对话框），不再占侧栏一格。
 //!
@@ -19,17 +19,19 @@ use igui_ui::{Container, FlexStyle, MouseFilter, SurfaceStyle};
 /// 侧栏标签页。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SidebarTab {
-    History,
     #[default]
     Preview,
+    Properties,
+    History,
 }
 
 impl SidebarTab {
     /// 标签上的文字。
     pub const fn label(self) -> &'static str {
         match self {
-            Self::History => "历史",
             Self::Preview => "预览",
+            Self::Properties => "属性",
+            Self::History => "历史",
         }
     }
 }
@@ -222,7 +224,11 @@ mod tests {
 
     #[test]
     fn every_tab_has_a_distinct_label_and_properties_is_the_default() {
-        let tabs = [SidebarTab::History, SidebarTab::Preview];
+        let tabs = [
+            SidebarTab::Preview,
+            SidebarTab::Properties,
+            SidebarTab::History,
+        ];
         let mut labels: Vec<&str> = tabs.iter().map(|tab| tab.label()).collect();
         labels.sort_unstable();
         labels.dedup();

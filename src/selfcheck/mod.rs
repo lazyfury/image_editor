@@ -248,7 +248,7 @@ pub fn check() -> (usize, String) {
 
     // 语义：每块面板的关键文字都要出现在命令流里。
     // （框选结果由上面的 `view.selection()` 结构化断言，不靠状态栏那句瞬时提示。）
-    let required: [(&str, &str); 12] = [
+    let required: [(&str, &str); 13] = [
         ("文件", "菜单栏"),
         ("编辑", "菜单栏"),
         ("帮助", "菜单栏"),
@@ -259,6 +259,7 @@ pub fn check() -> (usize, String) {
         ("背景", "图层列表"),
         ("100%", "图层不透明度"),
         ("预览", "侧栏标签 / 预览面板"),
+        ("属性", "侧栏标签"),
         ("历史", "侧栏标签"),
         ("import", "导入后的图层名"),
     ];
@@ -323,7 +324,7 @@ pub fn check() -> (usize, String) {
         out.push_str(&format!("  ✗ {failure}\n"));
     }
     if failures.is_empty() {
-        out.push_str("  ✓ 画布合成 + 撤销/重做 + PNG 导入导出 + 移动/框选/吸管 + 图标包 + 菜单/工具栏/图层栏/历史·预览栏/状态栏 全部就位\n");
+        out.push_str("  ✓ 画布合成 + 撤销/重做 + PNG 导入导出 + 移动/框选/吸管 + 图标包 + 菜单/工具栏/图层栏/预览·属性·历史栏/状态栏 全部就位\n");
     }
     (failures.len(), out)
 }

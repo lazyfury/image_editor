@@ -221,6 +221,10 @@ pub(super) fn finish(
         last_revision: u64::MAX,
         rename: None,
         preview: refs.preview.get().expect("preview mounted"),
+        props_name: refs.props_name.get().expect("props name mounted"),
+        props_detail: refs.props_detail.get().expect("props detail mounted"),
+        props_geometry: refs.props_geometry.get().expect("props geometry mounted"),
+        last_active: None,
         preview_viewport,
         preview_upload: None,
         preview_at: std::time::Instant::now()

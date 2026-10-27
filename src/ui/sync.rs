@@ -136,6 +136,60 @@ impl EditorView {
             })
     }
 
+    /// 当前图层 -> 属性面板（名字 / 不透明度 / 蒙版 / 几何）。
+    pub(super) fn sync_properties(&mut self) {
+        let (name, detail, geometry) = {
+            let state = self.state.borrow();
+            let document = &state.document;
+            match document.active_layer() {
+                Some(layer) if layer.is_group() => {
+                    let children = document.children(Some(layer.id)).len();
+                    (
+                        format!("组「{}」", layer.name),
+                        format!(
+                            "不透明度 {:.0}%  ·  {} 个子节点",
+                            layer.opacity * 100.0,
+                            children
+                        ),
+                        if layer.mask.is_some() {
+                            "蒙版：有".to_string()
+                        } else {
+                            String::new()
+                        },
+                    )
+                }
+                Some(layer) => (
+                    layer.name.clone(),
+                    format!(
+                        "不透明度 {:.0}%  ·  Normal{}",
+                        layer.opacity * 100.0,
+                        if layer.mask.is_some() {
+                            if state.document.active_mask {
+                                "  ·  编辑蒙版"
+                            } else {
+                                "  ·  有蒙版"
+                            }
+                        } else {
+                            ""
+                        }
+                    ),
+                    format!(
+                        "偏移 ({}, {})  ·  缓冲 {}×{}",
+                        layer.position.x, layer.position.y, layer.pixels.width, layer.pixels.height
+                    ),
+                ),
+                None => (
+                    "无图层".to_string(),
+                    "点「+ 图层」新建一层".to_string(),
+                    String::new(),
+                ),
+            }
+        };
+        set_text(&mut self.tree, self.props_name, name);
+        set_text(&mut self.tree, self.props_detail, detail);
+        set_text(&mut self.tree, self.props_geometry, geometry);
+    }
+
     /// 打开重命名浮层，锚在「重命名」按钮上。
     ///
     /// 编辑 / 光标 / 选区 / 剪贴板 / IME 全交给浮层里的

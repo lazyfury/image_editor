@@ -448,7 +448,7 @@ src/
 │   │   ├── selection.rs #   选区合并 / 羽化 / 魔棒 / 套索 / 马赛克描边
 │   │   ├── pen.rs       #   钢笔：建路径 / 闭合 / 选区 / 填充 / 描边
 │   │   ├── panels.rs    #   调色盘 / 分隔条 / 历史面板 / 图层列表
-│   │   ├── layers.rs    #   裁剪 / 重命名 / 树 / 拖动 / 蒙版 / 缩略图
+│   │   ├── layers.rs    #   属性面板 / 裁剪 / 重命名 / 树 / 拖动 / 蒙版 / 缩略图
 │   │   ├── menus.rs     #   菜单栏 + 编辑菜单的剪切复制粘贴
 │   │   ├── toolbar.rs   #   工具栏分组 / 长按浮层 / 图标包
 │   │   ├── history.rs   #   撤销 / 重做 / 脏区域
@@ -470,6 +470,7 @@ src/
 │   ├── layer_panel.rs   # 图层面板（List + 操作按钮）
 │   ├── history_panel.rs # 历史面板（List：undo/redo 栈，点一步跳过去）
 │   ├── preview_panel.rs # 预览（Navigator）：文档缩略图 + 可见范围框
+│   ├── properties_panel.rs  # 当前图层 / 组 / 蒙版的属性（只读）
 │   ├── rename.rs        # 图层重命名浮层（`Overlays::popover` + `TextInput`）
 │   ├── new_document/    # 「新建文档」浮动窗口
 │   │   ├── mod.rs       #   共享格 + NewDocumentModal（对话框壳的转接）

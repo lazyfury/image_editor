@@ -31,10 +31,10 @@ use crate::tools::{
 use super::options_bar::{options_bar, BarInputs, GradientOptions, OptionSlots, OptionsRefs};
 use super::tabs::{SidebarTab, TabsView};
 use super::{
-    canvas, history_panel, layer_panel, menu, palette, preview_panel, status_bar, toolbar,
-    BrushAdjust, BrushToggle, BucketAdjust, BucketToggle, EditorView, GradientAdjust, Intents,
-    Refs, LONG_PRESS_MS, PALETTE_MAX, PALETTE_MIN, PALETTE_WIDTH, SIDEBAR_MIN, SIDEBAR_WIDTH,
-    TABS_PANEL_HEIGHT, TABS_PANEL_MAX, TABS_PANEL_MIN,
+    canvas, history_panel, layer_panel, menu, palette, preview_panel, properties_panel, status_bar,
+    toolbar, BrushAdjust, BrushToggle, BucketAdjust, BucketToggle, EditorView, GradientAdjust,
+    Intents, Refs, LONG_PRESS_MS, PALETTE_MAX, PALETTE_MIN, PALETTE_WIDTH, SIDEBAR_MIN,
+    SIDEBAR_WIDTH, TABS_PANEL_HEIGHT, TABS_PANEL_MAX, TABS_PANEL_MIN,
 };
 
 /// 构造 `EditorView`（`EditorView::new` 转交到这里）。

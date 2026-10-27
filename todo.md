@@ -11,7 +11,7 @@
 项目」现在是主窗口内的**模拟桌面浮动窗口**（`ui/window/` 的 `Window` +
 `ui/new_document.rs` 的 `NewDocumentModal`：标题栏拖动移动、四条边 / 角拖动
 缩放、关闭按钮 / 遮罩，Esc / 点外取消，输入全吞掉），不再开第二个原生窗口；
-侧栏「历史 / 预览」标签页（默认预览；文件动作走菜单 / 快捷键）；透明棋盘格背景；默认 128×128 像素画布 +
+侧栏「预览 / 属性 / 历史」标签页（默认预览；文件动作走菜单 / 快捷键）；透明棋盘格背景；默认 128×128 像素画布 +
 1px 硬边笔 + 最近邻采样；移动图层后画笔对准光标、画布外像素不裁。
 
 再最近：**原生文件对话框 + 保存流程 + 拖放**（Phase 23）——文件动作都在
@@ -857,7 +857,7 @@ padding 归零；渐变色带去掉 `Flex::new()` 默认的 16px padding（40px 
   （`LayerMetaCommand`，不克隆像素）、裁到文档（`CropLayerCommand`）全部入历史；
   标签页面板与「图层」之间加 `ResizeHandle::horizontal` 分隔条（可拖高度，
   `clamp_panel_heights` 保证图层不被挤没）。
-- **侧栏标签页（`ui/tabs.rs`）**：历史 / 预览两块内容收进一个卡片（默认预览；
+- **侧栏标签页（`ui/tabs.rs`）**：预览 / 属性 / 历史三块内容收进一个卡片（默认预览、预览排第一；
   上面 `TabsView` 的标签按钮（选中态底色 + accent 下划线），下面只显示当前页；
   激活态是 `Rc<Cell<SidebarTab>>`，`EditorView` 在激活页变化时调
   `tabs::show_active`（`set_visible` + `mark_dirty`，可见性变化不会自动让布局
@@ -867,7 +867,7 @@ padding 归零；渐变色带去掉 `Flex::new()` 默认的 16px padding（40px 
 - **棋盘格开关**：视图菜单「显示棋盘格」（可关，导出不受影响）。
 - **图层菜单「裁到文档」**：`Document::crop_layer_to_document` 回收被移动撑大的缓冲
   （`cropping_a_layer_to_the_document_drops_off_canvas_pixels`）。
-- **属性面板显示图层几何**（面板已移除，信息改到状态栏 / 预览）。
+- **属性面板显示图层几何**：`偏移 (x, y) · 缓冲 W×H`（`the_properties_panel_shows_layer_geometry`）。
 - **CPU 合成只遍历可见范围**（`src/renderer/cpu.rs`）：合成成本不再随图层缓冲尺寸
   增长（`a_layer_larger_than_the_document_composites_only_the_visible_part`）。
 - **像素模式 P1–P4**：`BrushShape { Round, Square }` + `BrushTool { hard, shape }`

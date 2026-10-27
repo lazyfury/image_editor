@@ -101,7 +101,7 @@ pub(super) fn main_row(
     (row, lists)
 }
 
-/// 右栏：上面是「历史 / 预览」标签页，下面是图层列表，中间一条可拖的分隔条。
+/// 右栏：上面是「预览 / 属性 / 历史」标签页，下面是图层列表，中间一条可拖的分隔条。
 fn sidebar(
     theme: &'static dyn Theme,
     state: &Rc<RefCell<AppState>>,
@@ -124,21 +124,17 @@ fn sidebar(
     let preview =
         preview_panel::preview_panel(theme, state.clone(), wiring.preview_viewport.clone())
             .ref_(&wiring.refs.preview);
-
-    // 侧栏标签页：历史 / 预览共用一个卡片（默认停在「预览」）。按钮与内容容器
-    // 各留一个 `NodeRef`，建完后收进 `tab_buttons` / `tab_contents` 供交互与可见性同步。
-    let mut tabs_view = TabsView::new(theme, wiring.active_tab.clone());
-    let history_button = NodeRef::new();
-    let history_content = NodeRef::new();
-    tabs_view = tabs_view.tab(
-        SidebarTab::History,
-        &history_button,
-        &history_content,
-        history_list,
+    let properties = properties_panel::properties_panel(
+        theme,
+        &wiring.refs.props_name,
+        &wiring.refs.props_detail,
+        &wiring.refs.props_geometry,
     );
-    wiring
-        .tab_refs
-        .push((SidebarTab::History, history_button, history_content));
+
+    // 侧栏标签页：预览 / 属性 / 历史共用一个卡片（默认停在「预览」，预览排第一）。
+    // 按钮与内容容器各留一个 `NodeRef`，建完后收进 `tab_buttons` / `tab_contents`
+    // 供交互与可见性同步。
+    let mut tabs_view = TabsView::new(theme, wiring.active_tab.clone());
     let preview_button = NodeRef::new();
     let preview_content = NodeRef::new();
     tabs_view = tabs_view.tab(
@@ -150,6 +146,28 @@ fn sidebar(
     wiring
         .tab_refs
         .push((SidebarTab::Preview, preview_button, preview_content));
+    let props_button = NodeRef::new();
+    let props_content = NodeRef::new();
+    tabs_view = tabs_view.tab(
+        SidebarTab::Properties,
+        &props_button,
+        &props_content,
+        properties,
+    );
+    wiring
+        .tab_refs
+        .push((SidebarTab::Properties, props_button, props_content));
+    let history_button = NodeRef::new();
+    let history_content = NodeRef::new();
+    tabs_view = tabs_view.tab(
+        SidebarTab::History,
+        &history_button,
+        &history_content,
+        history_list,
+    );
+    wiring
+        .tab_refs
+        .push((SidebarTab::History, history_button, history_content));
 
     let panel = Flex::row()
         .background(theme.background())

@@ -12,6 +12,16 @@ fn the_preview_tab_is_the_default() {
     assert_eq!(view.active_tab(), SidebarTab::Preview);
     assert!(view.tab_content_visible(SidebarTab::Preview));
     assert!(!view.tab_content_visible(SidebarTab::History));
+    assert!(!view.tab_content_visible(SidebarTab::Properties));
+
+    // 标签顺序：预览排第一，然后属性、历史。
+    let preview = view.tab_center(SidebarTab::Preview).expect("预览标签");
+    let properties = view.tab_center(SidebarTab::Properties).expect("属性标签");
+    let history = view.tab_center(SidebarTab::History).expect("历史标签");
+    assert!(
+        preview.x < properties.x && properties.x < history.x,
+        "标签顺序应为 预览 / 属性 / 历史：{preview:?} {properties:?} {history:?}"
+    );
 }
 
 /// 预览画的是显示合成结果缩成的小图，并在上面画主画布可见范围的四条边。

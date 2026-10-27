@@ -266,7 +266,7 @@ pub(crate) fn resizable_panels(view: &mut EditorView, failures: &mut Vec<String>
         failures.push("拖调色盘分隔条没有变宽".to_string());
     }
 
-    // 右侧栏标签页：「历史 / 预览」共用一个面板，默认停在「预览」。
+    // 右侧栏标签页：「预览 / 属性 / 历史」共用一个面板，默认停在「预览」。
     // 点标签切换内容，面板与「图层」之间的分隔条可以拖动调高。
     let tabs_tab = crate::ui::SidebarTab::History;
     if view.active_tab() != crate::ui::SidebarTab::Preview {
@@ -303,6 +303,7 @@ pub(crate) fn resizable_panels(view: &mut EditorView, failures: &mut Vec<String>
     if view.active_tab() != tabs_tab
         || !view.tab_content_visible(tabs_tab)
         || view.tab_content_visible(crate::ui::SidebarTab::Preview)
+        || view.tab_content_visible(crate::ui::SidebarTab::Properties)
     {
         failures.push("点「历史」标签没有切换面板".to_string());
     }

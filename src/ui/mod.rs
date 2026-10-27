@@ -12,7 +12,7 @@
 //! ```
 //!
 //! 每块面板一个模块（[`menu`] / [`toolbar`] / [`canvas`] / [`layer_panel`] /
-//! [`preview_panel`] / [`status_bar`]），这个文件负责把它们拼成整页、
+//! [`preview_panel`] / [`properties_panel`] / [`status_bar`]），这个文件负责把它们拼成整页、
 //! 持有共享状态，并把 `CanvasCamera` 同步到文档节点的变换。
 
 mod accessors;
@@ -43,6 +43,7 @@ mod palette;
 mod pen;
 mod preferences;
 mod preview_panel;
+mod properties_panel;
 mod rename;
 mod selection;
 mod status_bar;
@@ -166,7 +167,7 @@ const ANCHOR_SIZE: f32 = 5.0;
 const HANDLE_DOT: f32 = 2.5;
 /// 像素模式下，出现像素网格的最小缩放。
 const GRID_MIN_ZOOM: f32 = 6.0;
-/// 右侧栏「历史 / 预览」标签页面板的默认高度 / 拖拽钳制（逻辑像素）。
+/// 右侧栏「预览 / 属性 / 历史」标签页面板的默认高度 / 拖拽钳制（逻辑像素）。
 const TABS_PANEL_HEIGHT: f32 = 220.0;
 const TABS_PANEL_MIN: f32 = 120.0;
 const TABS_PANEL_MAX: f32 = 480.0;
@@ -184,6 +185,9 @@ struct Refs {
     message: NodeRef,
     canvas: NodeRef,
     preview: NodeRef,
+    props_name: NodeRef,
+    props_detail: NodeRef,
+    props_geometry: NodeRef,
     tabs_panel: NodeRef,
     tabs_handle: NodeRef,
     palette_panel: NodeRef,
@@ -329,6 +333,10 @@ pub struct EditorView {
     last_revision: u64,
     rename: Option<Rename>,
     preview: NodeId,
+    props_name: NodeId,
+    props_detail: NodeId,
+    props_geometry: NodeId,
+    last_active: Option<LayerId>,
     /// 预览面板的可见范围（文档坐标四角）；`update` 每帧写。
     preview_viewport: crate::ui::preview_panel::PreviewViewport,
     /// 待上传的预览图（显示合成结果缩到 256px）。
@@ -505,13 +513,17 @@ impl EditorView {
             self.last_active_mask = active_mask;
             self.mark_texture_dirty();
         }
-        let _ = active;
         if revision != self.last_revision {
             self.last_revision = revision;
             self.texture_dirty = true;
             self.refresh_layers();
+            self.sync_properties();
             // 缩略图节流：画笔每帧都推进 revision，但没必要每次都缩一遍。
             self.layer_thumb_dirty = true;
+        }
+        if active != self.last_active {
+            self.last_active = active;
+            self.sync_properties();
         }
         let history = {
             let state = self.state.borrow();
