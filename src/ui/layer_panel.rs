@@ -93,27 +93,44 @@ pub fn layer_list(
         }
     };
 
-    // 图层缩略图：有纹理就画，没有（组 / 首帧未上传）画个占位方框。
+    // 图层缩略图。组永远没有像素预览，这一格改画文件夹图标
+    // （`folder-open` 展开 / `folder` 折叠）—— 展开箭头仍然占它原来的位置。
     let thumbnail = {
         let rows = rows.clone();
         let textures = textures.clone();
+        let icons = icons.clone();
         move |ctx: &mut PaintContext, rect: Rect, index: usize| {
-            let Some(id) = rows.borrow().get(index).map(|row| row.id) else {
+            let rows = rows.borrow();
+            let Some(row) = rows.get(index) else {
                 return;
             };
+            let color = theme.palette().muted;
+            if row.is_group {
+                let name = if row.expanded {
+                    "folder-open"
+                } else {
+                    "folder"
+                };
+                if let Some(document) = icons.document(name) {
+                    document.draw(
+                        ctx,
+                        Rect::from_center_size(rect.center(), Size::splat(ICON)),
+                        color,
+                    );
+                }
+                return;
+            }
             let square = Rect::from_center_size(rect.center(), Size::splat(20.0));
-            let texture = textures.borrow().get(&id).copied();
-            match texture {
+            match textures.borrow().get(&row.id).copied() {
                 Some(texture) => ctx.draw_image(texture, square, None, Paint::default()),
-                None => ctx.stroke_rect(square, 1.0, Paint::new(theme.palette().muted)),
+                None => ctx.stroke_rect(square, 1.0, Paint::new(color)),
             }
         }
     };
 
-    // 组：`folder-open`（展开）/ `folder`（折叠）；栅格层这里留空。
-    let folder = {
+    // 展开箭头（原来小箭头的位置不变）：组才画，展开向下、折叠向右。
+    let triangle = {
         let rows = rows.clone();
-        let icons = icons.clone();
         move |ctx: &mut PaintContext, rect: Rect, index: usize| {
             let rows = rows.borrow();
             let Some(row) = rows.get(index) else {
@@ -122,18 +139,23 @@ pub fn layer_list(
             if !row.is_group {
                 return;
             }
-            let name = if row.expanded {
-                "folder-open"
+            let center = rect.center();
+            let paint = Paint::new(theme.palette().muted);
+            let (a, b, c) = if row.expanded {
+                (
+                    center + Vec2::new(-3.5, -1.5),
+                    center + Vec2::new(0.0, 2.0),
+                    center + Vec2::new(3.5, -1.5),
+                )
             } else {
-                "folder"
+                (
+                    center + Vec2::new(-1.5, -3.5),
+                    center + Vec2::new(2.0, 0.0),
+                    center + Vec2::new(-1.5, 3.5),
+                )
             };
-            if let Some(document) = icons.document(name) {
-                document.draw(
-                    ctx,
-                    Rect::from_center_size(rect.center(), Size::splat(ICON)),
-                    theme.palette().muted,
-                );
-            }
+            ctx.draw_line(a, b, 1.0, paint);
+            ctx.draw_line(b, c, 1.0, paint);
         }
     };
 
@@ -181,7 +203,7 @@ pub fn layer_list(
                 return;
             };
             match cell {
-                // 0 缩进 / 1 眼睛 / 2 文件夹（展开折叠）/ 3 缩略图 / 4 蒙版；
+                // 0 缩进 / 1 眼睛 / 2 展开箭头 / 3 缩略图（组是文件夹）/ 4 蒙版；
                 // 其余列（名字 / 不透明度）当选中。
                 1 => intents.push(Intent::LayerAction {
                     target: row.id,
@@ -218,7 +240,7 @@ pub fn layer_list(
     List::new(theme, LAYER_ROW_HEIGHT, source)
         .spacer(indent)
         .icon(18.0, eye)
-        .icon(16.0, folder)
+        .icon(14.0, triangle)
         .icon(24.0, thumbnail)
         .icon(14.0, mask_icon)
         .padding(space::XS)

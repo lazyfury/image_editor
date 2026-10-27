@@ -317,8 +317,8 @@ composite_node(node, target, region):
 `List` 的 leads 在前、columns 在后，所以顺序是：
 
 ```
-leads:    [缩进 spacer 10px/级][eye/eye-off 18px][folder/folder-open 16px]
-          [缩略图 24px][蒙版 icon 14px]
+leads:    [缩进 spacer 10px/级][eye/eye-off 18px][展开箭头 14px]
+          [缩略图 24px（组画 folder/folder-open）][蒙版 icon 14px]
 columns:  [名字 flexible][不透明度 42px]
 （行内 gap = space::XXS、左右 padding = space::XS）
 ```
@@ -326,7 +326,9 @@ columns:  [名字 flexible][不透明度 42px]
 - 缩进：`List::spacer(|row| depth as f32 * 12.0)`。
 - 眼睛 / 文件夹：Lucide 矢量图标（`assets/icons/eye.svg` / `eye-off.svg` /
   `folder.svg` / `folder-open.svg`，经 `igui_svg` 描边，不占纹理）；隐藏层的眼睛用
-  muted 色。有蒙版的行画一个自绘小方块（启用时左半填色）。
+  muted 色。展开箭头仍然占它原来的格子（自绘两段线）；**组的缩略图永远为空**，
+  那一格改画 `folder-open`（展开）/ `folder`（折叠）。有蒙版的行画一个自绘小方块
+  （启用时左半填色）。
 - 眼睛 / 名字 / 不透明度：现有三列不变。
 - **行数据要缓存**：`rows()` 是 O(节点数)；`List` 的 `source` 每绑一行调一次，直接算会
   O(n²)。面板持一份 `Rc<RefCell<Vec<LayerRow>>>`，`refresh_layers()` 里重建一次，

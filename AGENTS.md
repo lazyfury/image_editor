@@ -50,8 +50,9 @@ src/ui/         views + project-local components: home (recent gallery with
                 rect-fill/gradient/eyedropper, select = rect/lasso/wand/free-fill
                 + selection commands, pen = pen pointer + keys, adjust = options
                 bar `−`/`+` requests -> tool parameters.
-                `ui/layer_panel.rs` is the tree list (indent / eye / folder /
-                thumbnail / mask icon leads, `List::on_cell` + `on_context`), `ui/layer_drag.rs`
+                `ui/layer_panel.rs` is the tree list (indent / eye / disclosure
+                arrow / thumbnail — a folder icon for groups, which have no
+                preview — / mask icon leads, `List::on_cell` + `on_context`), `ui/layer_drag.rs`
                 the drag reorder/reparent (app-level, using
                 `ListState::rows()`), `ui/layer_actions.rs` the shared layer
                 actions + context menu (group/mask/order/duplicate),

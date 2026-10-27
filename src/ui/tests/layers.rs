@@ -822,3 +822,46 @@ fn the_eye_icon_changes_when_the_layer_is_hidden() {
     assert!(hidden > 0, "隐藏层要画出 eye-off 图标");
     assert_ne!(visible, hidden, "两套图标的路径数不同，命令应跟着变");
 }
+
+/// 组的缩略图格（预览永远为空）改画文件夹图标；展开箭头仍在原来的位置。
+#[test]
+fn a_group_shows_the_folder_icon_in_the_thumbnail_cell() {
+    let mut view = EditorView::new(crate::theme::editor_theme(false), AppState::default());
+    view.layout(viewport());
+    view.state.borrow_mut().document.add_layer("组内");
+    view.update();
+    view.layer_action(LayerAction::Group);
+    view.update();
+    view.layout(viewport());
+    assert_eq!(view.layer_row_names()[0], "▾ 组内 组");
+
+    let cell_rect = |view: &EditorView, row: usize, cell: usize| {
+        let node = view.layer_state.rows()[row];
+        let child = view.tree.children(node).expect("行格子")[cell];
+        igui_ui::control(&view.tree, child).expect("格子").rect
+    };
+    let lines_in = |view: &EditorView, rect: igui_core::Rect| {
+        paint_commands(view)
+            .iter()
+            .filter(|command| match command {
+                DrawCommand::Line { from, to, .. } => rect.contains((*from + *to) * 0.5),
+                _ => false,
+            })
+            .count()
+    };
+
+    // 组行：箭头格（2）和缩略图格（3）各有图标线。
+    let group_arrow = cell_rect(&view, 0, 2);
+    let group_preview = cell_rect(&view, 0, 3);
+    assert!(lines_in(&view, group_arrow) > 0, "组行要画展开箭头");
+    assert!(
+        lines_in(&view, group_preview) > 0,
+        "组的缩略图格应画文件夹图标"
+    );
+
+    // 栅格层行：缩略图格是图像（或占位方框），没有图标线；箭头格留空。
+    let raster_preview = cell_rect(&view, 1, 3);
+    let raster_arrow = cell_rect(&view, 1, 2);
+    assert_eq!(lines_in(&view, raster_preview), 0);
+    assert_eq!(lines_in(&view, raster_arrow), 0);
+}
