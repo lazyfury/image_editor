@@ -13,6 +13,7 @@ use crate::canvas::{CanvasCamera, Selection};
 use crate::document::{Color, PixelBuffer, Point};
 use crate::tools::{BrushShape, GradientKind};
 
+use super::mask_view::{paint_mask_overlay, paint_mask_overlay_region};
 use super::*;
 
 impl EditorView {
@@ -47,26 +48,28 @@ impl EditorView {
             return None;
         }
         let state = self.state.borrow();
+        let document = &state.document;
         match (full, region) {
             // 整图：导出 / 尺寸变化 / 图层结构变了。
             (true, _) | (false, None) => {
-                self.renderer
-                    .render(&state.document, &mut self.render_target);
+                self.renderer.render(document, &mut self.render_target);
                 if self.show_checkerboard {
                     paint_backdrop(&mut self.render_target.pixels);
                 }
+                paint_mask_overlay(document, &mut self.render_target.pixels);
             }
             // 局部：画笔一笔只脏一小块，4K 文档不用每帧重算整张。
             (false, Some(region)) => {
-                let region = region.clamped(state.document.width, state.document.height);
+                let region = region.clamped(document.width, document.height);
                 if region.area() == 0 {
                     return None;
                 }
                 self.renderer
-                    .render_region(&state.document, &mut self.render_target, region);
+                    .render_region(document, &mut self.render_target, region);
                 if self.show_checkerboard {
                     paint_backdrop_in(&mut self.render_target.pixels, region);
                 }
+                paint_mask_overlay_region(document, &mut self.render_target.pixels, region);
             }
         }
         Some(self.render_target.pixels.clone())
@@ -261,7 +264,22 @@ impl EditorView {
             .collect()
     }
 
-    /// 第 `index` 个可见图层行的中心点（测试 / 自检模拟点击用）。
+    /// 第 `row` 行第 `cell` 个格子的中心点（测试模拟点击格子用）。
+    ///
+    /// 格子顺序和 `List::on_cell` 一致：leads（缩进 / 三角 / 蒙版）在前，
+    /// 文本列（眼睛 / 名字 / 不透明度）在后。
+    pub fn layer_cell_center(&self, row: usize, cell: usize) -> Option<Vec2> {
+        let range = self.layer_state.visible_range();
+        if !range.contains(&row) {
+            return None;
+        }
+        let node = *self.layer_state.rows().get(row - range.start)?;
+        let child = *self.tree.children(node)?.get(cell)?;
+        igui_ui::control(&self.tree, child).map(|control| control.rect.center())
+    }
+
+    /// 第 `index` 个可见图层行的中心点（测试模拟点击用）。
+    #[allow(dead_code)] // 只有测试点整行（自检点的是格子）。
     pub fn layer_row_center(&self, index: usize) -> Option<Vec2> {
         let range = self.layer_state.visible_range();
         if !range.contains(&index) {

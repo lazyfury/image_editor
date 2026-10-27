@@ -26,12 +26,12 @@ pub(crate) fn check_layer_tree(failures: &mut Vec<String>) {
         ));
     }
 
-    // 双击组行折叠：子节点不再占行。
-    let Some(center) = view.layer_row_center(0) else {
-        failures.push("找不到组行".to_string());
+    // 点三角格子折叠：子节点不再占行。
+    let Some(center) = view.layer_cell_center(0, 1) else {
+        failures.push("找不到三角格子".to_string());
         return;
     };
-    view.event(&InputEvent::DoubleClick { position: center });
+    click_at(&mut view, center);
     view.update();
     view.layout(viewport());
     let collapsed = view.layer_row_names();

@@ -10,8 +10,8 @@ use igui_core::Vec2;
 use igui_theme::Theme;
 
 use crate::document::{
-    AddLayerCommand, Color, Document, GroupCommand, Layer, LayerId, LayerMask, MaskCommand,
-    MoveLayerCommand, MoveTarget, PixelBuffer, RemoveLayerCommand, UngroupCommand,
+    AddLayerCommand, Color, Document, GroupCommand, Layer, LayerId, LayerMask, LayerMetaCommand,
+    MaskCommand, MoveLayerCommand, MoveTarget, PixelBuffer, RemoveLayerCommand, UngroupCommand,
 };
 
 use super::*;
@@ -34,6 +34,10 @@ pub enum LayerAction {
     DeleteMask,
     /// 启用 / 停用蒙版。
     ToggleMask,
+    /// 显示 / 隐藏节点（组会连带子树）。
+    ToggleVisible,
+    /// 展开 / 折叠组。
+    ToggleExpand,
     InvertMask,
     /// 在「编辑图层像素」和「编辑蒙版」之间切换。
     ToggleEditTarget,
@@ -248,6 +252,29 @@ impl EditorView {
                     let active = !state.document.active_mask;
                     state.document.select_layer(target);
                     state.document.set_active_mask(active);
+                    drop(state);
+                    self.refresh_layers();
+                }
+            }
+            LayerAction::ToggleVisible => {
+                let visible = state
+                    .document
+                    .layer(target)
+                    .is_some_and(|layer| layer.visible);
+                let before = LayerMetaCommand::capture(&state.document);
+                state.document.set_layer_visible(target, !visible);
+                let after = LayerMetaCommand::capture(&state.document);
+                state.execute(Box::new(LayerMetaCommand::new(before, after, "显示/隐藏")));
+            }
+            LayerAction::ToggleExpand => {
+                let expanded = state
+                    .document
+                    .layer(target)
+                    .is_some_and(|layer| layer.expanded);
+                let changed = state.document.set_expanded(target, !expanded);
+                drop(state);
+                if changed {
+                    self.refresh_layers();
                 }
             }
             LayerAction::MoveUp | LayerAction::MoveDown => {

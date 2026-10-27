@@ -15,7 +15,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use igui_components::{Button, Column, Component, Divider, Flex, List, ListColumn, Text};
-use igui_core::{Edges, NodeId, Vec2};
+use igui_core::{Edges, NodeId, Rect, Size, Vec2};
+use igui_render::{Paint, PaintContext};
 use igui_scene::SceneTree;
 use igui_theme::{space, TextSize, Theme, Tone};
 use igui_ui::MouseFilter;
@@ -50,17 +51,9 @@ pub fn layer_list(
                 return Vec::new();
             };
             let eye = if row.visible { "◉" } else { "○" };
-            let mut name = String::new();
-            if row.is_group {
-                name.push_str(if row.expanded { "▾ " } else { "▸ " });
-            }
-            if row.has_mask {
-                name.push_str(if row.mask_enabled { "◧ " } else { "◨ " });
-            }
-            name.push_str(&row.name);
             vec![
                 eye.to_string(),
-                name,
+                row.name.clone(),
                 format!("{:.0}%", row.opacity * 100.0),
             ]
         }
@@ -75,6 +68,60 @@ pub fn layer_list(
         }
     };
 
+    // 三角：组才画（展开向下、折叠向右）。
+    let triangle = {
+        let rows = rows.clone();
+        move |ctx: &mut PaintContext, rect: Rect, index: usize| {
+            let rows = rows.borrow();
+            let Some(row) = rows.get(index) else {
+                return;
+            };
+            if !row.is_group {
+                return;
+            }
+            let center = rect.center();
+            let paint = Paint::new(theme.palette().muted);
+            let (a, b, c) = if row.expanded {
+                (
+                    center + Vec2::new(-4.0, -2.0),
+                    center + Vec2::new(0.0, 2.0),
+                    center + Vec2::new(4.0, -2.0),
+                )
+            } else {
+                (
+                    center + Vec2::new(-2.0, -4.0),
+                    center + Vec2::new(2.0, 0.0),
+                    center + Vec2::new(-2.0, 4.0),
+                )
+            };
+            ctx.draw_line(a, b, 1.0, paint);
+            ctx.draw_line(b, c, 1.0, paint);
+        }
+    };
+
+    // 蒙版缩略图：小方块，启用时左半填色（黑/白覆盖率的样子）。
+    let mask_icon = {
+        let rows = rows.clone();
+        move |ctx: &mut PaintContext, rect: Rect, index: usize| {
+            let rows = rows.borrow();
+            let Some(row) = rows.get(index) else {
+                return;
+            };
+            if !row.has_mask {
+                return;
+            }
+            let square = Rect::from_center_size(rect.center(), Size::splat(10.0));
+            let paint = Paint::new(theme.palette().muted);
+            ctx.stroke_rect(square, 1.0, paint);
+            if row.mask_enabled {
+                ctx.fill_rect(
+                    Rect::from_min_max(square.min(), Vec2::new(square.center().x, square.max().y)),
+                    paint,
+                );
+            }
+        }
+    };
+
     let activate = {
         let state = state.clone();
         let rows = rows.clone();
@@ -83,6 +130,37 @@ pub fn layer_list(
                 return;
             };
             state.borrow_mut().document.select_layer(id);
+        }
+    };
+
+    let cell = {
+        let rows = rows.clone();
+        let state = state.clone();
+        let selected = selected.clone();
+        let intents = intents.clone();
+        move |index: usize, cell: usize| {
+            let Some(row) = rows.borrow().get(index).cloned() else {
+                return;
+            };
+            match cell {
+                // 1 = 三角（组），2 = 蒙版，3 = 眼睛；其余列 / 空白都当选中。
+                1 if row.is_group => intents.push(Intent::LayerAction {
+                    target: row.id,
+                    action: LayerAction::ToggleExpand,
+                }),
+                2 if row.has_mask => intents.push(Intent::LayerAction {
+                    target: row.id,
+                    action: LayerAction::ToggleEditTarget,
+                }),
+                3 => intents.push(Intent::LayerAction {
+                    target: row.id,
+                    action: LayerAction::ToggleVisible,
+                }),
+                _ => {
+                    state.borrow_mut().document.select_layer(row.id);
+                    selected.set(Some(index));
+                }
+            }
         }
     };
 
@@ -100,6 +178,8 @@ pub fn layer_list(
 
     List::new(theme, LAYER_ROW_HEIGHT, source)
         .spacer(indent)
+        .icon(14.0, triangle)
+        .icon(16.0, mask_icon)
         .columns(vec![
             ListColumn::fixed(22.0),
             ListColumn::flexible(),
@@ -109,6 +189,7 @@ pub fn layer_list(
         .selected(selected)
         .on_activate(activate)
         .on_context(context)
+        .on_cell(cell)
         .grow(1.0)
 }
 

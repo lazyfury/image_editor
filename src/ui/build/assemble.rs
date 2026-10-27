@@ -211,6 +211,7 @@ pub(super) fn finish(
         layer_selected,
         layer_rows,
         layer_drag: None,
+        last_active_mask: false,
         layer_state,
         history_count,
         history_state,

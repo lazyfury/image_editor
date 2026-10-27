@@ -50,10 +50,13 @@ src/ui/         views + project-local components: home (recent gallery with
                 rect-fill/gradient/eyedropper, select = rect/lasso/wand/free-fill
                 + selection commands, pen = pen pointer + keys, adjust = options
                 bar `−`/`+` requests -> tool parameters.
-                `ui/layer_panel.rs` is the tree list (indent/collapse/mask glyph,
-                `List::on_context`), `ui/layer_drag.rs` the drag reorder/reparent
-                (app-level, using `ListState::rows()`), `ui/layer_actions.rs` the
-                shared layer actions + context menu (group/mask/order/duplicate).
+                `ui/layer_panel.rs` is the tree list (indent / triangle / mask
+                icon leads, `List::on_cell` + `on_context`), `ui/layer_drag.rs`
+                the drag reorder/reparent (app-level, using
+                `ListState::rows()`), `ui/layer_actions.rs` the shared layer
+                actions + context menu (group/mask/order/duplicate), and
+                `ui/mask_view.rs` the red "hidden by mask" tint that only exists
+                in the displayed texture.
                 `ui/layout.rs` also owns `Layout`: the draggable panel widths /
                 heights, the nodes they resize, and the sidebar tab state (an
                 `EditorView.layout` field instead of 14 loose fields).

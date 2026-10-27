@@ -33,6 +33,7 @@ mod layer_actions;
 mod layer_drag;
 mod layer_panel;
 mod layout;
+mod mask_view;
 pub mod menu;
 mod menus;
 mod new_document;
@@ -317,6 +318,8 @@ pub struct EditorView {
     layer_rows: Rc<RefCell<Vec<crate::document::LayerRow>>>,
     /// 正在进行的图层拖拽（排序 / 换父）。
     layer_drag: Option<layer_drag::LayerDrag>,
+    /// 上一次的「编辑蒙版」状态：变了要重合成（画布上要加 / 去掉红色叠加）。
+    last_active_mask: bool,
     layer_state: ListState,
     /// 历史列表的共享行数 / 状态；历史长度变了就刷新。
     history_count: Rc<Cell<usize>>,
@@ -488,10 +491,18 @@ impl EditorView {
         self.gradient.tool.reverse = self.gradient.reverse.get();
         self.sync_options();
 
-        let (revision, active) = {
+        let (revision, active, active_mask) = {
             let state = self.state.borrow();
-            (state.document.revision(), state.document.active_layer)
+            (
+                state.document.revision(),
+                state.document.active_layer,
+                state.document.active_mask,
+            )
         };
+        if active_mask != self.last_active_mask {
+            self.last_active_mask = active_mask;
+            self.mark_texture_dirty();
+        }
         if revision != self.last_revision {
             self.last_revision = revision;
             self.texture_dirty = true;
